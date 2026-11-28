@@ -39,16 +39,33 @@ made with a token carries a :class:`TokenLimits`: each action needs the
 token's scope for it, and a token limited to some projects can't touch the
 others. A token the person gave only some projects takes no action beyond
 them: none on the organization, its teams or its registries (ADR 0152).
+
+**A delegated token does only what both may** (ADR 0073): a token an agent got by
+acting for its person carries the agent's service account too. Each grant is looked up
+for one user at a time, and every public predicate combines the two with :func:`all_of`,
+so a grant only one of them holds gives the request nothing.
 """
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, overload
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
-from django.db.models import Exists, Max, OuterRef, Q, QuerySet, Subquery
+from django.db.models import (
+    Case,
+    Exists,
+    Max,
+    Model,
+    OuterRef,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Least
 
 from iki_server.org.models import (
     LabRoleGrant,
@@ -221,6 +238,34 @@ class TokenLimits:
         # new ones, nor curate a registry, whose entries are every project's.
         return action is not Action.PROJECT_CREATE and action not in REGISTRY_ACTIONS
 
+    def stored(self) -> dict[str, Any]:
+        """As JSON, for work a task does later for the request (ADR 0152)."""
+        return {
+            "scopes": sorted(self.scopes),
+            "projects": None if self.projects is None else sorted(map(str, self.projects)),
+            "alongside": None if self.alongside is None else str(self.alongside.pk),
+            "only_projects": self.only_projects,
+        }
+
+    @classmethod
+    def restored(cls, data: dict[str, Any]) -> "TokenLimits | None":
+        """The limits :meth:`stored` kept; None when the agent's service account they held
+        to is gone or deactivated, so nothing may be done under them."""
+        from iki_server.accounts.models import User
+
+        alongside = None
+        if data["alongside"] is not None:
+            alongside = User.objects.filter(pk=data["alongside"], is_active=True).first()
+            if alongside is None:
+                return None
+        projects = data["projects"]
+        return cls(
+            scopes=frozenset(data["scopes"]),
+            projects=None if projects is None else frozenset(UUID(p) for p in projects),
+            alongside=alongside,
+            only_projects=data["only_projects"],
+        )
+
     def beyond_projects(self, action: Action) -> bool:
         """Whether it's refused `action` for acting beyond the projects it was given,
         rather than for its scopes."""
@@ -298,8 +343,68 @@ def _active(user: Any) -> bool:  # noqa: ANN401 - User or AnonymousUser
     return bool(getattr(user, "is_authenticated", False) and getattr(user, "is_active", False))
 
 
-def org_roles(user: Any) -> frozenset[OrgRole]:  # noqa: ANN401
-    """The org roles an active user holds."""
+# --- Whose grants a request acts with (ADR 0073) ----------------------------------
+
+
+@dataclass(frozen=True)
+class Principals:
+    """Whose grants a request acts with: its person, and, for a token an agent got by acting
+    for them (ADR 0073), the agent's own service account. The request may do only what each
+    of them may, so every public predicate here asks each one with :func:`all_of`."""
+
+    person: Any
+    agent: Any = None
+
+    def __iter__(self) -> Iterator[Any]:
+        yield self.person
+        if self.agent is not None:
+            yield self.agent
+
+
+def principals(user: Any) -> Principals:  # noqa: ANN401
+    """Whose grants a request made as `user` acts with."""
+    limits = token_limits(user)
+    return Principals(user, limits.alongside if limits is not None else None)
+
+
+@overload
+def all_of(who: Principals, held: Callable[[Any], bool]) -> bool: ...
+@overload
+def all_of[T](who: Principals, held: Callable[[Any], frozenset[T]]) -> frozenset[T]: ...
+@overload
+def all_of[M: Model](who: Principals, held: Callable[[Any], QuerySet[M]]) -> QuerySet[M]: ...
+@overload
+def all_of(who: Principals, held: Callable[[Any], ProjectRole | None]) -> ProjectRole | None: ...
+def all_of(who: Principals, held: Callable[[Any], Any]) -> Any:
+    """What each of the principals holds, asked of each with `held`, a lookup for one user:
+    both must be true, the names both hold, the rows both may reach, the lower of two
+    project roles (none if either has none). The agent isn't asked when the person's answer
+    already refuses."""
+    mine = held(who.person)
+    if who.agent is None:
+        return mine
+    if isinstance(mine, bool):
+        return mine and bool(held(who.agent))
+    if isinstance(mine, frozenset):
+        return mine & held(who.agent) if mine else mine
+    if isinstance(mine, QuerySet):
+        return mine.filter(pk__in=held(who.agent).values("pk"))
+    if mine is None:
+        return None
+    if isinstance(mine, ProjectRole):
+        theirs = held(who.agent)
+        return None if theirs is None else min(mine, theirs)
+    raise TypeError(f"all_of can't combine {type(mine).__name__}")
+
+
+# --- What one user holds ------------------------------------------------------------
+#
+# Each lookup is written once, for one user, and cached on that user's object for the
+# request. Nothing outside this section asks them directly: the public predicates below
+# combine them over the request's principals.
+
+
+def _held_org_roles(user: Any) -> frozenset[OrgRole]:  # noqa: ANN401
     if not _active(user):
         return frozenset()
     cached: frozenset[OrgRole] | None = getattr(user, "_iki_org_roles", None)
@@ -314,8 +419,8 @@ def _grants_for(user: Any) -> Q:  # noqa: ANN401
     return Q(user=user) | Q(team__memberships__user=user)
 
 
-def project_role(user: Any, project: Project) -> ProjectRole | None:  # noqa: ANN401
-    """The user's role in the project: the highest of their own and their teams' grants."""
+def _held_project_role(user: Any, project: Project) -> ProjectRole | None:  # noqa: ANN401
+    """The highest of the user's own and their teams' grants in the project."""
     if not _active(user):
         return None
     cache: dict[Any, ProjectRole | None] = user.__dict__.setdefault("_iki_project_roles", {})
@@ -327,6 +432,154 @@ def project_role(user: Any, project: Project) -> ProjectRole | None:  # noqa: AN
         )
         cache[project.pk] = ProjectRole(best) if best is not None else None
     return cache[project.pk]
+
+
+def _held_team_membership(user: Any, team: Team) -> bool:  # noqa: ANN401
+    if not _active(user):
+        return False
+    cache: dict[Any, bool] = user.__dict__.setdefault("_iki_team_memberships", {})
+    if team.pk not in cache:
+        cache[team.pk] = team.memberships.filter(user=user).exists()
+    return cache[team.pk]
+
+
+def _held_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
+    """One of the registry's registrars (ADR 0115)."""
+    if not _active(user):
+        return False
+    cache: dict[Any, bool] = user.__dict__.setdefault("_iki_registrars", {})
+    if registry.pk not in cache:
+        cache[registry.pk] = Registrar.objects.filter(registry=registry, user=user).exists()
+    return cache[registry.pk]
+
+
+def _held_list_curations(user: Any, registry: Registry) -> frozenset[str]:  # noqa: ANN401
+    """The registry's lab lists the user was appointed to curate (ADR 0270), by type."""
+    if not _active(user):
+        return frozenset()
+    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_list_curators", {})
+    if registry.pk not in cache:
+        cache[registry.pk] = frozenset(
+            ListCurator.objects.filter(registry=registry, user=user).values_list(
+                "list_type", flat=True
+            )
+        )
+    return cache[registry.pk]
+
+
+def _curates(user: Any, registry: Registry, list_type: str | None) -> bool:  # noqa: ANN401
+    """Whether the user curates this lab list of the registry, or with None, any of its
+    lists: as one of its registrars, who curate them all, or as the list's curator."""
+    if _held_registrar(user, registry):
+        return True
+    lists = _held_list_curations(user, registry)
+    return bool(lists) if list_type is None else list_type in lists
+
+
+def _held_lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
+    """The lab roles an active user holds in the project (ADR 0116), by qualified name: their
+    own membership's and their teams', while they have a role there to read it with. Only
+    roles an installed plugin declares count."""
+    if not _active(user) or _held_project_role(user, project) is None:
+        return frozenset()
+    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_lab_roles", {})
+    if project.pk not in cache:
+        from iki_server.org import lab_roles as catalog
+
+        held = (
+            LabRoleGrant.objects.filter(membership__project=project)
+            .filter(Q(membership__user=user) | Q(membership__team__memberships__user=user))
+            .values_list("role", flat=True)
+        )
+        cache[project.pk] = frozenset(held).intersection(catalog.declared())
+    return cache[project.pk]
+
+
+def _held_role_allows(user: Any, action: Action, target: Team | Project | Registry | None) -> bool:  # noqa: ANN401
+    if action in ORG_ACTIONS:
+        if target is not None:
+            raise TypeError(f"{action} takes no target")
+        return bool(_ORG_ACTION_ROLES[action] & _held_org_roles(user))
+
+    if action in REGISTRY_ACTIONS:
+        if not isinstance(target, Registry):
+            raise TypeError(f"{action} needs a Registry")
+        if action is Action.LISTS_CURATE:
+            return _curates(user, target, None)
+        return _held_registrar(user, target)
+
+    if action in TEAM_ACTIONS:
+        if not isinstance(target, Team):
+            raise TypeError(f"{action} needs a Team")
+        org_admin = OrgRole.ORG_ADMIN in _held_org_roles(user)
+        if action is Action.TEAM_MANAGE:
+            return org_admin
+        if action is Action.TEAM_VIEW:
+            return org_admin or _held_team_membership(user, target)
+        # PROJECT_CREATE
+        return not target.is_archived and _held_team_membership(user, target)
+
+    if not isinstance(target, Project):
+        raise TypeError(f"{action} needs a Project")
+    if target.is_archived and action not in _ARCHIVED_PROJECT_ACTIONS:
+        return False
+    role = _held_project_role(user, target)
+    if action in _ALSO_ORG_ADMIN and OrgRole.ORG_ADMIN not in _held_org_roles(user):
+        return False
+    if role is not None and role >= _PROJECT_ACTION_ROLE[action]:
+        return True
+    return action in _ORG_ADMIN_PROJECT_ACTIONS and OrgRole.ORG_ADMIN in _held_org_roles(user)
+
+
+def _role_in_each_project(user: Any) -> Subquery:  # noqa: ANN401
+    """The user's role in the outer query's project, or NULL."""
+    return Subquery(
+        ProjectMembership.objects.filter(project=OuterRef("pk"))
+        .filter(_grants_for(user))
+        .order_by("-role")
+        .values("role")[:1]
+    )
+
+
+def _held_visible_projects(user: Any) -> QuerySet[Project]:  # noqa: ANN401
+    if not _active(user):
+        return Project.objects.none()
+    if OrgRole.ORG_ADMIN in _held_org_roles(user):
+        return Project.objects.all()
+    member = ProjectMembership.objects.filter(project=OuterRef("pk")).filter(_grants_for(user))
+    return Project.objects.filter(Exists(member))
+
+
+def _held_visible_teams(user: Any) -> QuerySet[Team]:  # noqa: ANN401
+    if not _active(user):
+        return Team.objects.none()
+    if OrgRole.ORG_ADMIN in _held_org_roles(user):
+        return Team.objects.all()
+    return Team.objects.filter(memberships__user=user)
+
+
+def _held_teams_for_new_project(user: Any) -> QuerySet[Team]:  # noqa: ANN401
+    if not _active(user):
+        return Team.objects.none()
+    return Team.objects.filter(memberships__user=user, archived_at__isnull=True)
+
+
+# --- What a request may do ----------------------------------------------------------
+#
+# Each public predicate takes the request's user, and answers for its principals, combined
+# with :func:`all_of` (ADR 0073): a grant only one of them holds counts for nothing.
+# ``test_principals`` checks every one of them.
+
+
+def org_roles(user: Any) -> frozenset[OrgRole]:  # noqa: ANN401
+    """The org roles the request holds: an active user's, and its agent's too."""
+    return all_of(principals(user), _held_org_roles)
+
+
+def project_role(user: Any, project: Project) -> ProjectRole | None:  # noqa: ANN401
+    """The request's role in the project: the highest of the user's own and their teams'
+    grants, and no higher than its agent's."""
+    return all_of(principals(user), lambda u: _held_project_role(u, project))
 
 
 def least_role(action: Action) -> ProjectRole:
@@ -347,49 +600,14 @@ def members_with(project: Project, at_least: ProjectRole) -> QuerySet[Any]:
     ).distinct()
 
 
-def is_team_member(user: Any, team: Team) -> bool:  # noqa: ANN401
-    if not _active(user):
-        return False
-    cache: dict[Any, bool] = user.__dict__.setdefault("_iki_team_memberships", {})
-    if team.pk not in cache:
-        cache[team.pk] = team.memberships.filter(user=user).exists()
-    return cache[team.pk]
-
-
-def is_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
-    """Whether an active user is one of the registry's registrars (ADR 0115)."""
-    if not _active(user):
-        return False
-    cache: dict[Any, bool] = user.__dict__.setdefault("_iki_registrars", {})
-    if registry.pk not in cache:
-        cache[registry.pk] = Registrar.objects.filter(registry=registry, user=user).exists()
-    return cache[registry.pk]
-
-
-def curated_lists(user: Any, registry: Registry) -> frozenset[str] | None:  # noqa: ANN401
-    """The lab lists of the registry an active user curates (ADR 0270), by type, or None
-    for all of them: a registrar's."""
-    if not _active(user):
-        return frozenset()
-    if is_registrar(user, registry):
-        return None
-    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_list_curators", {})
-    if registry.pk not in cache:
-        cache[registry.pk] = frozenset(
-            ListCurator.objects.filter(registry=registry, user=user).values_list(
-                "list_type", flat=True
-            )
-        )
-    return cache[registry.pk]
-
-
 def can_curate_list(user: Any, registry: Registry, list_type: str) -> bool:  # noqa: ANN401
     """Whether the user may curate this lab list of the registry (ADR 0270): add, relabel,
-    reorder, archive and supersede its options."""
-    if not can(user, Action.LISTS_CURATE, registry):
+    reorder, archive and supersede its options. Under a delegated token, the person and the
+    agent must each curate this list, as a registrar or as its curator."""
+    limits = token_limits(user)
+    if limits is not None and not limits.allows(Action.LISTS_CURATE, registry):
         return False
-    curated = curated_lists(user, registry)
-    return curated is None or list_type in curated
+    return all_of(principals(user), lambda u: _curates(u, registry, list_type))
 
 
 def lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
@@ -397,40 +615,15 @@ def lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
     limits = token_limits(user)
     if limits is not None and limits.projects is not None and project.pk not in limits.projects:
         return frozenset()
-    roles = _held_lab_roles(user, project)
-    if roles and limits is not None and limits.alongside is not None:
-        return roles & _held_lab_roles(limits.alongside, project)
-    return roles
-
-
-def _held_lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
-    """The lab roles an active user holds in the project (ADR 0116), by qualified name: their
-    own membership's and their teams', while they have a role there to read it with. Only
-    roles an installed plugin declares count."""
-    if not _active(user) or project_role(user, project) is None:
-        return frozenset()
-    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_lab_roles", {})
-    if project.pk not in cache:
-        from iki_server.org import lab_roles as catalog
-
-        held = (
-            LabRoleGrant.objects.filter(membership__project=project)
-            .filter(Q(membership__user=user) | Q(membership__team__memberships__user=user))
-            .values_list("role", flat=True)
-        )
-        cache[project.pk] = frozenset(held) & catalog.declared().keys()
-    return cache[project.pk]
+    return all_of(principals(user), lambda u: _held_lab_roles(u, project))
 
 
 def remember_roles(user: Any, projects: Iterable[Project]) -> None:  # noqa: ANN401
-    """Looks up the user's project roles and lab roles in all these projects at once, so
-    deciding what they may do in each makes no more queries: two queries however many
-    projects there are, where asking project by project makes two for each. A token's agent
-    (ADR 0073), whose roles every decision also asks, is looked up the same way."""
+    """Looks up the request's project roles and lab roles in all these projects at once, so
+    deciding what it may do in each makes no more queries: two queries for each principal
+    however many projects there are, where asking project by project makes two for each."""
     ids = {p.pk for p in projects}
-    limits = token_limits(user)
-    people = [user] if limits is None or limits.alongside is None else [user, limits.alongside]
-    for person in people:
+    for person in principals(user):
         if not _active(person) or not ids:
             continue
         roles = person.__dict__.setdefault("_iki_project_roles", {})
@@ -460,7 +653,7 @@ def remember_roles(user: Any, projects: Iterable[Project]) -> None:  # noqa: ANN
                 found[pk].add(role)
             declared = catalog.declared().keys()
             for pk, names in found.items():
-                held[pk] = frozenset(names) & declared
+                held[pk] = frozenset(names).intersection(declared)
 
 
 def holders_of(project: Project, role: str) -> QuerySet[Any]:
@@ -481,16 +674,18 @@ def holders_of(project: Project, role: str) -> QuerySet[Any]:
 
 
 def forget(user: Any) -> None:  # noqa: ANN401
-    """Drops cached decisions after the user's roles changed in this request."""
-    for attr in (
-        "_iki_org_roles",
-        "_iki_project_roles",
-        "_iki_team_memberships",
-        "_iki_registrars",
-        "_iki_list_curators",
-        "_iki_lab_roles",
-    ):
-        user.__dict__.pop(attr, None)
+    """Drops cached decisions after the request's roles changed: its user's, and its
+    agent's."""
+    for each in principals(user):
+        for attr in (
+            "_iki_org_roles",
+            "_iki_project_roles",
+            "_iki_team_memberships",
+            "_iki_registrars",
+            "_iki_list_curators",
+            "_iki_lab_roles",
+        ):
+            each.__dict__.pop(attr, None)
 
 
 def can(user: Any, action: Action, target: Team | Project | Registry | None = None) -> bool:  # noqa: ANN401
@@ -498,54 +693,13 @@ def can(user: Any, action: Action, target: Team | Project | Registry | None = No
     limits = token_limits(user)
     if limits is not None and not limits.allows(action, target):
         return False
-    if (
-        limits is not None
-        and limits.alongside is not None
-        and not _roles_allow(limits.alongside, action, target)
-    ):
-        return False
-    return _roles_allow(user, action, target)
+    return roles_allow(user, action, target)
 
 
 def roles_allow(user: Any, action: Action, target: Team | Project | Registry | None = None) -> bool:  # noqa: ANN401
-    """Whether the user's roles allow the action, whatever their token's limits."""
-    return _roles_allow(user, action, target)
-
-
-def _roles_allow(user: Any, action: Action, target: Team | Project | Registry | None) -> bool:  # noqa: ANN401
-    if action in ORG_ACTIONS:
-        if target is not None:
-            raise TypeError(f"{action} takes no target")
-        return bool(_ORG_ACTION_ROLES[action] & org_roles(user))
-
-    if action in REGISTRY_ACTIONS:
-        if not isinstance(target, Registry):
-            raise TypeError(f"{action} needs a Registry")
-        if action is Action.LISTS_CURATE:
-            return curated_lists(user, target) != frozenset()
-        return is_registrar(user, target)
-
-    if action in TEAM_ACTIONS:
-        if not isinstance(target, Team):
-            raise TypeError(f"{action} needs a Team")
-        org_admin = OrgRole.ORG_ADMIN in org_roles(user)
-        if action is Action.TEAM_MANAGE:
-            return org_admin
-        if action is Action.TEAM_VIEW:
-            return org_admin or is_team_member(user, target)
-        # PROJECT_CREATE
-        return not target.is_archived and is_team_member(user, target)
-
-    if not isinstance(target, Project):
-        raise TypeError(f"{action} needs a Project")
-    if target.is_archived and action not in _ARCHIVED_PROJECT_ACTIONS:
-        return False
-    role = project_role(user, target)
-    if action in _ALSO_ORG_ADMIN and OrgRole.ORG_ADMIN not in org_roles(user):
-        return False
-    if role is not None and role >= _PROJECT_ACTION_ROLE[action]:
-        return True
-    return action in _ORG_ADMIN_PROJECT_ACTIONS and OrgRole.ORG_ADMIN in org_roles(user)
+    """Whether the request's roles allow the action, whatever its token's scopes and
+    projects: for saying why a token was refused."""
+    return all_of(principals(user), lambda u: _held_role_allows(u, action, target))
 
 
 def require(user: Any, action: Action, target: Team | Project | Registry | None = None) -> None:  # noqa: ANN401
@@ -555,60 +709,48 @@ def require(user: Any, action: Action, target: Team | Project | Registry | None 
 
 
 def with_project_roles(user: Any, projects: QuerySet[Project]) -> QuerySet[Project]:  # noqa: ANN401
-    """Annotates each project with ``my_role``: the user's role, or None."""
-    best = (
-        ProjectMembership.objects.filter(project=OuterRef("pk"))
-        .filter(_grants_for(user))
-        .order_by("-role")
-        .values("role")[:1]
+    """Annotates each project with ``my_role``: the request's role there, as
+    :func:`project_role` gives it, or None."""
+    who = principals(user)
+    if who.agent is None:
+        return projects.annotate(my_role=_role_in_each_project(who.person))
+    # all_of's rule for two roles, in SQL: the lower, and none if either has none.
+    return projects.alias(
+        _person_role=_role_in_each_project(who.person),
+        _agent_role=_role_in_each_project(who.agent),
+    ).annotate(
+        my_role=Case(
+            When(Q(_person_role__isnull=True) | Q(_agent_role__isnull=True), then=Value(None)),
+            default=Least("_person_role", "_agent_role"),
+        )
     )
-    return projects.annotate(my_role=Subquery(best))
 
 
 def visible_projects(user: Any) -> QuerySet[Project]:  # noqa: ANN401
     """Projects the user can see (:attr:`Action.PROJECT_SEE`), each with ``my_role``."""
-    if not _active(user):
-        return Project.objects.none()
-    projects = with_project_roles(user, Project.objects.select_related("team", "registry"))
     limits = token_limits(user)
-    if limits is not None:
-        if "read" not in limits.scopes:
-            return Project.objects.none()
-        if limits.projects is not None:
-            projects = projects.filter(pk__in=limits.projects)
-    if OrgRole.ORG_ADMIN in org_roles(user):
-        return projects
-    member = ProjectMembership.objects.filter(project=OuterRef("pk")).filter(_grants_for(user))
-    return projects.filter(Exists(member))
+    if not _active(user) or (limits is not None and "read" not in limits.scopes):
+        return Project.objects.none()
+    projects = all_of(principals(user), _held_visible_projects)
+    if limits is not None and limits.projects is not None:
+        projects = projects.filter(pk__in=limits.projects)
+    return with_project_roles(user, projects.select_related("team", "registry"))
 
 
 def visible_teams(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     """Teams the user can see (:attr:`Action.TEAM_VIEW`)."""
-    if not _active(user):
-        return Team.objects.none()
     limits = token_limits(user)
     if limits is not None and ("read" not in limits.scopes or limits.only_projects):
         return Team.objects.none()
-    teams = Team.objects.all()
-    if OrgRole.ORG_ADMIN not in org_roles(user):
-        teams = teams.filter(memberships__user=user)
-    if limits is not None and limits.alongside is not None:
-        # Only teams the agent's own service account can see too (ADR 0073).
-        teams = teams.filter(pk__in=visible_teams(limits.alongside).values("pk"))
-    return teams
+    return all_of(principals(user), _held_visible_teams)
 
 
 def teams_for_new_project(user: Any) -> QuerySet[Team]:  # noqa: ANN401
     """Teams the user may create a project in (:attr:`Action.PROJECT_CREATE`)."""
-    if not _active(user):
-        return Team.objects.none()
     limits = token_limits(user)
     if limits is not None and not limits.allows(Action.PROJECT_CREATE, None):
         return Team.objects.none()
-    teams = Team.objects.filter(memberships__user=user, archived_at__isnull=True)
-    if limits is not None and limits.alongside is not None:
-        teams = teams.filter(memberships__user=limits.alongside)
-    return teams
+    return all_of(principals(user), _held_teams_for_new_project)
 
 
 #: ``/me``'s ``can`` that are an organization-wide action, which org roles grant.

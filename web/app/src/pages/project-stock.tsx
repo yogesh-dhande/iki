@@ -16,7 +16,7 @@ import { ENTITIES } from "../entities";
 import { usePageTitle } from "../layout";
 import { actionsQuery } from "../runs";
 import { Badge, Button, CheckboxField, Loading, ProblemAlert, buttonClass } from "../ui";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 const ORDER = "iki/reagents.place_order";
 const RECEIVE = "iki/reagents.receive_delivery";

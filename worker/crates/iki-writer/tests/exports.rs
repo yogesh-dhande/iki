@@ -79,7 +79,7 @@ fn the_exports_speak_abi_1() {
     assert_eq!(read(), (String::new(), "[]".to_owned()));
 
     write(
-        r#"{"hrid":"TRF-000001","id":"6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41","latest":true,"name":"Top-up","revised_at":"2026-11-20T09:14:03Z","revision":1,"roles":{"volume":{"unit":"uL","value":12.5}},"type":"acme/lab.Transfer","withheld":[]}"#,
+        r#"{"hrid":"TRF-000001","id":"6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41","name":"Top-up","revised_at":"2026-11-20T09:14:03Z","revision":1,"roles":{"volume":{"unit":"uL","value":12.5}},"type":"acme/lab.Transfer","withheld":[]}"#,
     );
     assert_eq!(iki_record(), 0);
     assert_eq!(
@@ -91,7 +91,7 @@ fn the_exports_speak_abi_1() {
     );
 
     write(
-        r#"{"hrid":"TRF-000002","id":"9a0d2c55-0f5e-4f7b-a7a4-6b3f1d9c2e88","latest":true,"name":"Empty","revised_at":"2026-11-20T09:15:00Z","revision":1,"roles":{},"type":"acme/lab.Transfer","withheld":[]}"#,
+        r#"{"hrid":"TRF-000002","id":"9a0d2c55-0f5e-4f7b-a7a4-6b3f1d9c2e88","name":"Empty","revised_at":"2026-11-20T09:15:00Z","revision":1,"roles":{},"type":"acme/lab.Transfer","withheld":[]}"#,
     );
     assert_eq!(iki_record(), 1);
     assert_eq!(

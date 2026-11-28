@@ -13,12 +13,13 @@ import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 import requests
-from api_client import Api
+from api_client import Api, problem
 from Bio import SeqIO
 from django.core.management import call_command
 from django.utils import timezone
@@ -28,12 +29,13 @@ from rdkit.Chem import rdDepictor
 from test_oauth import bearer, signed_in_token
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import access, plugin_writers, record_exports, services
+from iki_server.entities import access, exports, plugin_writers, record_exports, services
 from iki_server.entities.models import ProjectLink, RecordExport
 from iki_server.org import holds
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.tasks.runner import Runner
+from iki_spec.model import PluginExport
 
 pytestmark = pytest.mark.django_db
 
@@ -372,6 +374,66 @@ def test_a_large_export_is_written_in_the_background_from_the_revisions_asked_fo
     assert [e["id"] for e in api.get("/entity-exports").json()["items"]] == [made["id"]]
 
 
+def test_the_same_revisions_are_the_same_genbank_file_after_an_edit(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same records, same revisions, same file (ADR 0229): a GenBank file written in the
+    background after one of its records was edited is the one written at once. Its COMMENT
+    says which record and revision each is, not whether it's still the latest."""
+    picked = [plasmid(world, name="pBefore"), plasmid(world, BASES + "GGATCC", name="pSecond")]
+    api = api_as(world)
+    body = {"format": "genbank", "entities": [p.hrid for p in picked]}
+    at_once = ask(api, body).json()
+    assert at_once["state"] == "ready", at_once
+    monkeypatch.setattr(record_exports, "INLINE", 1)
+    later = ask(api, body).json()
+    assert later["state"] == "queued", later
+    services.update(world.users["editor"], picked[0], {"name": "pAfter"}, expected_revision=1)
+    assert run_tasks() == 1
+    written = api.get(f"/entity-exports/{later['id']}").json()
+    assert written["state"] == "ready", written
+    assert written["sha256"] == at_once["sha256"]
+    text = downloaded(api, written).decode()
+    assert text == downloaded(api, at_once).decode()
+    assert f"Exported from Iki: {picked[0].hrid} (revision 1)." in " ".join(text.split())
+
+
+def test_a_person_and_a_project_have_a_few_exports_waiting_at_once(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each waiting export spools a file and holds a writer: a person has at most three in
+    the background, a project's records at most ten, and asks again once one's written."""
+    monkeypatch.setattr(record_exports, "INLINE", 0)
+    monkeypatch.setattr(record_exports, "MOST_WAITING_IN_A_PROJECT", 4)
+    first = plasmid(world, name="pWaiting")
+    body = {"format": "fasta", "entities": [first.hrid]}
+    viewer = api_as(world, "viewer")
+    for _ in range(3):
+        assert ask(viewer, body).status_code == 202
+    refused = ask(viewer, body)
+    said = problem(refused, 429, "too_many_exports")
+    assert said["detail"].startswith("You have 3 exports waiting to be written.")
+    assert refused["Retry-After"] == "60"
+    assert RecordExport.objects.filter(requested_by=world.users["viewer"]).count() == 3
+    # Someone else's are their own; but the project's records are in four at most.
+    editor = api_as(world, "editor")
+    assert ask(editor, body).status_code == 202
+    said = problem(ask(editor, body), 429, "too_many_exports")
+    assert said["detail"].startswith(f"{world.project.name} has 4 exports waiting")
+    # Once one is written, there's room again.
+    assert run_tasks() == 4
+    assert ask(viewer, body).status_code == 202
+    # One its task gave up on long ago doesn't count.
+    RecordExport.objects.filter(state="queued").update(
+        created_at=timezone.now() - timedelta(days=2)
+    )
+    for _ in range(3):
+        assert ask(viewer, body).status_code == 202
+    # A few records, written while the request waits, are never refused for it.
+    monkeypatch.setattr(record_exports, "INLINE", 100)
+    assert ask(viewer, body).status_code == 201
+
+
 def test_a_record_its_writer_refuses_fails_the_export_naming_it(world: World) -> None:
     written = compound(world, *COMPOUNDS[0])
     unwritten: Any = services.create(
@@ -587,6 +649,101 @@ def test_a_read_only_token_exports(world: World) -> None:
     assert response.status_code == 201, response.content
     made = response.json()
     assert bearer(tokens["access_token"], "GET", f"/entity-exports/{made['id']}").status_code == 200
+
+
+@pytest.mark.parametrize("background", [False, True], ids=["inline", "background"])
+def test_a_token_given_some_projects_exports_only_what_they_hold(
+    world: World, monkeypatch: pytest.MonkeyPatch, *, background: bool
+) -> None:
+    """ADR 0152: a token given some projects reads only what they hold, whether its export
+    is written while the request waits or by a task afterwards. A record its records refer
+    to in another project its person reads isn't read for it."""
+    elsewhere = Project.objects.create(team=world.team, name="Supplier records")
+    for principal in ("editor", "viewer"):
+        ProjectMembership.objects.create(
+            project=elsewhere, user=world.users[principal], role=ProjectRole.EDITOR
+        )
+    supplier: Any = services.create(
+        world.users["editor"],
+        "acme/protein.Protein",
+        elsewhere,
+        {"sequence": HBB, "name": "Haemoglobin beta, the supplier's"},
+    ).entity
+    # Referred to from Kinase Atlas while it was linked there, then unlinked.
+    ProjectLink.objects.create(entity_id=supplier.pk, project=world.project)
+    aspirin = compound(world, *COMPOUNDS[0], supplier=str(supplier.pk))
+    ProjectLink.objects.filter(entity_id=supplier.pk, project=world.project).delete()
+    if background:
+        monkeypatch.setattr(record_exports, "INLINE", 0)
+    _, tokens = signed_in_token(world, "viewer", scope="read", projects=[world.project])
+    token = tokens["access_token"]
+    response = bearer(
+        token,
+        "POST",
+        "/entity-exports",
+        {"format": "sdf", "entities": [aspirin.hrid], "fields": ["supplier"]},
+    )
+    assert response.status_code == (202 if background else 201), response.content
+    if background:
+        assert run_tasks() == 1
+    made = RecordExport.objects.get(pk=response.json()["id"])
+    assert made.state == "ready", made.error
+    read = {str(r) for r in made.references or []}
+    assert not {str(supplier.pk), str(supplier.entry_id)} & read
+    shown = bearer(token, "GET", f"/entity-exports/{made.pk}").json()
+    assert supplier.hrid not in json.dumps(shown)
+    assert bearer(token, "GET", f"/entity-exports/{made.pk}/content").status_code == 302
+
+
+def test_a_writer_is_given_no_reference_its_reader_cant_read(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A record a plugin's writer reads through a reference is given as its reader may read
+    it (ADR 0067, ADR 0230): what it refers to in turn, in a field, a list or a row, is
+    "unreadable" where that's in a project its reader can't read."""
+    store = Project.objects.create(team=world.team, name="Protein store")
+    ProjectMembership.objects.create(
+        project=store, user=world.users["editor"], role=ProjectRole.EDITOR
+    )
+    editor = world.users["editor"]
+    hidden: Any = services.create(
+        editor, "acme/protein.Protein", store, {"sequence": HBB, "name": "Store's own"}
+    ).entity
+    shown = protein(world, HBA, name="Haemoglobin alpha")
+    # Referred to from Kinase Atlas while it was linked there, then unlinked.
+    link = ProjectLink.objects.create(entity_id=hidden.pk, project=world.project)
+    sample = services.create(
+        editor,
+        "acme/protein.Sample",
+        world.project,
+        {
+            "label": "Serum 12",
+            "protein": str(hidden.pk),
+            "material": str(shown.pk),
+            "additions": [{"material": str(hidden.pk)}, {"material": str(shown.pk)}],
+        },
+    ).entity
+    tube: Any = services.create(
+        editor, "acme/protein.Tube", world.project, {"barcode": "TB-0001", "sample": str(sample.pk)}
+    ).entity
+    link.delete()
+    writer = SimpleNamespace(roles={"sample": SimpleNamespace(type="ref", unit=None)})
+    monkeypatch.setattr(plugin_writers, "find", lambda _: writer)
+    wanted = PluginExport(export="acme/example.writer", fields={"sample": "sample"})
+
+    def given(user: Any) -> dict[str, Any]:
+        record = exports._plugin_record(user, tube, tube.revision, wanted, set())
+        fields: dict[str, Any] = record.gathered.roles["sample"]["fields"]
+        return fields
+
+    # A reference names its record's entry (ADR 0115).
+    seen = given(world.users["viewer"])
+    assert seen["protein"] == "unreadable"
+    assert seen["material"] == str(shown.entry_id)
+    assert [a["material"] for a in seen["additions"]] == ["unreadable", str(shown.entry_id)]
+    assert not {str(hidden.pk), str(hidden.entry_id)} & set(json.dumps(seen).split('"'))
+    # Its editor reads the store, so the writer is given it.
+    assert given(editor)["protein"] == str(hidden.entry_id)
 
 
 # --- SDF of compounds -----------------------------------------------------------------------------

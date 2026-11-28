@@ -37,7 +37,7 @@ import {
   type SetupBuild,
   type SetupState,
 } from "../volumes";
-import { ComputeHeader } from "./compute";
+import { ComputeHeader } from "./compute-header";
 import { NotFound } from "./errors";
 
 const INTRO =

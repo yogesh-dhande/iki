@@ -5,7 +5,7 @@
  */
 
 import { unwrap } from "@ikisci/sdk";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
@@ -103,7 +103,8 @@ export function StoragePage() {
   const places = useQuery(placesQuery);
   const me = useQuery(meQuery).data;
   const out = useQuery({ ...checkedOutQuery(me?.id), enabled: !!me });
-  const awaiting = useQuery(awaitingPutAwayQuery);
+  const awaiting = useInfiniteQuery(awaitingPutAwayQuery);
+  const waiting = awaiting.data?.pages.flatMap((p) => p.items);
   const types = useQuery(typesQuery).data ?? [];
   const open = useOpenScanned();
   const [scanned, setScanned] = useState<{ code: string; matches: ScanMatch[] } | null>(null);
@@ -249,8 +250,8 @@ export function StoragePage() {
         </h2>
         {awaiting.error ? <ProblemAlert problem={problemOf(awaiting.error)} /> : null}
         {awaiting.isPending ? <Loading label="Loading what’s waiting…" /> : null}
-        {awaiting.data && !awaiting.data.length ? <p className="muted">Nothing.</p> : null}
-        {awaiting.data?.length ? (
+        {waiting && !waiting.length ? <p className="muted">Nothing.</p> : null}
+        {waiting?.length ? (
           <>
             <p className="muted">
               Kept in someone’s custody when it was received. Each leaves this list once it’s put
@@ -269,7 +270,7 @@ export function StoragePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {awaiting.data.map((x) => (
+                  {waiting.map((x) => (
                     <tr key={x.id}>
                       <th scope="row">
                         <Link to="/entities/$ref/" params={{ ref: x.hrid }}>
@@ -286,6 +287,18 @@ export function StoragePage() {
                 </tbody>
               </table>
             </div>
+            {awaiting.hasNextPage ? (
+              <Button
+                variant="quiet"
+                busy={awaiting.isFetchingNextPage}
+                busyText="Loading…"
+                onClick={() => {
+                  void awaiting.fetchNextPage();
+                }}
+              >
+                Show more waiting
+              </Button>
+            ) : null}
           </>
         ) : null}
       </section>
@@ -304,11 +317,6 @@ export function StoragePage() {
 }
 
 // --- A container --------------------------------------------------------------------------------
-
-export function validateContainerSearch(search: Record<string, unknown>): { at?: string } {
-  const at = typeof search["at"] === "string" ? search["at"].slice(0, 8) : undefined;
-  return at ? { at } : {};
-}
 
 function chosenOf(o: Occupant): Chosen | null {
   if (!o.id || !o.ref) return null;

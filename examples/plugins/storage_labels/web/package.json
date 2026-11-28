@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "description": "The storage labels plugin's component sources, bundled into components/ by iki-component-bundle.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "devDependencies": {
+    "@ikisci/component": "0.1.0",
+    "rolldown": "1.3.3"
+  },
+  "scripts": {
+    "bundle": "iki-component-bundle ..",
+    "check": "iki-component-bundle --check .."
+  }
+}

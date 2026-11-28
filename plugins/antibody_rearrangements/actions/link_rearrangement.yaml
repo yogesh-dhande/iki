@@ -5,6 +5,8 @@ label: Link a rearrangement to an antibody
 description: >-
   Record that a rearrangement in an imported AIRR repertoire encodes a chain of a registered
   antibody, after checking the row is in that repertoire and has an immunoglobulin locus.
+  One the report calls non-productive (productive F) is refused unless the curator gives why
+  it encodes the chain, and one it leaves empty is linked with a warning.
 inputs:
   result:
     type: iki/sequencing_analysis.SequencingAnalysisResult
@@ -17,6 +19,14 @@ params:
     required: true
     max_length: 250
     description: The rearrangement's exact sequence_id in the report.
+  nonproductive_reason:
+    type: string
+    label: Why a non-productive call encodes the chain
+    max_length: 1000
+    description: >-
+      Only for a rearrangement the report calls non-productive (productive F,
+      out of frame or with a stop codon): why it encodes the antibody's chain
+      anyway, such as a resequenced clone that corrects the call.
 effects:
   creates: [{ type: AntibodyRearrangement, derived_from: [result, antibody] }]
 runs_on: { tier: backend, environment: link-tools }

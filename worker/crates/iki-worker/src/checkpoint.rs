@@ -17,11 +17,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use rustix::fs::{Dir, Mode, OFlags, open, openat};
+use rustix::fs::{Dir, Mode, OFlags, open};
 use sha2::{Digest, Sha256};
 
 use crate::bundles::{self, Limits};
-use crate::files::hex;
+use crate::files::{hex, open_dir_in, open_in};
 
 /// More files than a checkpoint should hold.
 const MAX_FILES: usize = 1_000_000;
@@ -46,28 +46,6 @@ struct Entry {
     metadata: Metadata,
 }
 
-/// Open each directory relative to its already-open parent. A running command can
-/// rename checkpoint entries between the directory scan and the archive read.
-fn directory(root: &Path, relative: &Path) -> io::Result<File> {
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let mut dir = open(root, flags, Mode::empty())?;
-    for component in relative {
-        dir = openat(&dir, component, flags, Mode::empty())?;
-    }
-    Ok(File::from(dir))
-}
-
-fn checkpoint_file(root: &Path, relative: &Path) -> io::Result<File> {
-    let parent = directory(root, relative.parent().unwrap_or(Path::new("")))?;
-    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    let name = relative.file_name().ok_or(io::ErrorKind::InvalidInput)?;
-    let file = File::from(openat(&parent, name, flags, Mode::empty())?);
-    if !file.metadata()?.is_file() {
-        return Err(io::Error::other("checkpoint entry is not a regular file"));
-    }
-    Ok(file)
-}
-
 /// The directory's regular files and directories, sorted by path, and how many other
 /// entries (links, sockets) there were. A directory that isn't there holds nothing.
 fn walk(dir: &Path) -> io::Result<(Vec<Entry>, usize)> {
@@ -75,7 +53,7 @@ fn walk(dir: &Path) -> io::Result<(Vec<Entry>, usize)> {
     let mut left_out = 0usize;
     let mut pending = vec![PathBuf::new()];
     while let Some(relative) = pending.pop() {
-        let parent = match directory(dir, &relative) {
+        let parent = match open_dir_in(dir, &relative) {
             Ok(entries) => entries,
             Err(error)
                 if error.kind() == io::ErrorKind::NotFound && relative.as_os_str().is_empty() =>
@@ -95,9 +73,9 @@ fn walk(dir: &Path) -> io::Result<(Vec<Entry>, usize)> {
             let metadata = match rustix::fs::FileType::from_raw_mode(stat.st_mode) {
                 rustix::fs::FileType::Directory => {
                     pending.push(inner.clone());
-                    directory(dir, &inner)?.metadata()?
+                    open_dir_in(dir, &inner)?.metadata()?
                 }
-                rustix::fs::FileType::RegularFile => checkpoint_file(dir, &inner)?.metadata()?,
+                rustix::fs::FileType::RegularFile => open_in(dir, &inner)?.metadata()?,
                 _ => {
                     left_out += 1;
                     continue;
@@ -215,8 +193,8 @@ pub fn pack(dir: &Path, target: &Path) -> Result<Packed, String> {
         }
         let size = entry.metadata.len();
         header.set_size(size);
-        let file = checkpoint_file(dir, &entry.relative)
-            .map_err(|e| format!("couldn't read {shown}: {e}"))?;
+        let file =
+            open_in(dir, &entry.relative).map_err(|e| format!("couldn't read {shown}: {e}"))?;
         builder
             .append_data(
                 &mut header,

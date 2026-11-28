@@ -256,102 +256,153 @@ def slots(
     Core asks only that each is its signer's own act, by someone holding its role, on
     this revision: whether one person may give two, or in what order they're given, is
     the plugin's to say, as a rule on the change."""
-    owner = requests.field_project(entity, change.field)
-    counted: dict[int, Signature] = {}
-    lapsed: dict[int, str] = {}
-    for s in given:
-        if (s.field, s.state) != (change.field, change.to):
-            continue
-        if s.index >= len(change.signatures) or s.index in counted:
-            continue
-        wanted = change.signatures[s.index]
-        document = parsed(s)
-        if (
-            document.get("signature") != _terms(change, s.index)
-            or bool(document.get("change", {}).get("reversal")) != change.reversal
-            or (change.reason == "required" and not document.get("reason"))
-        ):
-            continue  # the plugin changed what it means since
-        if (
-            owner is not None
-            and _qualifies(s.signer, owner, roles_for(change, wanted))
-            and (not change.reversal or _qualifies(s.signer, owner, change.roles))
-        ):
-            counted[s.index] = s
-        else:
-            who = s.signer.name or s.signer.email
-            lapsed_roles = (
-                change.roles
-                if change.reversal and owner and not _qualifies(s.signer, owner, change.roles)
-                else roles_for(change, wanted)
-            )
-            lapsed[s.index] = (
-                f"{who}’s signature no longer counts: they no longer hold the "
-                + _either([lab_roles.label(r) for r in lapsed_roles])
-                + f" role in {owner.name if owner else 'the project'}, or their account was "
-                "deactivated."
-            )
-    out: list[Slot] = []
-    for index, wanted in enumerate(change.signatures):
-        roles = roles_for(change, wanted)
-        signature = counted.get(index)
-        why: str | None
-        if signature is not None:
-            why = f"{signature.signer.name or signature.signer.email} gave it."
-        elif isinstance(wanted, Reversal) and not roles:
-            why = (
-                "The original entry signature is unavailable. Its signer roles cannot be verified."
-            )
-        elif cant is not None and cant.startswith("Signatures are given by people"):
-            why = cant
-        elif (
-            base := states.refusal(user, entity, roles, change.to_label, field=change.field)
-        ) is not None:
-            why = base[0]
-        elif (
-            change.reversal
-            and (
-                destination := states.refusal(
-                    user, entity, change.roles, change.to_label, field=change.field
+    return slots_of(user, [Signable(entity, change, given, values)], cant=cant)[0]
+
+
+@dataclass(frozen=True)
+class Signable:
+    """A signed change :func:`slots_of` says the signatures of: the record, the change,
+    the record's :func:`pending` signatures, and its values as stored, if read."""
+
+    entity: Entity
+    change: Change
+    given: Sequence[Signature] = ()
+    values: Mapping[str, Any] | None = None
+
+
+def slots_of(user: User, signings: Sequence[Signable], *, cant: str | None) -> list[list[Slot]]:
+    """:func:`slots` for each of ``signings``, a page of records' changes at once: the
+    changes' guards and holds are checked together, for every signature at once."""
+    out: list[list[Slot]] = []
+    # The slots whose guards and holds decide, with what they read: checked together.
+    pending: list[tuple[int, int, Signable, Mapping[int, Signature]]] = []
+    # One of each signer, so what they hold in a project is read once for the page.
+    signers: dict[Any, User] = {}
+    for at, signing in enumerate(signings):
+        entity, change = signing.entity, signing.change
+        owner = requests.field_project(entity, change.field)
+        counted: dict[int, Signature] = {}
+        lapsed: dict[int, str] = {}
+        for s in signing.given:
+            if (s.field, s.state) != (change.field, change.to):
+                continue
+            if s.index >= len(change.signatures) or s.index in counted:
+                continue
+            wanted = change.signatures[s.index]
+            signer = signers.setdefault(s.signer_id, s.signer)
+            document = parsed(s)
+            if (
+                document.get("signature") != _terms(change, s.index)
+                or bool(document.get("change", {}).get("reversal")) != change.reversal
+                or (change.reason == "required" and not document.get("reason"))
+            ):
+                continue  # the plugin changed what it means since
+            if (
+                owner is not None
+                and _qualifies(signer, owner, roles_for(change, wanted))
+                and (not change.reversal or _qualifies(signer, owner, change.roles))
+            ):
+                counted[s.index] = s
+            else:
+                who = s.signer.name or s.signer.email
+                lapsed_roles = (
+                    change.roles
+                    if change.reversal and owner and not _qualifies(signer, owner, change.roles)
+                    else roles_for(change, wanted)
                 )
-            )
-            is not None
-        ):
-            why = destination[0]
-        elif cant is not None:
-            why = cant
-        else:
-            # The change's guards and holds (ADRs 0127, 0128), with this signer acting: at
-            # each signature, so nobody signs a change they'd refuse, and again at the
-            # last, which makes it.
-            why = _condition(user, entity, change, values, counted)
-        out.append(Slot(index, wanted, roles, signature, why, lapsed.get(index)))
+                lapsed[s.index] = (
+                    f"{who}’s signature no longer counts: they no longer hold the "
+                    + _either([lab_roles.label(r) for r in lapsed_roles])
+                    + f" role in {owner.name if owner else 'the project'}, or their account "
+                    "was deactivated."
+                )
+        found: list[Slot] = []
+        for index, wanted in enumerate(change.signatures):
+            roles = roles_for(change, wanted)
+            signature = counted.get(index)
+            why: str | None
+            if signature is not None:
+                why = f"{signature.signer.name or signature.signer.email} gave it."
+            elif isinstance(wanted, Reversal) and not roles:
+                why = (
+                    "The original entry signature is unavailable. Its signer roles cannot be "
+                    "verified."
+                )
+            elif cant is not None and cant.startswith("Signatures are given by people"):
+                why = cant
+            elif (
+                base := states.refusal(user, entity, roles, change.to_label, field=change.field)
+            ) is not None:
+                why = base[0]
+            elif (
+                change.reversal
+                and (
+                    destination := states.refusal(
+                        user, entity, change.roles, change.to_label, field=change.field
+                    )
+                )
+                is not None
+            ):
+                why = destination[0]
+            elif cant is not None:
+                why = cant
+            else:
+                # The change's guards and holds (ADRs 0127, 0128), with this signer acting:
+                # at each signature, so nobody signs a change they'd refuse, and again at
+                # the last, which makes it.
+                why = None
+                pending.append((at, index, signing, dict(counted)))
+            found.append(Slot(index, wanted, roles, signature, why, lapsed.get(index)))
+        out.append(found)
+    for (at, index, _, _), why in zip(pending, _conditions(user, pending), strict=True):
+        out[at][index] = replace(out[at][index], why_not=why)
     return out
 
 
-def _condition(
-    user: User,
-    entity: Entity,
-    change: Change,
-    values: Mapping[str, Any] | None,
-    counted: Mapping[int, Signature],
-) -> str | None:
-    """Why its guards or holds refuse the change, with ``user`` signing for it and the
+def _conditions(
+    user: User, pending: Sequence[tuple[int, int, Signable, Mapping[int, Signature]]]
+) -> list[str | None]:
+    """Why its guards or holds refuse each change, with ``user`` signing for it and the
     signatures that count for it so far, which its guards read as ``signatures``."""
-    assert change.how is not None  # noqa: S101 - changes.find made it
-    given = [
-        {
-            "index": s.index,
-            "meaning": s.meaning,
-            "by": str(s.signer_id),
-            "at": s.signed_at.isoformat().replace("+00:00", "Z"),
-        }
-        for _, s in sorted(counted.items())
-    ]
-    state = replace(change.how.states[change.to], signatures=change.signatures)
-    why = states.condition(user, entity, change.field, state, values, given)
-    if why is not None or not _requires_review(entity, change):
-        return why
+    if not pending:
+        return []
+    from iki_server.entities import guards
+    from iki_server.entities import services as entity_services
+
+    asks = []
+    for _, _, signing, counted in pending:
+        change = signing.change
+        assert change.how is not None  # noqa: S101 - changes.find made it
+        given = [
+            {
+                "index": s.index,
+                "meaning": s.meaning,
+                "by": str(s.signer_id),
+                "at": s.signed_at.isoformat().replace("+00:00", "Z"),
+            }
+            for _, s in sorted(counted.items())
+        ]
+        state = replace(change.how.states[change.to], signatures=change.signatures)
+        values = (
+            signing.values
+            if signing.values is not None
+            else entity_services.current_values(entity_services.specific(signing.entity))
+        )
+        asks.append(guards.Ask(signing.entity, change.field, [state], values, given))
+    out: list[str | None] = []
+    for (_, _, signing, _), ask, found in zip(
+        pending, asks, states.conditions_of(user, asks), strict=True
+    ):
+        why = found.get(ask.states[0].name, (None, None))[0]
+        out.append(why if why is not None else _review_condition(signing.entity, signing.change))
+    return out
+
+
+def _review_condition(entity: Entity, change: Change) -> str | None:
+    """Why a result's release can't be signed yet though its guards hold: it needs a
+    signed review of this revision, and isn't delivered already."""
+    if not _requires_review(entity, change):
+        return None
     if ProjectLink.objects.filter(
         entity=entity, project_id=F("via_request__owner_project_id")
     ).exists():
@@ -1354,6 +1405,15 @@ def missing(entity: Entity) -> list[str]:
 # --- The organization ---------------------------------------------------------------------------
 
 
+def _by_a_person(by: User, what: str) -> None:
+    """Refuses a token, an app or an AI agent: as only a person signs, only a person, in
+    Iki's web app, does ``what``."""
+    if permissions.token_limits(by) is not None or log.current_agent_info() is not None:
+        raise PermissionDenied(
+            f"{what} is done by a person in Iki’s web app: no token, app or AI agent can."
+        )
+
+
 def certify(by: User, submitted_on: dt.date, reference: str) -> Certification:
     """An Org Admin records the organization's certification to the FDA (21 CFR 11.100(c))."""
     if not permissions.can(by, Action.ORG_MANAGE):
@@ -1375,10 +1435,21 @@ def certify(by: User, submitted_on: dt.date, reference: str) -> Certification:
     return found
 
 
-def unlock(by: User, user: User) -> None:
-    """An Org Admin unlocks someone's signing after failed attempts locked it."""
+def unlock(by: User, user: User, reason: str) -> None:
+    """An Org Admin unlocks someone else's signing after failed attempts locked it
+    (21 CFR 11.300(d)), in person, saying why: once they know who made the attempts. Nobody
+    unlocks their own, since someone may have been trying to sign as them."""
+    _by_a_person(by, "Unlocking someone’s signing")
     if not permissions.can(by, Action.ORG_MANAGE):
         raise PermissionDenied("Unlocking someone’s signing needs an Org Admin.")
+    if by.pk == user.pk:
+        raise PermissionDenied(
+            "Another Org Admin unlocks your signing: someone may have been trying to sign as "
+            "you, and they find out who first."
+        )
     if not locked_out(user):
         raise Refused(f"{user.name or user.email}’s signing isn’t locked.")
-    log.record("signature.unlocked", actor=by, target=user)
+    reason = reason.strip()
+    if not reason:
+        raise Invalid({"reason": ["Say why it’s safe to unlock: who made the failed attempts."]})
+    log.record("signature.unlocked", actor=by, target=user, data={"reason": reason[:2000]})

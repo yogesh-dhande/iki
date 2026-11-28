@@ -18,8 +18,7 @@ from django.utils import timezone
 from opentelemetry import metrics
 from opentelemetry.metrics import CallbackOptions, Observation
 
-from iki_server.runs.models import TIERS, Job, JobState, Launch, LaunchState, Worker
-from iki_server.runs.queue import HELD
+from iki_server.runs.models import HELD, TIERS, Job, JobState, Launch, LaunchState, Worker
 from iki_server.runs.workers import OFFLINE_AFTER
 
 #: A run's attempt from when a worker leases it until it ends; committing its results

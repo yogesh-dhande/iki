@@ -104,7 +104,6 @@ class SequenceFile:
     features: tuple[dict[str, Any], ...] = ()
     #: Where its sequence is another record's (a plasmid's sequence), that record's HRID.
     sequence_of: str = ""
-    latest: bool = True
 
 
 @dataclass
@@ -176,7 +175,7 @@ def _definition(record: SequenceFile) -> str:
 
 
 def _comment(record: SequenceFile, left_out: list[str]) -> list[str]:
-    which = f"revision {record.revision}" + ("" if record.latest else ", not its latest")
+    which = f"revision {record.revision}"
     said = [f"Exported from Iki: {record.hrid} ({which})."]
     if record.sequence_of:
         said[0] = (
@@ -424,7 +423,6 @@ class ProteinFile:
     revision: int
     description: str = ""
     organism: str = ""  # its scientific name, or ""
-    latest: bool = True
 
 
 def protein_fasta(record: ProteinFile) -> Written:

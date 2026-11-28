@@ -25,8 +25,8 @@ import subprocess
 import threading
 import uuid
 from collections.abc import Mapping
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass
+from datetime import datetime
 from functools import cache
 from importlib.util import find_spec
 from pathlib import Path
@@ -41,7 +41,7 @@ from iki_server.entities.sequence_files import Written
 from iki_spec import units
 from iki_spec.model import Writer
 from iki_spec.writers import BUILD, DIRECTORY, IMAGE, MANIFEST
-from iki_spec.writers.check import ABI_VERSION
+from iki_spec.writers import abi as writer_abi
 from iki_spec.writers.limits import Limits
 from iki_spec.writers.manifest import ACTIVE_MEDIA_TYPES
 from iki_spec.writers.protocol import Session, SessionFailed, Unavailable, canonical
@@ -93,15 +93,30 @@ class SandboxUnavailable(Exception):  # noqa: N818 - said as "the sandbox is una
 
 @dataclass(frozen=True)
 class PluginRecord:
-    """A record at one revision, as a plugin's writer takes it (the ABI's record request)."""
+    """A record at one revision, as a plugin's writer takes it: what Iki gathered of it,
+    which the writer's session encodes for the ABI its module reads."""
 
-    id: uuid.UUID
-    hrid: str
-    name: str
-    revision: int
-    latest: bool
-    revised_at: datetime
-    request: dict[str, Any] = field(default_factory=dict)
+    gathered: writer_abi.Record
+
+    @property
+    def id(self) -> uuid.UUID:
+        return self.gathered.id
+
+    @property
+    def hrid(self) -> str:
+        return self.gathered.hrid
+
+    @property
+    def name(self) -> str:
+        return self.gathered.name
+
+    @property
+    def revision(self) -> int:
+        return self.gathered.revision
+
+    @property
+    def revised_at(self) -> datetime:
+        return self.gathered.revised_at
 
 
 # --- What's installed ---------------------------------------------------------------------------
@@ -126,14 +141,14 @@ class Runnable:
     #: A development server's module file, run by ``IKI_EXPORT_SANDBOX=local``.
     path: str | None = None
 
-    @property
-    def identity(self) -> dict[str, str]:
+    def identity(self, abi: int | None) -> dict[str, str]:
+        """Which code wrote a file: the module, and the ABI it was given its requests in."""
         return {
             "plugin": self.writer.plugin,
             "writer": self.writer.qualified_name,
             "commit": self.commit,
             "module_sha256": self.sha256,
-            "abi": str(ABI_VERSION),
+            "abi": "" if abi is None else str(abi),
         }
 
 
@@ -267,15 +282,20 @@ def _connect(address: str, deadline: float) -> _Connection:
 
 class PluginWriter:
     """One file of a plugin's format, written by its writer in the sandbox: a fresh
-    process, for this export alone. Close it when the file's written."""
+    process, for this export alone. Each request is built for the ABI the module reads,
+    which the sandbox says when it opens the export. Close it when the file's written."""
 
     def __init__(self, writer: Writer, *, deadline: float | None = None) -> None:
         self.writer = writer
         self._runnable = runnable(writer)
-        self.identity: Mapping[str, str] = self._runnable.identity
         self._deadline = inline_deadline() if deadline is None else deadline
         self._connection: _Connection | None = None
+        self._encoder: writer_abi.Encoder | None = None
         self._notes: list[str] = []
+
+    @property
+    def identity(self) -> Mapping[str, str]:
+        return self._runnable.identity(self._encoder.abi if self._encoder else None)
 
     def _session(self) -> Session:
         if self._connection is None:
@@ -293,12 +313,21 @@ class PluginWriter:
             if self._runnable.path is not None:
                 header["path"] = self._runnable.path
             try:
-                connection.session.open(header)
+                abi = connection.session.open(header)
+                self._encoder = writer_abi.encoder(abi)
             except Unavailable as error:
                 connection.close()
                 raise self._unavailable(error) from None
+            except ValueError as error:  # an ABI the sandbox runs and this server doesn't
+                connection.close()
+                raise self._unavailable(Unavailable("abi", str(error))) from None
             self._connection = connection
         return self._connection.session
+
+    def _encoded(self) -> writer_abi.Encoder:
+        self._session()
+        assert self._encoder is not None  # noqa: S101 - set when the session opens
+        return self._encoder
 
     def _unavailable(self, error: Unavailable) -> SandboxUnavailable:
         failures.add(1, {"writer": self.writer.qualified_name, "code": error.code})
@@ -347,31 +376,24 @@ class PluginWriter:
 
     def begin(self, records: int) -> bytes:
         self._notes = []
-        content, notes = self._call(
-            "begin",
-            {
-                "abi": ABI_VERSION,
-                "format": self.writer.format,
-                "records": records,
-                "writer": self.writer.qualified_name,
-            },
-        )
+        export = writer_abi.Export(self.writer.qualified_name, self.writer.format, records)
+        content, notes = self._call("begin", self._encoded().begin(export))
         # Notes on the file as a whole are said with its end's.
         self._notes = notes
         return content
 
     def record(self, record: PluginRecord) -> Written:
-        content, notes = self._call("record", record.request, record)
+        content, notes = self._call("record", self._encoded().record(record.gathered), record)
         # What its writer wasn't given, said by Iki, so a file is never silently short.
         withheld = [
             f"Its {role.replace('_', ' ')} is a record you can't read, so it wasn't given "
             "to the writer."
-            for role in record.request.get("withheld", ())
+            for role in sorted(record.gathered.withheld)
         ]
         return Written(content, [*withheld, *notes])
 
     def end(self) -> Written:
-        content, notes = self._call("end", {})
+        content, notes = self._call("end", self._encoded().end())
         said, self._notes = [*self._notes, *notes], []
         return Written(content, said)
 
@@ -402,29 +424,3 @@ def role_value(role_type: str, unit: str | None, field_unit: str | None, value: 
             number = units.convert(number, field_unit, unit)
         return {"value": number, "unit": unit or field_unit}
     return value
-
-
-def request_of(
-    *,
-    entity_id: uuid.UUID,
-    hrid: str,
-    name: str,
-    type_name: str,
-    revision: int,
-    latest: bool,
-    revised_at: datetime,
-    roles: Mapping[str, Any],
-    withheld: list[str],
-) -> dict[str, Any]:
-    stamp = revised_at.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
-    return {
-        "hrid": hrid,
-        "id": str(entity_id),
-        "latest": latest,
-        "name": name,
-        "revised_at": stamp,
-        "revision": revision,
-        "roles": dict(roles),
-        "type": type_name,
-        "withheld": sorted(withheld),
-    }

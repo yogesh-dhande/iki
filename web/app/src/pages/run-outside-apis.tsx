@@ -12,9 +12,8 @@ import { AgentRows, Through } from "../agent";
 import { iki, problemOf } from "../api";
 import { money } from "../costs";
 import { callKind, type ApiCall } from "../outside-apis";
-import { RUNS, type Run } from "../runs";
+import { RUNS, type Run, VIA } from "../runs";
 import { Button, Loading, ProblemAlert, RelativeTime, Time } from "../ui";
-import { VIA } from "./runs";
 
 export function apiCallsQuery(ref: string) {
   return infiniteQueryOptions({

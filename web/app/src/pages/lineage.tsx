@@ -57,7 +57,7 @@ import {
   ProblemAlert,
   SelectField,
 } from "../ui";
-import { useEntity } from "./entity";
+import { useEntity } from "./entity-header";
 
 /** How the page names things: types and actions by their labels. */
 interface Names {

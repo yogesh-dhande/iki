@@ -74,7 +74,7 @@ function partsOf(location: string, strand: "forward" | "reverse" = "forward"): P
 
 /** A GenBank record's bases and its coding sequences, as the viewer reads them after the
  * DNA plugin's import: each with its qualifiers. */
-function record(path: string): { bases: string; cds: Feature[] } {
+function record(path: string): { bases: string; cds: readonly Feature[] } {
   const text = repositoryFile(path);
   const [head = "", origin = ""] = text.split(/^ORIGIN.*$/m);
   const bases = origin.replace(/[^a-zA-Z]/g, "").toUpperCase();
