@@ -1287,15 +1287,31 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     (
         "POST",
-        "/starters/{starter}/preview",
+        "/starters/{name}/preview",
         starter_choice("preview"),
         visible(403, admin=404),
     ),
     (
         "POST",
-        "/starters/{starter}/apply",
+        "/starters/{name}/apply",
         starter_choice("apply"),
         visible(403, admin=404),
+    ),
+    # A plugin starter's deployment default (ADR 0302): an Org Admin's, with a reason.
+    (
+        "POST",
+        "/starters/{name}/default",
+        fixed(
+            "/starters/acme/protein.purity_review/default",
+            {"version": "1.0.0", "flow": "research", "reason": "SOP-QA-014 covers purity"},
+        ),
+        ORG_ADMIN_ONLY,
+    ),
+    (
+        "POST",
+        "/starters/{name}/default/clear",
+        fixed("/starters/acme/protein.purity_review/default/clear", {"reason": "Retired"}),
+        ORG_ADMIN_ONLY,
     ),
     # Review procedures (ADR 0302): read by anyone signed in, a project's choices by its
     # members; a deployment's default is an Org Admin's to choose, a project's its Admins'.
