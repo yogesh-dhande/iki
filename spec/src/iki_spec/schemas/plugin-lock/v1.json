@@ -5,7 +5,13 @@
   "description": "A deployment's `plugins.lock.yaml`: every plugin it installs, each pinned to a git commit.",
   "type": "object",
   "required": ["apiVersion", "kind", "plugins"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "const": "iki/v1"
     },

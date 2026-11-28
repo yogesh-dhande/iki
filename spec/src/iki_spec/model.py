@@ -730,6 +730,8 @@ class ReviewProcedure:
     states: dict[str, ReviewState] = field(default_factory=dict)
     flows: dict[str, ReviewFlow] = field(default_factory=dict)
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1381,6 +1383,8 @@ class EntityType:
     list_spec: ListSpec | None = None
     #: How its records are reviewed (ADR 0301): its own, or an ancestor's.
     review: ReviewSpec | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_lab_list(self) -> bool:
@@ -1581,6 +1585,8 @@ class Extension:
     file: str | None = None
     #: Rules every save of the extended type's records keeps (ADR 0127), by name.
     rules: dict[str, Rule] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def table(self) -> str:
@@ -1812,6 +1818,8 @@ class Action:
     retry_max: int = 0
     retry_on: tuple[str, ...] = ()
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1850,6 +1858,8 @@ class Environment:
     file: str | None = None
     #: Provisioned runs need an image supplied by this deployment.
     customer_image_required: bool = False
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 #: A condition's operators: how its value compares with its operand.
@@ -1950,6 +1960,8 @@ class Workflow:
     params: dict[str, Field] = field(default_factory=dict)
     steps: dict[str, WorkflowStep] = field(default_factory=dict)
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2047,6 +2059,8 @@ class Trigger:
     related: dict[str, Related] = field(default_factory=dict)
     recheck: str = ""
     watch_included: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2119,6 +2133,8 @@ class Component:
     #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
     sha256: str = ""
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2175,7 +2191,7 @@ class Plugin:
     description: str | None = None
     license: str | None = None
     homepage: str | None = None
-    #: The Iki releases it works with, such as `>=0.1,<0.3`, or None to say nothing.
+    #: The Iki releases it works with, such as `>=0.1,<0.3`; plugin.yaml must say (ADR 0293).
     iki: str | None = None
     #: plugin name → {type name → schema-version constraint}
     dependencies: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -2199,6 +2215,8 @@ class Plugin:
     writers: dict[str, Writer] = field(default_factory=dict)
     #: The review procedures it declares, by qualified name and version (ADR 0301).
     procedures: dict[str, ReviewProcedure] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -2365,6 +2383,7 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and isinstance(value, EntityType)
                 and value.draw_target is None
             )
+            and not (f.name == "annotations" and not getattr(value, f.name))
             and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
             and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (

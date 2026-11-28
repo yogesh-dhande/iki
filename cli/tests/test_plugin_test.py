@@ -130,6 +130,7 @@ def manifest(path: Path, name: str, *dependencies: str) -> Path:
                 "kind": "Plugin",
                 "name": name,
                 "version": "1.0.0",
+                "iki": ">=0.1",
                 "dependencies": {dependency: {} for dependency in dependencies},
             }
         )

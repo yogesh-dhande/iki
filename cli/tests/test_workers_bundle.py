@@ -71,6 +71,7 @@ def test_no_distribution_carries_a_first_party_plugins_web_or_image_sources(
     for relative, text in {
         "plugin.yaml": (
             "apiVersion: iki/v1\nkind: Plugin\nname: iki/small_molecule\nversion: 1.0.0\n"
+            "iki: '>=0.1'\n"
         ),
         "components/depiction.yaml": (
             "apiVersion: iki/v1\nkind: Component\nname: depiction\nlabel: Structure\n"
@@ -442,7 +443,7 @@ def test_deploy_puts_verified_annotation_assets_in_both_worker_distributions(
     data = source / "data"
     data.mkdir(parents=True)
     (source / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: iki/plasmid\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: iki/plasmid\nversion: 1.0.0\niki: '>=0.1'\n"
     )
     marker = data / "dna-annotation.wasm.sha256"
     marker.write_text(hashlib.sha256(module).hexdigest() + "\n")
@@ -517,7 +518,7 @@ def test_deploy_resolves_ignored_modules_from_iki_spec(
     data = source / "data"
     data.mkdir(parents=True)
     (source / "plugin.yaml").write_text(
-        f"apiVersion: iki/v1\nkind: Plugin\nname: iki/{plugin}\nversion: 1.0.0\n"
+        f"apiVersion: iki/v1\nkind: Plugin\nname: iki/{plugin}\nversion: 1.0.0\niki: '>=0.1'\n"
     )
     (source / ".gitignore").write_text("*.wasm\n")
     marker = data / f"{name}.sha256"

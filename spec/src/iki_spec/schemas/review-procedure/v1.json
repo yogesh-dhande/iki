@@ -6,7 +6,13 @@
   "type": "object",
   "required": ["apiVersion", "kind", "name", "version", "label", "slots", "states", "flows"],
   "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
     "kind": {
       "description": "What the manifest declares: `ReviewProcedure`.",

@@ -1,7 +1,11 @@
+import copy
 import json
 import shutil
 import textwrap
+from collections.abc import Iterator
+from importlib.resources import files
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -15,7 +19,7 @@ from iki_spec.model import (
     plugin_from_dict,
     plugin_to_dict,
 )
-from iki_spec.problems import Location, Severity
+from iki_spec.problems import Location, Problem, Severity
 from iki_spec.validate import (
     Result,
     check_settings_text,
@@ -35,6 +39,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 TYPE = """\
@@ -68,13 +73,20 @@ def fields(text: str) -> str:
     return TYPE + "fields:\n" + textwrap.indent(textwrap.dedent(text), "  ")
 
 
-def codes(result: Result) -> list[str]:
-    return [p.code for p in result.problems]
+def codes(result: Result, *, provisional: bool = False) -> list[str]:
+    """The problems' codes; without the warnings that a key a test uses is provisional, which
+    `test_a_lab_plugin_is_told_a_key_is_provisional` checks, unless `provisional`."""
+    return [p.code for p in problems(result, provisional=provisional)]
+
+
+def problems(result: Result, *, provisional: bool = False) -> list[Problem]:
+    return [p for p in result.problems if provisional or p.code != "provisional-key"]
 
 
 def only(result: Result, code: str) -> str:
-    assert codes(result) == [code], [(p.code, p.message) for p in result.problems]
-    return result.problems[0].message
+    found = problems(result, provisional=code == "provisional-key")
+    assert [p.code for p in found] == [code], [(p.code, p.message) for p in result.problems]
+    return found[0].message
 
 
 # --- The first-party style examples ------------------------------------------------------------
@@ -93,7 +105,7 @@ def test_example_plugins_are_valid() -> None:
     }
 
     protein = load_plugin(PROTEIN, dependencies=[DNA])
-    assert protein.problems == []
+    assert problems(protein) == []  # its sample type draws by purpose, a provisional key
     prediction = load_plugin(PREDICTION, dependencies=[PROTEIN, DNA])
     assert prediction.problems == []
 
@@ -302,7 +314,10 @@ def test_unknown_top_level_keys_suggest_the_right_one(tmp_path: Path) -> None:
 
 
 def test_bad_plugin_manifests(tmp_path: Path) -> None:
-    result = make(tmp_path, plugin="apiVersion: iki/v1\nkind: Plugin\nname: Acme\nversion: '1.0'\n")
+    result = make(
+        tmp_path,
+        plugin="apiVersion: iki/v1\nkind: Plugin\nname: Acme\nversion: '1.0'\niki: '>=0.1'\n",
+    )
     messages = [p.message for p in result.problems]
     assert any(m.startswith("`name` can't be `Acme`.") for m in messages)
     assert any("Versions are semantic versions" in m for m in messages)
@@ -1389,7 +1404,7 @@ def test_dependencies_must_be_given_to_check_them(tmp_path: Path) -> None:
     problem = result.problems[0]
     assert codes(result) == ["dependency-not-available"]
     assert problem.file == "plugin.yaml"
-    assert problem.location == Location(6, 3)
+    assert problem.location == Location(7, 3)
     assert problem.hint == "Pass the acme/dna plugin's directory with `--with path/to/dna`."
 
 
@@ -1432,14 +1447,14 @@ def test_a_plugin_says_which_iki_it_works_with(
     import iki_spec
 
     monkeypatch.setattr(iki_spec, "__version__", "0.2.0.dev3")
+    without = PLUGIN.replace('iki: ">=0.1"\n', "")
     for fits in (">=0.1", ">=0.2,<0.3", "==0.2", "<1"):
-        result = make(tmp_path, "", PLUGIN + f"iki: '{fits}'\n")
+        result = make(tmp_path, "", without + f"iki: '{fits}'\n")
         assert result.ok, (fits, result.problems)
         assert result.plugin is not None
         assert result.plugin.iki == fits
-    assert make(tmp_path, "").plugin.iki is None  # type: ignore[union-attr]
 
-    result = make(tmp_path, "", PLUGIN + "iki: '>=0.3, <1'\n")
+    result = make(tmp_path, "", without + "iki: '>=0.3, <1'\n")
     assert (
         only(result, "iki-version") == "acme/lab works with Iki >=0.3, <1, and this is Iki 0.2.0."
     )
@@ -1451,8 +1466,127 @@ def test_a_plugin_says_which_iki_it_works_with(
     assert problem.location is not None
     assert problem.location.line == 5
 
-    result = make(tmp_path, "", PLUGIN + "iki: '0.2'\n")
+    result = make(tmp_path, "", without + "iki: '0.2'\n")
     assert "It compares Iki release numbers, such as `>=0.1`" in only(result, "schema")
+
+
+def test_a_plugin_must_say_which_iki_it_works_with(tmp_path: Path) -> None:
+    result = make(tmp_path, "", PLUGIN.replace('iki: ">=0.1"\n', ""))
+    assert only(result, "missing-iki") == "`iki` is missing."
+    assert result.problems[0].hint == (
+        'Say which Iki releases the plugin works with, such as `iki: ">=0.1"` (ADR 0293).'
+    )
+
+
+def test_a_key_from_another_iki_is_blamed_on_the_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import iki_spec
+
+    monkeypatch.setattr(iki_spec, "__version__", "0.2.0")
+    newer = PLUGIN.replace('">=0.1"', '">=0.3"')
+    result = make(tmp_path, TYPE + "retention: { years: 10 }\n", newer)
+    assert codes(result) == ["iki-version", "schema"]
+    unknown = result.problems[1]
+    assert unknown.message == "`retention` isn't allowed here."
+    assert unknown.hint == (
+        "The plugin is made for Iki >=0.3, and this is Iki 0.2.0, which may not have this key."
+    )
+    # A plugin made for this Iki gets the usual suggestion.
+    result = make(tmp_path, TYPE + "refine: {}\n")
+    assert result.problems[0].hint == "Did you mean `refines`?"
+
+
+@pytest.fixture
+def marked(monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, Any]]:
+    """The entity-type schema, with marks a test sets on its properties (ADR 0293)."""
+    schema = copy.deepcopy(schemas.load("entity-type"))
+    original = schemas.load
+
+    def load(name: str, version: str = "v1") -> dict[str, Any]:
+        return schema if name == "entity-type" else original(name, version)
+
+    monkeypatch.setattr(schemas, "load", load)
+    schemas.registry.cache_clear()
+    schemas._validator.cache_clear()
+    schemas._marking.cache_clear()
+    yield schema["properties"]
+    schemas.registry.cache_clear()
+    schemas._validator.cache_clear()
+    schemas._marking.cache_clear()
+
+
+def test_a_key_needs_a_range_that_starts_at_its_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, marked: dict[str, Any]
+) -> None:
+    import iki_spec
+
+    monkeypatch.setattr(iki_spec, "__version__", "0.3.0")
+    marked["due"]["x-iki-since"] = "0.3"
+    typed = TYPE + "fields:\n  due_on: { type: date }\ndue: due_on\n"
+    result = make(tmp_path, typed)
+    assert only(result, "iki-range") == (
+        "`due` needs Iki 0.3 or later, and `iki: >=0.1` admits earlier releases."
+    )
+    assert result.problems[0].hint == (
+        'Raise the plugin\'s range to start at 0.3, such as `iki: ">=0.3"`.'
+    )
+    for fits in (">=0.3", ">=0.3,<0.5", "==0.3"):
+        result = make(tmp_path, typed, PLUGIN.replace('">=0.1"', f'"{fits}"'))
+        assert result.ok, (fits, result.problems)
+
+
+def test_a_deprecated_key_is_warned_of_with_what_to_use(
+    tmp_path: Path, marked: dict[str, Any]
+) -> None:
+    marked["label_plural"].update(
+        {"deprecated": True, "x-iki-deprecated-since": "0.2", "x-iki-use": "`display.plural`"}
+    )
+    result = make(tmp_path, TYPE + "label_plural: Assays\n")
+    assert result.ok
+    assert only(result, "deprecated-key") == (
+        "`label_plural` is deprecated since Iki 0.2, and goes in the next minor release."
+    )
+    assert result.problems[0].severity is Severity.WARNING
+    assert result.problems[0].hint == "Use `display.plural` instead."
+
+
+def test_a_lab_plugin_is_told_a_key_is_provisional(tmp_path: Path) -> None:
+    typed = TYPE + "fields:\n  request: { type: ref, to: Assay, required: true, immutable: true }\n"
+    result = make(tmp_path, typed + "work_item: { of: request }\n")
+    assert "provisional-key" in codes(result, provisional=True)
+    warning = next(p for p in result.problems if p.code == "provisional-key")
+    assert warning.severity is Severity.WARNING
+    assert warning.message.startswith("`work_item` is provisional: a minor release of Iki")
+    # Iki's own plugins are released with Iki, and move with the key.
+    own = PLUGIN.replace("acme/lab", "iki/requests")
+    result = make(tmp_path, typed + "work_item: { of: request }\n", own)
+    assert "provisional-key" not in codes(result, provisional=True)
+
+
+def test_annotations_and_x_keys_are_kept_and_ignored(tmp_path: Path) -> None:
+    notes = (
+        "annotations:\n  acme.com/owner: Protein sciences\n"
+        "  gxp_classification: GAMP 5 category 4\nx-acme-reviewed: 2026-11-01\n"
+    )
+    result = make(tmp_path, TYPE + notes, PLUGIN + notes)
+    assert result.ok, result.problems
+    assert result.plugin is not None
+    expected = {"acme.com/owner": "Protein sciences", "gxp_classification": "GAMP 5 category 4"}
+    assert result.plugin.annotations == expected
+    assert result.plugin.types["acme/lab.Assay"].annotations == expected
+    compiled = plugin_to_dict(result.plugin)
+    assert compiled["annotations"] == expected
+    assert "x-acme-reviewed" not in json.dumps(compiled)
+    assert plugin_from_dict(compiled) == result.plugin
+    # Without them, the compiled manifest is as it was.
+    bare = make(tmp_path, TYPE).plugin
+    assert bare is not None
+    assert "annotations" not in plugin_to_dict(bare)
+    assert "annotations" not in plugin_to_dict(bare)["types"]["acme/lab.Assay"]
+
+    bad = make(tmp_path, TYPE + "annotations:\n  Owner: x\n")
+    assert "`Owner` isn't a valid name" in only(bad, "schema")
 
 
 def test_dependency_types_must_exist(tmp_path: Path) -> None:
@@ -1469,7 +1603,9 @@ def test_dependency_problems(tmp_path: Path) -> None:
     assert codes(result) == ["dependency-is-self"]
     broken = tmp_path / "broken"
     broken.mkdir()
-    (broken / "plugin.yaml").write_text("apiVersion: iki/v1\nkind: Plugin\nname: broken\n")
+    (broken / "plugin.yaml").write_text(
+        "apiVersion: iki/v1\nkind: Plugin\nname: broken\niki: '>=0.1'\n"
+    )
     result = make(tmp_path, "", with_=(broken,))
     assert "has 1 error(s) of its own" in only(result, "dependency-invalid")
     result = make(tmp_path, "", with_=(tmp_path / "missing",))
@@ -1480,7 +1616,7 @@ def test_dependency_cycles(tmp_path: Path) -> None:
     other = tmp_path / "other"
     other.mkdir()
     (other / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\niki: '>=0.1'\n"
         "dependencies:\n  acme/lab: {}\n"
     )
     result = make(tmp_path, "", PLUGIN + "dependencies:\n  acme/other: {}\n", with_=(other,))
@@ -1581,7 +1717,7 @@ def test_extension_fields_cant_clash_with_other_extensions(tmp_path: Path) -> No
     other = tmp_path / "other"
     (other / "types").mkdir(parents=True)
     (other / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\niki: '>=0.1'\n"
         "dependencies:\n  acme/dna: {}\n"
     )
     (other / "types" / "x.yaml").write_text(extension("tm: { type: float }\n"))
@@ -1612,7 +1748,7 @@ def test_extension_table_names(tmp_path: Path) -> None:
     other = tmp_path / "other"
     (other / "types").mkdir(parents=True)
     (other / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/other\nversion: 1.0.0\niki: '>=0.1'\n"
     )
     (other / "types" / "x.yaml").write_text(TYPE.replace("Assay", long_type))
     plugin = (
@@ -1867,11 +2003,89 @@ def test_every_schema_is_valid_draft_2020_12() -> None:
         assert schema["$id"] == schemas.url(name)
 
 
+#: The kinds a person writes, which take `annotations` and `x-` keys (ADR 0293).
+AUTHORED_KINDS = (
+    "plugin",
+    "entity-type",
+    "entity-type-extension",
+    "action",
+    "environment",
+    "workflow",
+    "trigger",
+    "component",
+    "action-test",
+    "review-procedure",
+    "compute-template",
+    "environment-binding",
+    "environment-image-binding",
+    "api-price",
+    "plugin-lock",
+)
+
+
+def _properties(node: Any, path: str = "") -> Iterator[tuple[str, dict[str, Any]]]:
+    """Every property schema in a schema, by where it is."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "properties" and isinstance(value, dict):
+                for name, schema in value.items():
+                    if isinstance(schema, dict):
+                        yield f"{path}.{name}", schema
+            yield from _properties(value, f"{path}/{key}")
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            yield from _properties(value, f"{path}[{i}]")
+
+
+def test_every_schema_says_how_its_keys_are_versioned() -> None:
+    from iki_spec import releases
+
+    def no_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        keys = [k for k, _ in pairs]
+        assert len(keys) == len(set(keys)), f"a key appears twice: {sorted(keys)}"
+        return dict(pairs)
+
+    now = releases.release(releases.iki())
+    for name in schemas.NAMES:
+        text = files("iki_spec.schemas").joinpath(name, "v1.json").read_text("utf-8")
+        schema = json.loads(text, object_pairs_hook=no_duplicates)
+        for where, prop in _properties(schema):
+            for mark in ("x-iki-since", "x-iki-deprecated-since"):
+                if mark in prop:
+                    assert releases.release(prop[mark]) <= now, (name, where, mark)
+            if prop.get("deprecated"):
+                assert prop.get("x-iki-deprecated-since") and prop.get("x-iki-use"), (
+                    f"{name}{where} is deprecated without the release and what to use instead."
+                )
+            assert prop.get("x-iki-provisional", True) is True, (name, where)
+    provisional = {
+        k
+        for k, v in schemas.load("entity-type")["properties"].items()
+        if v.get("x-iki-provisional")
+    }
+    assert provisional == {"stock_catalogue", "work_item", "draw_purposes"}
+
+
+@pytest.mark.parametrize("name", AUTHORED_KINDS)
+def test_every_kind_takes_annotations_and_x_keys(name: str) -> None:
+    schema = schemas.load(name)
+    assert schema["properties"]["annotations"] == {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations"
+    }
+    assert list(schema["patternProperties"]) == ["^x-"]
+
+
 def test_the_manifest_schema_dispatches_on_kind() -> None:
     assert schemas.check("manifest", {"apiVersion": "iki/v1", "kind": "Plugin"})
     assert not schemas.check(
         "manifest",
-        {"apiVersion": "iki/v1", "kind": "Plugin", "name": "acme/lab", "version": "1.0.0"},
+        {
+            "apiVersion": "iki/v1",
+            "kind": "Plugin",
+            "name": "acme/lab",
+            "version": "1.0.0",
+            "iki": ">=0.1",
+        },
     )
     issues = schemas.check("manifest", {"apiVersion": "iki/v1", "kind": "Nope"})
     assert [i.message for i in issues] == [
@@ -2683,7 +2897,7 @@ fields:
 
 def test_work_items_round_trip_without_a_release_policy(tmp_path: Path) -> None:
     result = make(tmp_path, requests() | {"types/work_item.yaml": WORK_ITEM}, ROLES)
-    assert result.problems == []
+    assert problems(result) == []
     assert result.plugin is not None
     found = result.plugin.types["acme/lab.WorkItem"]
     assert found.work_item is not None and found.work_item.of == "request"
@@ -3393,7 +3607,7 @@ amount: { unit: mg }
 draw_purposes: {qa_sampling: {by: [qa]}}
 """
     result = make(tmp_path, parent + child, ROLES)
-    assert result.problems == []
+    assert problems(result) == []
     assert result.plugin is not None
     built = plugin_from_dict(plugin_to_dict(result.plugin))
     assert built.types["acme/lab.Assay"].draw_purposes == {

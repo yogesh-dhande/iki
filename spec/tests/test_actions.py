@@ -32,6 +32,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 TYPES = """\
@@ -149,7 +150,7 @@ def action(**changes: str) -> str:
 
 def test_the_example_actions_and_environments_are_valid() -> None:
     protein = load_plugin(PROTEIN, dependencies=[DNA])
-    assert protein.problems == []
+    assert [p for p in protein.problems if p.code != "provisional-key"] == []
     assert protein.plugin is not None
     compute = protein.plugin.actions["compute_properties"]
     assert compute.qualified_name == "acme/protein.compute_properties"
@@ -1146,7 +1147,7 @@ def test_an_api_no_action_calls_is_warned_about(tmp_path: Path) -> None:
 
 def test_the_example_plugins_api(tmp_path: Path) -> None:
     result = load_plugin(PLUGINS / "protein", dependencies=[PLUGINS / "dna"])
-    assert result.problems == []
+    assert [p for p in result.problems if p.code != "provisional-key"] == []
     assert result.plugin is not None
     (use,) = result.plugin.actions["predict_hosted"].apis
     assert use.api is not None and use.api.host == "fold.models.example"

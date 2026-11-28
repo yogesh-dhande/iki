@@ -48,7 +48,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/proteins # namespace/name; types are acme/proteins.Name, tables acme__proteins_name
 version: 3.0.0 # semantic version, for people (deployments pin the git commit)
-iki: ">=0.1,<0.3" # the Iki releases it works with: others refuse it
+iki: ">=0.1,<0.3" # required: the Iki releases it works with; others refuse it
 title: Proteins
 license: Apache-2.0
 homepage: https://github.com/acme/iki-proteins # https only: where to read about it
@@ -2497,10 +2497,58 @@ before serving it.
 `iki:` lists the Iki releases a plugin works with, as comparisons with
 release numbers, such as `">=0.1,<0.3"`
 ([ADR 0095](../docs/adr/0095-a-plugin-says-which-iki-it-works-with-and-versions-its-changes.md)).
+Every plugin says it: leaving it out is an error (`missing-iki`,
+[ADR 0293](../docs/adr/0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md)).
 On any other release, `iki plugin validate`, `build` and `deploy` refuse it
 (`iki-version`), and so does the deployment's migrate Job, before it
 migrates anything. A build of Iki counts as its release: `0.2.0.dev3` is
-`0.2.0`. Leaving `iki:` out says nothing either way.
+`0.2.0`. A plugin made for a later Iki is told so first, and a key this Iki
+doesn't have is reported as one the plugin's release may have, not as a
+typo.
+
+### When each key came, and when it goes
+
+The published schemas say how each key is versioned, and the validator
+checks a plugin's keys against its `iki:`:
+
+- **`x-iki-since`.** A key added after its kind's first release says the
+  release it came in, such as `x-iki-since: "0.3"`. A plugin that uses it
+  while `iki:` admits an earlier release is refused (`iki-range`): it says
+  it loads on an Iki that doesn't know the key. Raise `iki:` to start at
+  the key's release.
+- **`deprecated`.** A deprecated key has `deprecated: true`, the release
+  that deprecated it (`x-iki-deprecated-since`) and what to write instead
+  (`x-iki-use`). It works for one more minor release, and using it is a
+  warning (`deprecated-key`) that names the replacement. Editors that read
+  the schemas strike it through.
+- **`x-iki-provisional`.** A provisional key may change shape in a minor
+  release, with a codemod and a release note, before a second plugin has
+  tried it. A lab plugin that uses one is warned (`provisional-key`). They
+  are an entity type's `stock_catalogue`, `work_item` and `draw_purposes`.
+
+Nothing in `iki/v1` is deprecated yet, and no provisional key may change,
+until `iki plugin upgrade` can rewrite a plugin's manifests for it. A REST
+operation that's deprecated says so in the OpenAPI document and in its
+`Deprecation` and `Sunset` response headers.
+
+### Annotations and `x-` keys
+
+Every kind of manifest takes `annotations:`, a lab's own metadata about it,
+by name: lower-case letters, digits, `.`, `_` and `-`, with an optional
+`domain/` before, to text of up to 2,000 characters.
+
+```yaml
+annotations:
+  acme.com/owner: Protein sciences
+  gxp_classification: GAMP 5 category 4
+  validation_status: Validated 2026-10-01 (VAL-0142)
+```
+
+Iki keeps them in the build, shows a plugin's and an entity type's on
+their pages, and returns them in the API, but never acts on them, so
+changing one isn't a change to the type. Beside them, a top-level key
+starting `x-`, such as `x-acme-reviewed: 2026-11-01`, is for your own
+tools: the validator ignores it, and the build drops it.
 
 ## Dependencies
 
@@ -3370,6 +3418,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `file-too-large`, `not-utf8`, `unreadable-file`, `symlink`, `not-a-mapping`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | The file                        |
 | `missing-plugin-manifest`, `duplicate-plugin-manifest`, `wrong-file`, `not-a-directory`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Where manifests are             |
 | `missing-api-version`, `unsupported-api-version`, `missing-kind`, `unknown-kind`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | A manifest's header             |
+| `missing-iki`, `iki-version`, `iki-range`; `deprecated-key`, `provisional-key` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | The Iki it works with           |
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
@@ -3392,7 +3441,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `writer-memory`, `writer-format-dependency`, `writer-active-format`, `writer-format-extension`, `writer-module`, `writer-digest`, `writer-rejected`, `writer-dependency`, `unknown-writer`, `unknown-role`, `export-field`, `export-role-missing`                                                                                                                                                                                                                                                                                                                                                                                                     | Writers and their exports       |
 | `file-too-large`, `invalid-json-schema`, `display-title`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Files, JSON fields and titles   |
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
-| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
+| `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Dependencies                    |
 | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
 | `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`, `hrid-override-core`, `hrid-override-unlisted`                                                                                                                                                                                                                                                                                     | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one`                                                                                                                                                                                                                                                                                                                                                                                               | Actions                         |

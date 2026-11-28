@@ -98,7 +98,7 @@ from iki_spec.model import (
     refinement,
     split_entry,
 )
-from iki_spec.problems import Location, Path, Problem, Severity
+from iki_spec.problems import Location, Path, Problem, Severity, describe_path
 from iki_spec.writers import manifest as writer_manifest
 from iki_spec.yamlsource import Document, parse_documents, read_documents
 
@@ -264,6 +264,11 @@ class _Checker:
     def __init__(self, directory: FilePath) -> None:
         self.directory = directory
         self.problems: list[Problem] = []
+        # From plugin.yaml, for checking every manifest's keys against (ADR 0293): its
+        # `iki:` range, whether this Iki is outside it, and whether the plugin is Iki's.
+        self.iki_range: str | None = None
+        self.made_for_other_iki = False
+        self.first_party = False
 
     def add(
         self,
@@ -437,7 +442,8 @@ def _read(root: FilePath) -> _Loaded:
             "missing-plugin-manifest",
             "There's no plugin.yaml here, so this isn't a plugin.",
             file="plugin.yaml",
-            hint="Start one with `apiVersion: iki/v1`, `kind: Plugin`, a `name` and a `version`.",
+            hint="Start one with `apiVersion: iki/v1`, `kind: Plugin`, a `name`, a `version` "
+            "and `iki`, the Iki releases it's for.",
         )
         return loaded
     documents = _documents(root, manifest, checker)
@@ -463,11 +469,12 @@ def _read(root: FilePath) -> _Loaded:
                 "missing-plugin-manifest",
                 "plugin.yaml doesn't hold a Plugin manifest.",
                 file=_rel(root, manifest),
-                hint="Start it with `apiVersion: iki/v1`, `kind: Plugin`, a `name` and a "
-                "`version`.",
+                hint="Start it with `apiVersion: iki/v1`, `kind: Plugin`, a `name`, a "
+                "`version` and `iki`, the Iki releases it's for.",
             )
         return loaded
     plugin_doc = plugin_docs[0]
+    _iki_range(plugin_doc, checker)
     if not _schema_ok(plugin_doc, checker):
         return loaded
     data = plugin_doc.data
@@ -483,15 +490,6 @@ def _read(root: FilePath) -> _Loaded:
         )
         return loaded
     loaded.plugin_source = plugin_doc
-    if "iki" in data and not releases.fits(data["iki"]):
-        checker.add(
-            "iki-version",
-            f"{name} works with Iki {data['iki'].strip()}, and this is Iki {releases.iki()}.",
-            plugin_doc,
-            ("iki",),
-            hint=f"Use a release of {name} made for Iki {releases.iki()}, or deploy an Iki "
-            "it works with.",
-        )
 
     types: dict[str, EntityType] = {}
     extensions: list[Extension] = []
@@ -519,6 +517,7 @@ def _read(root: FilePath) -> _Loaded:
             extensions.append(
                 Extension(
                     plugin=name,
+                    annotations=dict(body.get("annotations") or {}),
                     extends_type=qualify(body["extends_type"], name),
                     fields=_fields(body.get("fields", {}), name),
                     description=body.get("description"),
@@ -610,6 +609,7 @@ def _read(root: FilePath) -> _Loaded:
     loaded.plugin = Plugin(
         name=name,
         version=data["version"],
+        annotations=dict(data.get("annotations") or {}),
         title=data.get("title") or name.replace("_", " ").capitalize(),
         description=data.get("description"),
         license=data.get("license"),
@@ -792,7 +792,8 @@ def _header_ok(document: Document, checker: _Checker) -> bool:
             f"This Iki reads `{API_VERSION}` manifests, not `{version}`.",
             document,
             ("apiVersion",),
-            hint="`iki plugin upgrade` moves manifests to a newer version."
+            hint=f"A manifest for another spec version needs an Iki that reads it; this one "
+            f"reads only `{API_VERSION}`."
             if isinstance(version, str) and version.startswith("iki/")
             else None,
         )
@@ -818,13 +819,87 @@ def _header_ok(document: Document, checker: _Checker) -> bool:
     return True
 
 
-def _schema_ok(document: Document, checker: _Checker) -> bool:
-    issues = schemas.check(KINDS[document.data["kind"]], document.data)
-    for issue in issues:
+def _iki_range(plugin_doc: Document, checker: _Checker) -> None:
+    """Read plugin.yaml's `iki:` before anything else is checked, so every manifest's keys
+    can be checked against it, and a plugin made for another Iki says so first (ADR 0293)."""
+    data = plugin_doc.data
+    requirement = data.get("iki")
+    name = data.get("name") if isinstance(data.get("name"), str) else "This plugin"
+    checker.first_party = name in naming.FIRST_PARTY
+    if not isinstance(requirement, str) or re.fullmatch(schemas.IKI_RELEASES, requirement) is None:
+        return  # the schema check says what's wrong with it
+    checker.iki_range = requirement
+    if not releases.fits(requirement):
+        checker.made_for_other_iki = True
         checker.add(
-            "schema", issue.message, document, issue.path, hint=issue.hint, key=issue.at_key
+            "iki-version",
+            f"{name} works with Iki {requirement.strip()}, and this is Iki {releases.iki()}.",
+            plugin_doc,
+            ("iki",),
+            hint=f"Use a release of {name} made for Iki {releases.iki()}, or deploy an Iki "
+            "it works with.",
         )
+
+
+def _schema_ok(document: Document, checker: _Checker) -> bool:
+    schema = KINDS[document.data["kind"]]
+    issues = schemas.check(schema, document.data)
+    for issue in issues:
+        hint = issue.hint
+        if checker.made_for_other_iki and "isn't allowed here" in issue.message:
+            hint = (
+                f"The plugin is made for Iki {(checker.iki_range or '').strip()}, and this is "
+                f"Iki {releases.iki()}, which may not have this key."
+            )
+        checker.add(
+            issue.code or "schema", issue.message, document, issue.path, hint=hint, key=issue.at_key
+        )
+    if not issues:
+        _versioned_keys(schema, document, checker)
     return not issues
+
+
+def _versioned_keys(schema: str, document: Document, checker: _Checker) -> None:
+    """Check the keys a manifest uses against when they came, whether they're deprecated,
+    and whether they're provisional (ADR 0293)."""
+    for mark in schemas.marks(schema, document.data):
+        key = describe_path(mark.path)
+        if mark.keyword == "x-iki-since":
+            since = str(mark.schema["x-iki-since"])
+            if checker.iki_range is not None and releases.admits_before(checker.iki_range, since):
+                checker.add(
+                    "iki-range",
+                    f"`{key}` needs Iki {since} or later, and `iki: {checker.iki_range.strip()}` "
+                    "admits earlier releases.",
+                    document,
+                    mark.path,
+                    key=True,
+                    hint=f"Raise the plugin's range to start at {since}, such as "
+                    f'`iki: ">={since}"`.',
+                )
+        elif mark.keyword == "deprecated":
+            since = mark.schema.get("x-iki-deprecated-since", "")
+            use = mark.schema.get("x-iki-use", "")
+            checker.add(
+                "deprecated-key",
+                f"`{key}` is deprecated since Iki {since}, and goes in the next minor release.",
+                document,
+                mark.path,
+                key=True,
+                severity=Severity.WARNING,
+                hint=f"Use {use} instead." if use else None,
+            )
+        elif mark.keyword == "x-iki-provisional" and not checker.first_party:
+            checker.add(
+                "provisional-key",
+                f"`{key}` is provisional: a minor release of Iki may change its shape, with a "
+                "codemod and a release note.",
+                document,
+                mark.path,
+                key=True,
+                severity=Severity.WARNING,
+                hint="Use it if you need it, and read each release's notes before upgrading.",
+            )
 
 
 def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> EntityType:
@@ -840,6 +915,7 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
     return EntityType(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         schema_version=body["schema_version"],
         label=body.get("label") or _words(name),
         # "DNA sequence" → "DNA sequences": from its label, which may be worded unlike its name.

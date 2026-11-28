@@ -1431,6 +1431,8 @@ class EntityTypeOut(TypedDict):
     abstract: bool
     #: How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero.
     amount: NotRequired[TypeAmountOut | None]
+    #: Its lab's own metadata about the type, by name, such as its owner or validation status (ADR 0293): shown, never acted on.
+    annotations: NotRequired[dict[str, str]]
     description: str | None
     #: Its plugin is detached (ADR 0091): its entities can be read, not changed, and no new ones can be made.
     detached: bool
