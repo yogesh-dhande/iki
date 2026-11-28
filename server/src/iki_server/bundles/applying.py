@@ -856,19 +856,19 @@ class _Writer:
         import never brings one that doesn't verify."""
         from iki_server.signatures import proof, signing_keys
         from iki_server.signatures import services as signature_services
-        from iki_server.signatures.models import Signature, Withdrawal
+        from iki_server.signatures.models import ForeignSigningKey, Signature, Withdrawal
 
         # What migrations here do to its record's history from now on, it's read through,
         # signed by this deployment's own key (ADR 0148): made now, if it has none yet.
         seen = signature_services.history_seen()
         if any(line["record"] in planned for line in self.bundle.lines("signatures.ndjson")):
             signing_keys.current()
-        trusted = signing_keys.trusted()
-        for binding in self.bundle.manifest.get("signing_keys", []):
-            if trusted.setdefault(binding["key"], binding["deployment"]) != binding["deployment"]:
-                raise reading.BundleError(
-                    "A signing key names a different deployment than its established binding."
-                )
+        listed = signing_keys.listed(
+            self.bundle.manifest.get("signing_keys", []), source=self.bundle.source
+        )
+        if listed.problems:
+            raise reading.BundleError(listed.problems[0])
+        trusted = listed.trusted
         entities = {line["id"]: line["type"] for line in self.bundle.lines("entities.ndjson")}
         reviews: dict[str, tuple[str, int, str, str]] = {}
         for line in self.bundle.lines("signatures.ndjson"):
@@ -959,6 +959,21 @@ class _Writer:
                     withdrawn_at=w["at"],
                 )
             self.counts["signatures"] += 1
+        # Each key this import trusts now, for its own deployment or one it vouches for.
+        for bound in ForeignSigningKey.objects.filter(bundle_import=self.made).order_by("public"):
+            audit.record(
+                "bundle.signing_key_trusted",
+                actor=self.made.applied_by,
+                target=self.made,
+                project=self.made.project,
+                data={
+                    "import": str(self.made.pk),
+                    "key": bound.public,
+                    "deployment": bound.deployment,
+                    "source": self.made.trusted_as,
+                    "for_source": bound.deployment == self.bundle.source,
+                },
+            )
         self._released_reviews(planned, reviews, trusted)
 
     def _released_reviews(

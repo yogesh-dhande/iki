@@ -1,6 +1,7 @@
 # 0128. Guards say when a state may be set: allowed moves, four eyes and more
 
 - Status: Accepted
+- Amended by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md): declared independence (`independent_of`, `maker`) compiles into guards
 - Date: 2026-11-18
 - Refines: [0125](0125-a-state-is-a-field-each-state-says-who-sets-it.md),
   [0127](0127-plugins-rules-are-checked-at-every-save.md),

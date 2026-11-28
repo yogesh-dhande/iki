@@ -23,9 +23,10 @@ ARG IKI_WRITER_BUILDER=rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e0621
 # crates.io sets IKI_CARGO_MIRROR to its registry mirror, or its plugins vendor
 # their crates. `iki plugin writers --update` runs these same stages.
 FROM --platform=linux/amd64 ${IKI_WRITER_BUILDER} AS writer-build
+ARG IKI_WRITER_BUILDER
 ARG IKI_CARGO_MIRROR=
 COPY plugins/iki_installed_plugins/__init__.py plugins/iki_installed_plugins/writer[s] /src/writers/
-RUN set -eu; mkdir -p /out; \
+RUN set -eu; mkdir -p /out; printf '%s\n' "$IKI_WRITER_BUILDER" > /out/builder; \
     if [ -s /src/writers/writers.txt ]; then \
       rustup target add wasm32-unknown-unknown; \
       while read -r crate; do \
@@ -36,7 +37,8 @@ RUN --network=none set -eu; \
     if [ -s /src/writers/writers.txt ]; then \
       while read -r crate; do \
         mkdir -p "/out/$(dirname "$crate")"; \
-        sh /src/writers/sdk/iki-writer/build-writer.sh build           "/src/writers/$crate" "/out/$crate.wasm"; \
+        sh /src/writers/sdk/iki-writer/build-writer.sh build \
+          "/src/writers/$crate" "/out/$crate.wasm"; \
       done < /src/writers/writers.txt; \
     fi
 FROM scratch AS writer-wasm

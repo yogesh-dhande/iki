@@ -4,109 +4,24 @@
  *
  * A saved search keeps what the address does (type, archived or not, text,
  * filters and sort), so opening one is following a link to that address. The
- * sidebar's saved views link to `/saved-searches/<id>/`, which goes there.
+ * sidebar's saved views link to `/saved-searches/<id>/`, which goes there
+ * (pages/saved-search.tsx).
  */
 
 import { unwrap } from "@ikisci/sdk";
-import { queryOptions, useQuery, useSuspenseQuery, type QueryClient } from "@tanstack/react-query";
-import { Link, redirect, useParams } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
 import { iki, problemOf, useApiMutation, type Project } from "../api";
-import { usePageTitle } from "../layout";
-import { TopBar } from "../page-top";
 import {
-  DEFAULT_SORT,
-  gridSearch,
   SAVED_SEARCHES,
   savedSearchesQuery,
-  sortKeysOf,
-  sortKeyText,
-  validateEntitySearch,
   type EntitySearch,
   type SavedSearch,
 } from "../entities";
-import { sameJson, searchWords, wordsOf, type Filter } from "../filters";
-import { Button, ConfirmDialog, PageTitle, TextField, useMessages } from "../ui";
-
-interface Query {
-  type?: string | null;
-  archived?: boolean | null;
-  exact_type?: boolean | null;
-  q?: string | null;
-  where?: { all?: unknown[] } | Filter | null;
-  sort?: { field: string; descending?: boolean } | null;
-  then?: { field: string; descending: boolean }[] | null;
-}
-
-/**
- * The grid's address for a saved search, or null if it holds what the grid can't show:
- * opening it would run another search. The grid's own searches come back as they were
- * made (see `gridSearch`): the filters', and a group of conditions the search box's words
- * make, as those words again.
- */
-export function toAddress(query: Query): EntitySearch | null {
-  const out: EntitySearch = {};
-  // The grid finds a type's subtypes too.
-  if (query.exact_type) return null;
-  if (query.type) out.type = query.type;
-  if (query.archived === true) out.show = "archived";
-  else if (query.archived !== false) out.show = "all";
-  // Text the search box would read as conditions isn't text to it.
-  if (query.q && searchWords(query.q).conditions.length) return null;
-  const words: string[] = [];
-  if (query.where) {
-    const where = query.where as Record<string, unknown>;
-    const all = "all" in where ? (where["all"] as unknown[]) : "field" in where ? [where] : null;
-    if (!all) return null;
-    const filters: Filter[] = [];
-    for (const c of all) {
-      if (typeof c !== "object" || c === null) return null;
-      if ("field" in c) {
-        filters.push(c as Filter);
-      } else if ("all" in c && Array.isArray(c.all) && !words.length) {
-        const said = wordsOf(c.all);
-        if (!said?.length) return null;
-        words.push(...said);
-      } else {
-        return null;
-      }
-    }
-    if (filters.length) out.filters = filters;
-  }
-  const q = [query.q ?? "", ...words].filter(Boolean).join(" ");
-  if (q) out.q = q;
-  // Without a sort of its own, it opens in the grid's order, newest changes first, as
-  // every list does (ADR 0176).
-  if (
-    query.sort &&
-    (query.sort.field !== DEFAULT_SORT.field ||
-      Boolean(query.sort.descending) !== DEFAULT_SORT.descending ||
-      Boolean(query.then?.length))
-  ) {
-    out.sort = query.sort.field;
-    if (query.sort.descending) out.desc = true;
-    if (query.then?.length) out.then = query.then.map(sortKeyText);
-  }
-  // The grid reads only so many filters and so much text from its address. A search that
-  // needs more isn't a link: the grid would run it without what it cut.
-  return sameJson(validateEntitySearch({ ...out }), out) ? out : null;
-}
-
-/** The grid's search, as a saved search keeps it: what the grid runs, without its project. */
-export function fromAddress(search: EntitySearch) {
-  const show = search.show ?? "current";
-  return gridSearch({
-    type: search.type,
-    archived: show === "all" ? undefined : show === "archived",
-    q: search.q,
-    filters: search.filters,
-    // Without a sort in the address, the grid's default order, which it runs.
-    sort: search.sort ?? DEFAULT_SORT.field,
-    descending: search.sort ? search.desc : DEFAULT_SORT.descending,
-    then: search.sort ? sortKeysOf(search.then) : undefined,
-  });
-}
+import { fromAddress, toAddress } from "../search-address";
+import { Button, ConfirmDialog, TextField, useMessages } from "../ui";
 
 export function SavedSearches({ project, search }: { project: Project; search: EntitySearch }) {
   const saved = useQuery(savedSearchesQuery(project.id));
@@ -187,89 +102,6 @@ export function SavedSearches({ project, search }: { project: Project; search: E
         }}
       />
     </div>
-  );
-}
-
-function savedSearchQuery(id: string) {
-  return queryOptions({
-    queryKey: [...SAVED_SEARCHES, "one", id],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/saved-searches/{saved_id}", {
-          params: { path: { saved_id: id } },
-          signal,
-        }),
-      ),
-  });
-}
-
-function projectByIdQuery(id: string) {
-  return queryOptions({
-    queryKey: ["projects", "by-id", id],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/projects/{project_id}", {
-          params: { path: { project_id: id } },
-          signal,
-        }),
-      ),
-  });
-}
-
-/** Opening a saved search from its own address (a saved view): its project's grid, or,
- * for a search of every project, All entities, with the search in the address. One the
- * grid can't show stays here, to say so. */
-export async function openSavedSearch(client: QueryClient, id: string): Promise<void> {
-  const saved = await client.query(savedSearchQuery(id));
-  const address = toAddress(saved.query);
-  if (!address) return;
-  if (!saved.project) {
-    // eslint-disable-next-line @typescript-eslint/only-throw-error -- how TanStack redirects
-    throw redirect({ to: "/entities/", search: address, replace: true });
-  }
-  const project = await client.query(projectByIdQuery(saved.project));
-  // eslint-disable-next-line @typescript-eslint/only-throw-error -- how TanStack redirects
-  throw redirect({
-    to: "/projects/$slug/entities/",
-    params: { slug: project.slug },
-    search: address,
-    replace: true,
-  });
-}
-
-export function SavedSearchPage() {
-  const { savedId } = useParams({ from: "/saved-searches/$savedId" });
-  const saved = useSuspenseQuery(savedSearchQuery(savedId)).data;
-  usePageTitle(saved.name);
-  return (
-    <section className="card">
-      <TopBar crumbs={[<Link to="/entities/">Entities</Link>, saved.name]} />
-      <PageTitle>{saved.name}</PageTitle>
-      <p>
-        This search was saved through Iki’s API, with conditions the grid can’t show, so it can’t
-        open there.{" "}
-        {saved.project ? (
-          <ProjectEntitiesLink id={saved.project} />
-        ) : (
-          <>
-            Everything you can read is in <Link to="/entities/">All entities</Link>.
-          </>
-        )}
-      </p>
-    </section>
-  );
-}
-
-function ProjectEntitiesLink({ id }: { id: string }) {
-  const project = useSuspenseQuery(projectByIdQuery(id)).data;
-  return (
-    <>
-      Its project’s entities are{" "}
-      <Link to="/projects/$slug/entities/" params={{ slug: project.slug }}>
-        in {project.name}
-      </Link>
-      .
-    </>
   );
 }
 

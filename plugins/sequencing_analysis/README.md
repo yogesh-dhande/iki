@@ -50,6 +50,20 @@ findings return it to Recorded. Assign the matching project roles before review.
 
 - The first four GRCh38 sites for [NIST Genome in a Bottle](https://www.nist.gov/programs-projects/genome-bottle)
   HG002 v4.2.1, from cell line [GM24385](https://www.cellosaurus.org/CVCL_1C78).
+- Seven GRCh38 calls from the same benchmark, bgzipped as NIST distributes it
+  ([HG002_GRCh38_1_22_v4.2.1_benchmark.vcf.gz](https://ftp-trace.ncbi.nlm.nih.gov/ReferenceSamples/giab/release/AshkenazimTrio/HG002_NA24385_son/NISTv4.2.1/GRCh38/)):
+  the file's header and its first calls of each genotype it has, heterozygous
+  (0/1, 1/0), homozygous (1/1) and multiallelic (1/2, 2/1).
+- DeepVariant 1.10's golden gVCF for NA12878 on chr20, from the
+  [DeepVariant test data](https://github.com/google/deepvariant/blob/45f2627504c59785ea2b88d0256a2ec347bce7b4/deepvariant/testdata/golden.postprocess_gvcf_output.g.vcf)
+  (BSD-3-Clause): reference blocks (`<*>`), no-calls and variant calls.
+- The first four chrY sites of the [1000 Genomes phase 3](http://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/)
+  cohort VCF, whose 1,233 male samples have haploid calls. The fixture selects HG00101.
+- GATK's [spanning deletion test VCF](https://github.com/broadinstitute/gatk/blob/99963319154d1e8f3a5b4fd61819d883565a246b/src/test/resources/org/broadinstitute/hellbender/tools/walkers/variantutils/SelectVariants/spanning_deletion.vcf)
+  (Apache-2.0), with a site whose only alternate in one sample is `*`.
+- A featureCounts 2.0.1 table with its program line, from
+  [bamtocov's test inputs](https://github.com/telatin/bamtocov/blob/8a79a6db596a5644ebcd5d954649f748efebbc69/input/tiny/fc) (MIT).
+  The tests compress it and the AIRR fixture with gzip to read them as a pipeline writes them.
 - The first four genes from the [GEO GSE176296](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE176296)
   yeast study's raw count matrix. The fixture selects the WTJ.1 sample column.
 - The first four contigs' annotation columns from the published human PBMC

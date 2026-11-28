@@ -86,7 +86,7 @@ jobs:
         run: make check-scale-grid
 
   queue:
-    name: 32 workers leasing from 100k queued jobs
+    name: 32 workers leasing from 100k queued jobs, and packs within quotas
     if: ${{ !inputs.only || inputs.only == 'all' || inputs.only == 'queue' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -106,7 +106,7 @@ jobs:
       - name: Install the pinned Rust toolchain
         working-directory: worker
         run: rustup show active-toolchain || rustup toolchain install
-      - name: Lease and complete 5,000 jobs from 100k queued behind 1M finished
+      - name: Lease and complete 5,000 jobs from 100k queued behind 1M finished, then packs within quotas
         run: make check-scale-queue
 
   files:

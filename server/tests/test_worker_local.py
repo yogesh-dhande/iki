@@ -85,6 +85,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
         "id": "s1",
         "hrid": "PST-000001",
         "type": "iki/protein.ProteinStructure",
+        "types": ["iki/protein.ProteinStructure", "iki/core.Entity"],
         "schema_version": 1,
         "revision": 1,
         "values": {"structure": "f1", "method": "xray", "chains": ["c1"]},
@@ -95,6 +96,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
                     "id": "c1",
                     "hrid": "PRT-000001",
                     "type": "iki/protein.Protein",
+                    "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
                     "schema_version": 1,
                     "revision": 1,
                     "values": {"sequence": "MKVLA"},
@@ -141,7 +143,7 @@ def test_results_must_be_files_the_command_made(
     )
     ran = run_local(worker_bin, tmp_path, run_input([sys.executable, "main.py"]), plugin=plugin)
     assert ran.returncode == 1
-    assert "isn't a file in IKI_OUT_DIR" in ran.stderr
+    assert "isn't a regular file in IKI_OUT_DIR" in ran.stderr
 
 
 def test_the_command_sees_only_its_own_environment_and_is_stopped_at_its_timeout(

@@ -2351,8 +2351,12 @@ def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
     # The certificate states each criterion's final result and says it's for research,
     # without the failed attempt or its investigation.
     coa = certificate["values"]["coa"]
-    if [row["value"] for row in coa["results"]] != [99.9, 0.2] or "research" not in coa.get(
-        "intended_use", ""
+    # Each result as reported to its limits' place (USP General Notices 7.20), and the
+    # material it's for by name (ICH Q7 §11.41).
+    if (
+        [row["reported"] for row in coa["results"]] != ["99.9", "0.2"]
+        or coa["material"]["name"] != "Sodium chloride"
+        or "research" not in coa.get("intended_use", "")
     ):
         fail(f"{certificate['hrid']} states the wrong results: {coa}")
     sign(certificate, "review", "signed_off")

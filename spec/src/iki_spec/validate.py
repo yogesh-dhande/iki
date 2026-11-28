@@ -31,6 +31,7 @@ from iki_spec import (
     helm,
     naming,
     notifications,
+    procedures,
     releases,
     rules,
     schemas,
@@ -47,6 +48,7 @@ from iki_spec.model import (
     GRID_COLUMNS,
     GRID_POSITIONS,
     GRID_ROWS,
+    GUARD_GROUPS,
     LIST_CODE,
     LIST_FIELDS,
     LIST_LABEL,
@@ -74,6 +76,8 @@ from iki_spec.model import (
     ReportExport,
     RequestSpec,
     ResultSpec,
+    ReviewProcedure,
+    ReviewSpec,
     RowRole,
     State,
     StockCatalogue,
@@ -117,6 +121,7 @@ KINDS = {
     "Workflow": "workflow",
     "Trigger": "trigger",
     "Component": "component",
+    "ReviewProcedure": "review-procedure",
 }
 
 #: Where each kind of manifest lives in a plugin.
@@ -128,6 +133,7 @@ DIRECTORIES = {
     "Workflow": "workflows",
     "Trigger": "triggers",
     "Component": "components",
+    "ReviewProcedure": "procedures",
 }
 
 MAX_IDENTIFIER = naming.MAX_IDENTIFIER
@@ -394,6 +400,7 @@ class _Loaded:
     workflow_sources: dict[str, Document] = field(default_factory=dict)
     trigger_sources: dict[str, Document] = field(default_factory=dict)
     component_sources: dict[str, Document] = field(default_factory=dict)
+    procedure_sources: dict[str, Document] = field(default_factory=dict)
     # The raw (schema-valid) documents, for checks on things the model drops.
     raw: dict[int, dict[str, Any]] = field(default_factory=dict)
 
@@ -567,6 +574,19 @@ def _read(root: FilePath) -> _Loaded:
         ):
             shown[component.name] = component
 
+    found_procedures: dict[str, ReviewProcedure] = {}
+    for document in _manifests(root, "procedures", checker):
+        procedure = procedures.read_procedure(name, document.data, document.file)
+        if _unique(
+            "duplicate-procedure",
+            procedure.qualified_name,
+            found_procedures,
+            loaded.procedure_sources,
+            document,
+            checker,
+        ):
+            found_procedures[procedure.qualified_name] = procedure
+
     roles = {
         f"{name}.{role}": LabRole(
             plugin=name,
@@ -604,6 +624,7 @@ def _read(root: FilePath) -> _Loaded:
         starters=dict(data.get("starters", {})),
         apis=apis.read_apis(name, data),
         writers=writer_manifest.read_writers(name, data, root),
+        procedures=found_procedures,
     )
     # Each action's uses of an outside API, with the API as the plugin declares it.
     loaded.plugin = apis.resolve(loaded.plugin)
@@ -723,6 +744,7 @@ def _kind_phrase(document: Document) -> str:
         "Workflow": "a workflow",
         "Trigger": "a trigger",
         "Component": "a component",
+        "ReviewProcedure": "a review procedure",
     }.get(kind or "", f"a {kind}")
 
 
@@ -735,6 +757,7 @@ def _kind_phrase_plural(kind: str) -> str:
         "Workflow": "workflows",
         "Trigger": "triggers",
         "Component": "components",
+        "ReviewProcedure": "review procedures",
     }[kind]
 
 
@@ -799,6 +822,10 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
     list_spec: ListSpec | None = None
     identity = tuple(body.get("identity", ()))
     title = (body.get("display") or {}).get("title")
+    review = ReviewSpec.read(body.get("review"))
+    if review is not None:
+        # A declared field of the same name is refused by the semantic checks.
+        fields = {**fields, **{n: f for n, f in _review_fields(review).items() if n not in fields}}
     if listed is True or isinstance(listed, dict):
         # A lab list (ADR 0270): its options' code is their identity, and their label,
         # description and place in the list are facts, as are the type's other fields.
@@ -886,7 +913,49 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
             and isinstance(to := body_refines.get("to"), str | list)
         },
         list_spec=list_spec,
+        review=review,
     )
+
+
+def _review_fields(review: ReviewSpec) -> dict[str, Field]:
+    """The fields Iki adds to a reviewed type (ADRs 0301, 0302): the state field its pinned
+    procedure drives, which names only the states the type needs, and the procedure and
+    flow the server stamps at create."""
+    out: dict[str, Field] = {}
+    if not review.opens:
+        named = review.needs.named
+        out[review.field] = Field(
+            name=review.field,
+            type="state",
+            label=review.label,
+            description="The record's review, under the procedure and flow pinned on it.",
+            states={s: State(name=s, label=s.replace("_", " ").capitalize()) for s in named},
+            initial=review.needs.open,
+            procedure=True,
+        )
+    out["review_procedure"] = Field(
+        name="review_procedure",
+        type="string",
+        label="Review procedure",
+        description="The review procedure pinned on the record when it was created.",
+        computed=True,
+        immutable=True,
+        indexed=True,
+        searchable=False,
+        max_length=160,
+    )
+    out["review_flow"] = Field(
+        name="review_flow",
+        type="string",
+        label="Review flow",
+        description="The procedure's flow pinned on the record when it was created.",
+        computed=True,
+        immutable=True,
+        indexed=True,
+        searchable=False,
+        max_length=50,
+    )
+    return out
 
 
 def _draw_target(data: dict[str, Any] | None, plugin: str) -> DrawTarget | None:
@@ -1160,6 +1229,8 @@ class _Semantics:
         ):
             self.extension(extension, document, seen)
         self.settings(require_policy=require_setting_policy)
+        self.procedures()
+        self.declared_independence()
         # With what each rule and guard reads, for the server to load and point at.
         types, extensions = rules.check(self)
         self.plugin = self.loaded.plugin = dataclasses.replace(
@@ -1195,6 +1266,23 @@ class _Semantics:
                 source,
                 ("name",),
                 hint=f"Name it under your lab's or company's namespace, such as `acme/{short}`.",
+            )
+        if plugin.starters and plugin.name not in naming.FIRST_PARTY:
+            # A starter is a recipe the server has (ADR 0198); only Iki's own plugins'
+            # are in it, so another plugin's `starters` switch nothing on.
+            self.add(
+                "unknown-starter",
+                "Iki has no starter "
+                + ", ".join(f"`{s}`" for s in plugin.starters)
+                + ": only Iki's own plugins' starters can be offered at project setup, so "
+                "this does nothing.",
+                source,
+                ("starters",),
+                key=True,
+                severity=Severity.WARNING,
+                hint="Leave `starters` off. To let each deployment choose a review procedure, "
+                "declare an `enum` setting of the procedures and copy it onto each result "
+                "when it's recorded, as the lots plugin's `verification_flow` is.",
             )
         for dependency, constraints in plugin.dependencies.items():
             path: Path = ("dependencies", dependency)
@@ -1533,8 +1621,9 @@ class _Semantics:
             present = {n: f for n, f in names.items() if not f.removed}
             self.exports(entity_type, source, present)
         for name, f in entity_type.fields.items():
-            if f.type == "state":
+            if f.type == "state" and not f.procedure:
                 self.state_field(entity_type, f, source, ("fields", name), names)
+        self.review(entity_type, source)
         self.assignments(entity_type.fields, entity_type, source)
         if entity_type.due is not None:
             self.due(entity_type, source, every)
@@ -1553,6 +1642,295 @@ class _Semantics:
             self.storage(entity_type, source, every)
         if entity_type.is_list:
             self.list_type(entity_type, source)
+
+    # Review procedures (ADR 0301) -----------------------------------------------------------
+
+    def available_procedures(self) -> dict[str, ReviewProcedure]:
+        """The review procedures its types can be paired with: core's, its dependencies'
+        and its own, by qualified name and version."""
+        out: dict[str, ReviewProcedure] = {}
+        if not self.core:
+            out.update(core_plugin().procedures)
+        for other in self.others.values():
+            if other.plugin is not None:
+                out.update(other.plugin.procedures)
+        out.update(self.plugin.procedures)
+        return out
+
+    def procedures(self) -> None:
+        for qualified, procedure in self.plugin.procedures.items():
+            source = self.loaded.procedure_sources[qualified]
+            for problem in procedures.check_procedure(procedure):
+                self.add(
+                    problem.code,
+                    problem.message,
+                    source,
+                    problem.path,
+                    hint=problem.hint,
+                    severity=Severity.WARNING if problem.warning else Severity.ERROR,
+                )
+
+    def people_kind(self, entity_type: EntityType) -> Callable[[str], bool | None]:
+        """For a person path of its records (``investigator``, ``test.observed_by``):
+        whether it names a list of people, one person, or (None) no one."""
+        every = self.all_fields(entity_type)
+
+        def kind(path: str) -> bool | None:
+            head, _, tail = path.partition(".")
+            found = every.get(head)
+            if found is None:
+                return None
+            f = found[0]
+            if tail:
+                if f.type != "ref" or len(f.to) != 1 or f.to[0] not in self.types:
+                    return None
+                target = self.all_fields(self.types[f.to[0]]).get(tail)
+                if target is None:
+                    return None
+                f = target[0]
+            if not names_people(f):
+                return None
+            return f.type == "list"
+
+        return kind
+
+    def review_owner(self, entity_type: EntityType) -> EntityType | None:
+        """The type in its lineage whose ``review`` its records follow: its own, or the
+        nearest ancestor's. The one place a type's effective review is resolved, so the
+        shared effective-declaration resolver replaces only this."""
+        for t in [entity_type, *self.ancestors(entity_type)]:
+            if t.review is not None:
+                return t
+        return None
+
+    def review(self, entity_type: EntityType, source: Document) -> None:
+        """A reviewed type (ADR 0301): what it needs of a procedure, where its procedure is
+        pinned from (ADR 0302), and its own guards and exclusions."""
+        review = entity_type.review
+        if review is None:
+            return
+        parents = self.ancestors(entity_type)
+        parent = parents[0] if parents else None
+        ancestor = self.review_owner(parent) if parent is not None else None
+        if ancestor is not None:
+            self.add(
+                "review-inherited",
+                f"`{entity_type.name}` is reviewed as `{ancestor.qualified_name}` is, "
+                "which it extends: a type is reviewed once in its lineage.",
+                source,
+                ("review",),
+                key=True,
+                hint="Remove `review` here: its records follow its parent's review.",
+            )
+            return
+        body = self.loaded.raw.get(id(source)) or {}
+        declared = body.get("fields") or {}
+        added = [*([] if review.opens else [review.field]), "review_procedure", "review_flow"]
+        for name in added:
+            if name in declared:
+                self.add(
+                    "review-field-declared",
+                    f"`{name}` is a field Iki adds to a reviewed type, so the type doesn't "
+                    "declare it.",
+                    source,
+                    ("fields", name),
+                    key=True,
+                    hint="Remove it: Iki adds it, and the server sets it when a record is created.",
+                )
+        raw = body.get("review") or {}
+        if review.opens:
+            extra = [
+                k
+                for k in ("pinned", "derived", "needs", "guards", "independent_of", "field")
+                if k in raw
+            ]
+            for key in extra:
+                self.add(
+                    "review-opens",
+                    f"`{entity_type.name}` only opens work for the records that follow it, so "
+                    f"it has no review of its own for `{key}` to describe.",
+                    source,
+                    ("review", key),
+                    key=True,
+                )
+            return
+        if review.by is not None:
+            self.review_pinned_by(entity_type, review, source)
+        named = set(review.needs.named)
+        for name, own in review.guards.items():
+            at: Path = ("review", "guards", name)
+            if name in procedures.COMPILED_GUARDS:
+                self.add(
+                    "review-guard-name",
+                    f"`{name}` is the name of a guard Iki compiles from the procedure.",
+                    source,
+                    at,
+                    key=True,
+                    hint="Give it another name.",
+                )
+            for index, state in enumerate(own.on):
+                if state not in named and state not in GUARD_GROUPS:
+                    self.add(
+                        "review-unneeded-state",
+                        f"`{state}` isn't a state `{entity_type.name}` says it needs.",
+                        source,
+                        (*at, "on", index),
+                        hint="Name it in `needs: states`, so only procedures that have it are "
+                        "paired with this type, or put the guard `on: [signed]` or "
+                        "`on: [final]`.",
+                    )
+        kind = self.people_kind(entity_type)
+        for index, ex in enumerate(review.independent_of):
+            at = ("review", "independent_of", index)
+            if ex.kind != "people":
+                self.add(
+                    "review-exclusion",
+                    "A type adds people its fields name (`people:`); the creator, editors "
+                    "and signers are the procedure's to exclude.",
+                    source,
+                    at,
+                )
+                continue
+            self.person_paths(ex.people, kind, source, (*at, "people"))
+
+    def review_pinned_by(
+        self, entity_type: EntityType, review: ReviewSpec, source: Document
+    ) -> None:
+        at: Path = ("review", "pinned", "by")
+        found = self.all_fields(entity_type).get(review.by or "")
+        f = found[0] if found is not None else None
+        if f is None or f.type != "ref":
+            self.add(
+                "review-pinned-by",
+                f"`{review.by}` isn't a reference field of `{entity_type.name}`, so its "
+                "records can't follow the procedure of the record it names.",
+                source,
+                at,
+            )
+            return
+        if not (f.required and f.immutable):
+            self.add(
+                "review-pinned-by",
+                f"`{review.by}` must be `required` and `immutable`: a record follows the "
+                "procedure of the one record that opened it, for its life.",
+                source,
+                at,
+            )
+        for target in f.to:
+            t = self.types.get(target)
+            if t is None:
+                continue
+            if self.review_owner(t) is None:
+                self.add(
+                    "review-pinned-by",
+                    f"`{t.qualified_name}` has no review procedure for `{entity_type.name}` to "
+                    "follow.",
+                    source,
+                    at,
+                    hint=f"Give `{t.name}` `review: {{opens: true}}`, so a procedure is "
+                    "pinned on it when it's created.",
+                )
+
+    def person_paths(
+        self,
+        paths: Sequence[str],
+        kind: Callable[[str], bool | None],
+        source: Document,
+        at: Path,
+    ) -> None:
+        for index, path in enumerate(paths):
+            if kind(path) is None:
+                self.add(
+                    "not-a-person",
+                    f"`{path}` isn't a field naming people, or a reference's one.",
+                    source,
+                    (*at, index),
+                    hint="Name a `person` field, a list of people, or one a single "
+                    "reference away, such as `test.observed_by`.",
+                )
+
+    def declared_independence(self) -> None:
+        """Compiles each ordinary state's ``maker`` and ``independent_of`` (ADR 0301) into
+        its guards, for the server to enforce as it enforces any guard."""
+        types = dict(self.plugin.types)
+        for qualified, entity_type in self.plugin.types.items():
+            source = self.loaded.type_sources.get(qualified)
+            if source is None or qualified in self.invalid_types:
+                continue
+            kind = self.people_kind(entity_type)
+            fields = dict(entity_type.fields)
+            for name, f in entity_type.fields.items():
+                if f.type != "state" or f.procedure:
+                    continue
+                labels = {s: st.label for s, st in f.states.items()}
+                states = dict(f.states)
+                for state_name, state in f.states.items():
+                    if state.maker is None and not state.independent_of:
+                        continue
+                    at: Path = ("fields", name, "states", state_name)
+                    guards = dict(state.guards)
+                    if state.maker is not None:
+                        if state.maker.person is None:
+                            self.add(
+                                "maker-without-window",
+                                "On a state field without a procedure, the maker is the "
+                                "person a field names: `maker: {person: field}`.",
+                                source,
+                                (*at, "maker"),
+                            )
+                        else:
+                            self.person_paths([state.maker.person], kind, source, (*at, "maker"))
+                            guards = self.compiled(
+                                guards,
+                                procedures.maker_guard(name, state.maker, f.initial or "", labels),
+                                source,
+                                at,
+                            )
+                    if state.independent_of:
+                        for index, ex in enumerate(state.independent_of):
+                            where: Path = (*at, "independent_of", index)
+                            if ex.kind == "editors" and not ex.window:
+                                self.add(
+                                    "editors-without-window",
+                                    "On a state field without a procedure, say which states' "
+                                    "edits count: `{editors: {in: [states]}}`.",
+                                    source,
+                                    where,
+                                )
+                            for s in (*ex.window, *ex.states):
+                                if s not in f.states:
+                                    self.state_ref(s, set(f.live_states), source, where)
+                            if ex.kind == "people":
+                                self.person_paths(ex.people, kind, source, (*where, "people"))
+                        guards = self.compiled(
+                            guards,
+                            procedures.exclusion_guard(
+                                name, state.independent_of, open=None, labels=labels, people=kind
+                            ),
+                            source,
+                            at,
+                        )
+                    states[state_name] = dataclasses.replace(state, guards=guards)
+                fields[name] = dataclasses.replace(f, states=states)
+            types[qualified] = dataclasses.replace(entity_type, fields=fields)
+        self.plugin = self.loaded.plugin = dataclasses.replace(self.plugin, types=types)
+        self.types.update(types)
+
+    def compiled(
+        self, guards: dict[str, Guard], guard: Guard, source: Document, at: Path
+    ) -> dict[str, Guard]:
+        if guard.name in guards:
+            self.add(
+                "compiled-guard-name",
+                f"`{guard.name}` is the guard Iki compiles from this state's "
+                f"`{'maker' if guard.name == 'maker' else 'independent_of'}`.",
+                source,
+                (*at, "guards", guard.name),
+                key=True,
+                hint="Give the hand-written guard another name.",
+            )
+            return guards
+        return {**guards, guard.name: guard}
 
     # Lab lists (ADR 0270) --------------------------------------------------------------------
 
@@ -1668,6 +2046,8 @@ class _Semantics:
         assert entity_type.list_spec is not None  # noqa: S101 - only lists have options
         codes: dict[str, int] = {}
         labels: dict[str, int] = {}
+        # Each option's code and label in any case, as a sheet reads them: whose, and which.
+        names: dict[str, tuple[int, str]] = {}
         fields = entity_type.fields
         for index, option in enumerate(entity_type.list_spec.options):
             at: Path = ("list", "options", index)
@@ -1696,6 +2076,7 @@ class _Semantics:
                     )
                 else:
                     labels[key] = index
+            self.list_option_names(option, index, codes, labels, names, source, at)
             for name, value in option.items():
                 f = fields.get(name)
                 if name == LIST_POSITION or f is None or f.removed:
@@ -1723,6 +2104,43 @@ class _Semantics:
                         source,
                         at,
                     )
+
+    def list_option_names(
+        self,
+        option: dict[str, Any],
+        index: int,
+        codes: dict[str, int],
+        labels: dict[str, int],
+        names: dict[str, tuple[int, str]],
+        source: Document,
+        at: Path,
+    ) -> None:
+        """A sheet names an option by its code or its label, in any case (ADR 0270), so no
+        other option's code or label may be either: beyond a code or a label twice, which
+        :meth:`list_options` says."""
+        given = [(n, option.get(n)) for n in (LIST_CODE, LIST_LABEL)]
+        for name, value in given:
+            if not isinstance(value, str):
+                continue
+            key = value.casefold()
+            other = names.get(key)
+            same = (
+                codes.get(value) not in (None, index)
+                if name == LIST_CODE
+                else labels.get(key) not in (None, index)
+            )
+            if other is not None and other[0] != index and not same:
+                its = "code" if other[1] == LIST_CODE else "label"
+                self.add(
+                    "list-name-twice",
+                    f"“{value}” is option {other[0] + 1}'s {its}, in any case: a sheet names an "
+                    "option by its code or its label, so each names one option.",
+                    source,
+                    (*at, name),
+                )
+        for name, value in given:
+            if isinstance(value, str):
+                names.setdefault(value.casefold(), (index, name))
 
     def list_option_value(self, f: Field, value: Any, source: Document, at: Path) -> None:  # noqa: ANN401 - manifest data is JSON-shaped
         """A starting option's value for one of its type's fields. A reference to another
@@ -3938,6 +4356,34 @@ class _Semantics:
                     hint="Such as `topology: { type: enum, values: [linear, circular] }`.",
                 )
 
+    def row_id(self, row: Field, source: Document, path: Path) -> None:
+        """A row's ID field: a string Iki fills in, so not one a new row must give."""
+        assert row.row_id is not None  # noqa: S101 - the caller's check
+        cell = row.fields.get(row.row_id)
+        wrong = (
+            f"isn't one of its fields; they are: {', '.join(row.fields)}."
+            if cell is None
+            else f"is a {cell.type} field, and an ID is a string."
+            if cell.type != "string"
+            else "is required, but a new row leaves its ID out for Iki to give."
+            if cell.required
+            else "has a default, but each row's ID is its own."
+            if cell.has_default
+            else f"holds at most {cell.max_length} characters, and an ID is a 36-character UUID."
+            if cell.max_length is not None and cell.max_length < 36
+            else None
+        )
+        if wrong is not None:
+            self.add(
+                "row-id-field",
+                f"`row_id` names the row's field that holds its stable ID, and `{row.row_id}` "
+                + wrong,
+                source,
+                (*path, "row_id"),
+                hint="Name an optional string field, such as `observation_id: { type: string, "
+                "max_length: 36 }`.",
+            )
+
     def rows(self, row: Field, source: Document, path: Path) -> None:
         """A list's rows (ADR 0137): each of their fields as a field, the one naming each
         row's role an enum, and each role's counts and references within the fields'."""
@@ -3962,6 +4408,8 @@ class _Semantics:
                     (*path, "identity", row.identity.index(name)),
                     hint=f"Its fields are: {', '.join(row.fields)}.",
                 )
+        if row.row_id is not None:
+            self.row_id(row, source, path)
         if row.by is None:
             return
         by = row.fields.get(row.by)

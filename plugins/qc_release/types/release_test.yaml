@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: ReleaseTest
 label: Release test
-schema_version: 3
+schema_version: 4
 hrid: { prefix: QRT }
 description: An immutable observed result and its evaluation against a pinned lot release criterion.
 fields:
@@ -13,9 +13,40 @@ fields:
   method: { type: string, max_length: 200, computed: true, immutable: true }
   kind: { type: enum, label: Result, values: [numeric, conforms], computed: true, immutable: true }
   unit: { type: string, max_length: 50, computed: true, immutable: true }
-  value: { type: float, computed: true, immutable: true }
-  lower: { type: float, computed: true, immutable: true, label: Inclusive lower limit }
-  upper: { type: float, computed: true, immutable: true, label: Inclusive upper limit }
+  value:
+    type: float
+    label: Observed value
+    computed: true
+    immutable: true
+    description: The value as measured, before any rounding.
+  reported:
+    type: string
+    label: Reportable value
+    max_length: 400
+    computed: true
+    immutable: true
+    description: >-
+      The value compared with the limits and stated on the certificate: the observed value
+      rounded to the limits' last place (USP General Notices 7.20), or as measured when the
+      criterion compares it unrounded.
+  rounding:
+    type: enum
+    label: Compared as
+    values: [limit_places, unrounded]
+    computed: true
+    immutable: true
+  lower:
+    type: string
+    max_length: 17
+    computed: true
+    immutable: true
+    label: Inclusive lower limit
+  upper:
+    type: string
+    max_length: 17
+    computed: true
+    immutable: true
+    label: Inclusive upper limit
   acceptance: { type: string, max_length: 500, computed: true, immutable: true, label: Requirement }
   result:
     type: enum
@@ -77,7 +108,8 @@ rules:
       record.attribute != null && record.method != null && record.kind != null &&
       (record.kind == "conforms" ?
       record.result != null && record.acceptance != null && record.value == null :
-      record.unit != null && record.value != null &&
+      record.unit != null && record.value != null && record.reported != null &&
+      record.rounding != null &&
       (record.lower != null || record.upper != null) && record.result == null) &&
       record.outcome != null && record.observed_by != null &&
       (record.purpose == "investigational") == (record.investigation != null) &&

@@ -226,6 +226,19 @@ def test_starting_options_are_each_the_lists_once(tmp_path: Path) -> None:
     assert codes(result) == ["list-option-twice", "list-label-twice"], problems(result)
 
 
+def test_a_starting_options_code_and_label_name_it_alone(tmp_path: Path) -> None:
+    """A sheet names an option by its code or its label, in any case, so another option's
+    code or label may be neither; its own may be both."""
+    clash = CATEGORY + "    - { code: sec, label: Size exclusion }\n"
+    clash += "    - { code: gf, label: SEC }\n"
+    clash += "    - { code: CHROMATOGRAPHY, label: Other chromatography }\n"
+    clash += "    - { code: desalting, label: Buffer exchange }\n"
+    clash += "    - { code: buffer_exchange, label: Desalting }\n"
+    result = make(tmp_path, {"types/category.yaml": clash})
+    assert codes(result) == ["list-name-twice"] * 3, problems(result)
+    assert "“SEC” is option 2's code, in any case" in str(problems(result))
+
+
 def test_starting_options_values_are_checked(tmp_path: Path) -> None:
     bad = METHOD.replace("category: chromatography", "category: filtration")
     bad = bad.replace("label: Desalting }", "label: ' Desalting', sop: not a uri, colour: red }")
@@ -278,6 +291,55 @@ def test_an_extension_of_a_list_adds_its_options_facts(tmp_path: Path) -> None:
     )
     result = load_plugin(other / "acme", dependencies=(lab / "acme",))
     assert codes(result) == ["list-extension-record-field"], problems(result)
+
+
+@pytest.mark.parametrize(
+    ("rule", "warned"),
+    [
+        # A superseded code gives new records the replacement's: this stops applying.
+        ('check: record.method.code != "hplc" || record.name != ""', True),
+        ('when: record.method.code == "hplc"\n    check: record.name != ""', True),
+        # Whether there's an option, and a string that only looks like a read, are fine.
+        ('check: record.method != null || record.name != ""', False),
+        ('check: record.name != "record.method.code"', False),
+    ],
+)
+def test_a_rule_reading_a_list_options_code_is_warned_of(
+    tmp_path: Path, rule: str, warned: bool
+) -> None:
+    batch = BATCH + f"rules:\n  named:\n    {rule}\n    message: Name it.\n"
+    result = make(
+        tmp_path,
+        {"types/method.yaml": METHOD, "types/category.yaml": CATEGORY, "types/batch.yaml": batch},
+    )
+    assert result.ok, problems(result)
+    found = [p for p in result.problems if p.code == "list-code-in-expression"]
+    assert len(found) == int(warned)
+    if warned:
+        assert found[0].severity.value == "warning"
+        assert "`method.code`" in found[0].message
+        assert "acme/lab.PurificationMethod" in found[0].message
+
+
+def test_a_state_guard_reading_a_list_options_code_is_warned_of(tmp_path: Path) -> None:
+    batch = BATCH + (
+        "  status:\n"
+        "    type: state\n"
+        "    initial: open\n"
+        "    states:\n"
+        "      open: {}\n"
+        "      closed:\n"
+        "        guards:\n"
+        "          not_by_hplc:\n"
+        "            check: record.method.code != 'hplc'\n"
+        "            message: An HPLC batch closes by its own SOP.\n"
+    )
+    result = make(
+        tmp_path,
+        {"types/method.yaml": METHOD, "types/category.yaml": CATEGORY, "types/batch.yaml": batch},
+    )
+    # (No role sets `closed` here, which the validator says too.)
+    assert codes(result).count("list-code-in-expression") == 1, problems(result)
 
 
 # --- What a plugin reads of an option is fixed (ADR 0270, ADR 0143) ---------------------------

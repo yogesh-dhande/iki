@@ -73,6 +73,18 @@ The task runner's housekeeping ends two kinds of attempt:
 accepted once, and a gap answers 409 `log_gap` with where to resume. Each
 job keeps up to 16 MiB; beyond that, bytes are counted but not kept.
 
+## Amendment of 2026-11-27 — every due attempt is found
+
+Housekeeping selects only the attempts that are due, soonest first: leases that
+ran out, and attempts more than five minutes past their timeout (for a Slurm job,
+counted from when the cluster started it). However many long jobs are held within
+their timeouts, the one past its own is found on the next pass.
+
+Each attempt ends in its own transaction. One that can't be ended is logged and
+left for the next pass, and the rest still end. Each kind of sweep runs on its
+own, so one that fails doesn't skip the others. Setup builds (ADR 0075) are
+recovered the same way.
+
 ## Consequences
 
 - A worker needs only outbound HTTPS to the server, which suits locked-down
