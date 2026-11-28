@@ -128,7 +128,7 @@ client: ## Regenerate the API clients (TypeScript, and the Python SDK's types) f
 	uv run python -m iki_codegen.sdk web/packages/sdk/openapi.json > sdk/python/src/iki/schema.py
 
 .PHONY: first-party
-first-party: ## List each first-party plugin's current tree, which mirrors are checked against (ADR 0114)
+first-party: ## List each first-party plugin's current tree (ADR 0114) and the HRID prefixes Iki keeps (ADR 0033)
 	uv run python scripts/first_party_trees.py
 
 .PHONY: protocol

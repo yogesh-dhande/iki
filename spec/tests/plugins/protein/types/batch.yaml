@@ -4,7 +4,7 @@ name: Batch
 label: Batch
 label_plural: Batches
 schema_version: 1
-hrid: { prefix: BAT }
+hrid: { prefix: BTC }
 # Plugins' rules (ADR 0127) and guards (ADR 0128), on a type of their own so other
 # tests' samples aren't held to them.
 fields:

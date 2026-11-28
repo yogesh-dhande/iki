@@ -29,6 +29,7 @@ from iki_spec import (
     components,
     conditions,
     helm,
+    hrid_prefixes,
     naming,
     notifications,
     procedures,
@@ -297,8 +298,12 @@ def load_plugin(
     core: bool = False,
     require_setting_policy: bool = True,
     historical: bool = False,
+    hrids: Mapping[str, str] | None = None,
 ) -> Result:
     """Read and check the plugin in `directory`, resolving references with `dependencies`.
+
+    ``hrids`` are a deployment's HRID prefixes for types, in place of their plugins'
+    (ADR 0033): ``iki deploy build`` checks each plugin with the prefixes it will have.
 
     ``core`` is for :mod:`iki_spec.builtin` only: the core plugin itself, which
     has the reserved name and can't use its own types before they're read.
@@ -333,7 +338,7 @@ def load_plugin(
             )
             continue
         others[other.plugin.name] = other
-    _Semantics(loaded, others, core=core, historical=historical).run(
+    _Semantics(loaded, others, core=core, historical=historical, hrids=hrids).run(
         require_setting_policy=require_setting_policy and not historical
     )
     return loaded.result()
@@ -1161,8 +1166,11 @@ class _Semantics:
         *,
         core: bool = False,
         historical: bool = False,
+        hrids: Mapping[str, str] | None = None,
     ) -> None:
         assert loaded.plugin is not None and loaded.plugin_source is not None  # noqa: S101 - an invariant, not a check
+        #: A deployment's HRID prefixes (ADR 0033); None outside a deployment's build.
+        self.hrids = hrids
         self.loaded = loaded
         self.plugin: Plugin = loaded.plugin
         self.source: Document = loaded.plugin_source
@@ -3931,25 +3939,60 @@ class _Semantics:
         )
 
     def hrid_prefixes(self) -> None:
-        seen: dict[str, str] = {}
-        for other in self.others.values():
-            assert other.plugin is not None  # noqa: S101 - an invariant, not a check
-            for t in other.plugin.types.values():
-                if t.hrid_prefix:
-                    seen[t.hrid_prefix] = t.qualified_name
+        """No two types share a prefix, here or in the plugins checked with it, nor take
+        one of core's. In a deployment's build, each type has the deployment's prefix."""
+        kept = hrid_prefixes.reserved()
+        seen: dict[str, str] = dict(kept.core)
+        if not self.core:
+            for t in BUILTIN_TYPES.values():
+                if prefix := hrid_prefixes.effective(t, None):
+                    seen[prefix] = t.qualified_name
+        for loaded in self.others.values():
+            assert loaded.plugin is not None  # noqa: S101 - an invariant, not a check
+            for t in loaded.plugin.types.values():
+                if prefix := hrid_prefixes.effective(t, self.hrids):
+                    seen.setdefault(prefix, t.qualified_name)
+        overridden = self.hrids or {}
         for qualified, t in self.plugin.types.items():
-            if not t.hrid_prefix:
+            prefix = hrid_prefixes.effective(t, self.hrids)
+            if not prefix:
                 continue
-            if t.hrid_prefix in seen:
+            source = self.loaded.type_sources[qualified]
+            given = qualified in overridden
+            at: Path = ("hrid",) if given else ("hrid", "prefix")
+            # The deployment's prefix for it is in its lockfile, not in the manifest.
+            note = " (the prefix plugins.lock.yaml gives it)" if given else ""
+            holder = seen.get(prefix)
+            if holder is not None and holder != qualified:
+                if holder == kept.core.get(prefix):
+                    message = f"`{qualified}` uses `{prefix}`{note}, the HRID prefix of {holder}."
+                else:
+                    message = (
+                        f"`{holder}` and `{qualified}` both use the HRID prefix `{prefix}`{note}."
+                    )
                 self.add(
                     "duplicate-hrid-prefix",
-                    f"`{seen[t.hrid_prefix]}` already uses the HRID prefix `{t.hrid_prefix}`.",
-                    self.loaded.type_sources[qualified],
-                    ("hrid", "prefix"),
-                    hint="Each type needs its own prefix, so an ID says what it is.",
+                    message,
+                    source,
+                    at,
+                    hint=hrid_prefixes.settle(holder, qualified, prefix, seen),
                 )
-            else:
-                seen[t.hrid_prefix] = qualified
+                continue
+            seen[prefix] = qualified
+            taken = kept.kept_for(prefix)
+            if taken and taken != qualified and self.plugin.name not in naming.FIRST_PARTY:
+                self.add(
+                    "reserved-hrid-prefix",
+                    f"Iki's plugins use or reserve the HRID prefix `{prefix}`{note}, for "
+                    f"{taken}: a deployment that installs both will have to give one of them "
+                    "another.",
+                    source,
+                    at,
+                    severity=Severity.WARNING,
+                    hint=f"Choose a prefix of your own, such as "
+                    f"`{hrid_prefixes.suggest(qualified, prefix, seen)}`, while the type has "
+                    "no records.",
+                )
 
     def table_names(self) -> None:
         """Every table and model Iki generates must have its own name, and fit PostgreSQL."""
