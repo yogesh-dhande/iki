@@ -98,6 +98,30 @@ def starter_choice(operation: str) -> Build:
     return build
 
 
+#: The fixture deployment's reviewed type, under core's result review.
+PURITY = "acme/protein.PurityCheck"
+
+
+def review_choice(operation: str, *, project: bool = False) -> Build:
+    def build(w: World) -> tuple[str, Any]:
+        path = f"/review-choices/{PURITY}" + ("/clear" if operation == "clear" else "")
+        if project:
+            path += f"?project={w.project.pk}"
+        if operation == "GET":
+            return path, None
+        if operation == "clear":
+            return path, {"reason": "SOP-QA-014 retired"}
+        # The lab's own SOP, played by its own roles: the fixtures have no shared ones.
+        body = {
+            "procedure": "acme/protein.two_person@1",
+            "flow": "two_person",
+            "binding": {"analyst": "acme/protein.analyst", "checker": "acme/protein.qa"},
+        }
+        return path, {**body, "reason": "SOP-QC-007 covers purity checks"}
+
+    return build
+
+
 def _webhook(w: World, *, org: bool = False) -> Any:
     from iki_server.webhooks import services as webhooks
 
@@ -1272,6 +1296,25 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/starters/{starter}/apply",
         starter_choice("apply"),
         visible(403, admin=404),
+    ),
+    # Review procedures (ADR 0302): read by anyone signed in, a project's choices by its
+    # members; a deployment's default is an Org Admin's to choose, a project's its Admins'.
+    ("GET", "/review-procedures", fixed("/review-procedures"), row(200)),
+    ("GET", "/review-choices/{name}", fixed(f"/review-choices/{PURITY}"), row(200)),
+    (
+        "GET",
+        "/review-choices/{name}",
+        review_choice("GET", project=True),
+        visible(200, org_admin=403),
+    ),
+    ("PUT", "/review-choices/{name}", review_choice("PUT"), ORG_ADMIN_ONLY),
+    ("PUT", "/review-choices/{name}", review_choice("PUT", project=True), visible(403, admin=200)),
+    ("POST", "/review-choices/{name}/clear", review_choice("clear"), ORG_ADMIN_ONLY),
+    (
+        "POST",
+        "/review-choices/{name}/clear",
+        review_choice("clear", project=True),
+        visible(403, admin=200),
     ),
     ("GET", "/entity-types", fixed("/entity-types"), row(200)),
     ("GET", "/entity-types/{name}", fixed("/entity-types/acme/dna.DNASequence"), row(200)),
