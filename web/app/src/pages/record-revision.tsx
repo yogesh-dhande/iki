@@ -24,9 +24,11 @@ import {
 import { usePageTitle } from "../layout";
 import { TopBar } from "../page-top";
 import { entryQuery, entryRevisionQuery, type Entry } from "../registries";
-import { ChangesTable, RevisionFacts, revisionTitle } from "./entity-audit";
+import { RevisionFacts, revisionTitle } from "./revision-facts";
+import { ChangesTable } from "./revision-changes";
 import { ExportButton } from "./entity-export";
-import { useEntity, Value } from "./entity";
+import { useEntity } from "./entity-header";
+import { Value } from "./entity-value";
 import { NotFound } from "./errors";
 import { UtcTime } from "./revision-text";
 import { buttonClass, Loading, PageHeader, PageTitle, ProblemAlert } from "../ui";
