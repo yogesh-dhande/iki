@@ -85,8 +85,8 @@ made = iki.entities.create(
     reason="From the paper's table 2",
 )
 
-# A change names the revision you read. If someone changed it since,
-# iki.Conflict is raised and nothing changes: read it again, then decide.
+# A change names the revision you read, sent as If-Match. If someone changed it
+# since, iki.Stale is raised and nothing changes: read it again, then decide.
 iki.entities.update(
     "PRT-000123", {"name": "ABL1 kinase"}, revision=abl1["revision"], reason="Full name"
 )
@@ -450,14 +450,14 @@ template = iki.spreadsheets.save_mapping(imported, "Core facility manifest")
 Pass the import returned by each step to the next one. Every new preview gets
 its own import revision, even if the sheet and mapping stayed the same. Reading
 rows with `rows(sheet)` keeps every page on that preview. If someone changes it
-before you finish reviewing or committing it, the SDK raises `iki.Conflict`.
+before you finish reviewing or committing it, the SDK raises `iki.Stale`.
 Read the current import, review its preview and decide whether to commit it.
 
-To replace a saved template, pass both the import you reviewed and the template
-you intend to replace. For example, after reviewing the entries returned by
+To replace a saved template, pass both the template you intend to replace and
+the import you reviewed. For example, after reviewing the entries returned by
 `iki.spreadsheets.mappings(project)`, call
-`iki.spreadsheets.save_mapping(sheet, template["name"], replace=template)`.
-The server checks the import revision and the template revision together.
+`iki.spreadsheets.replace_mapping(template, sheet)`.
+The server checks the template revision and the import revision together.
 Saving a mapping on an open import can change its recorded mapping source.
 Read that import again before previewing it.
 
@@ -465,11 +465,11 @@ Importing requires project Editor access and the `write` scope. In the REST
 API, start with `POST /projects/{id}/spreadsheet-imports`, then send `PATCH`
 and `POST …/preview` on `/spreadsheet-imports/{id}` with the import's
 `If-Match` precondition. Use the new ETag returned by the preview for
-`GET …/rows` and `POST …/commit`. To replace a template, send the source
-import's ETag in `If-Match` on `POST …/mappings` and include `name`,
-`replace` (the template ID) and `target_revision` in the body. HTTP 412
-identifies a changed import. HTTP 409 with `stale_template` identifies a
-changed template. Both refusals leave the saved mapping untouched.
+`GET …/rows` and `POST …/commit`. To replace a template, send
+`PUT /spreadsheet-mappings/{id}` with the template's ETag in `If-Match`, and
+`name`, `import` and `import_revision` (the import whose mapping you reviewed)
+in the body. HTTP 412 `stale` says either changed, and leaves the saved
+mapping untouched.
 
 ## Errors
 
@@ -477,16 +477,18 @@ When Iki refuses something, you get an `iki.ApiError` that says why, with a
 `code` for programs, `errors` for invalid input, and a `request_id` to quote to
 your administrator. Its subclasses let you catch what you'd handle differently:
 
-| Exception         | When                                                          |
-| ----------------- | ------------------------------------------------------------- |
-| `iki.Invalid`     | What you sent isn't valid; `errors` says what, field by field |
-| `iki.NotFound`    | There's no such thing, or you can't see it                    |
-| `iki.Forbidden`   | Your role, or your sign-in's scopes, don't allow it           |
-| `iki.Conflict`    | It can't be done now, or it changed since your revision       |
-| `iki.RateLimited` | Too many requests, even after waiting as Iki asked            |
-| `iki.NotSignedIn` | No sign-in, or it has expired: run `iki.login()`              |
-| `iki.RunFailed`   | A run you waited for didn't succeed                           |
-| `iki.TimedOut`    | The wait expired while the run or file check was in progress  |
+| Exception                  | When                                                          |
+| -------------------------- | ------------------------------------------------------------- |
+| `iki.Invalid`              | What you sent isn't valid; `errors` says what, field by field |
+| `iki.NotFound`             | There's no such thing, or you can't see it                    |
+| `iki.Forbidden`            | Your role, or your sign-in's scopes, don't allow it           |
+| `iki.Conflict`             | It can't be done as things are now                            |
+| `iki.Stale`                | It changed since the revision you named (412): read it again  |
+| `iki.PreconditionRequired` | A change didn't name the revision it replaces (428)           |
+| `iki.RateLimited`          | Too many requests, even after waiting as Iki asked            |
+| `iki.NotSignedIn`          | No sign-in, or it has expired: run `iki.login()`              |
+| `iki.RunFailed`            | A run you waited for didn't succeed                           |
+| `iki.TimedOut`             | The wait expired while the run or file check was in progress  |
 
 Requests that Iki asks you to slow down for are sent again after waiting as
 long as it says.

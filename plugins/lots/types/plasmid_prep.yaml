@@ -7,7 +7,7 @@ name: PlasmidPrep
 label: Plasmid prep
 label_plural: Plasmid preps
 extends: Lot
-schema_version: 3
+schema_version: 4
 description: >-
   A prep of a plasmid from its host: its scale and method, its concentration from its
   A260 (50 µg/mL of double-stranded DNA for each unit, over 1 cm), its purity by
@@ -48,10 +48,10 @@ fields:
     max_length: 200
     description: The kit it was made with, such as its supplier's name for it and its lot.
   host_strain:
-    type: string
+    type: ref
+    to: iki/strains.BaseStrain
     label: Host strain
-    max_length: 200
-    description: The strain it was grown in, such as E. coli DH5α.
+    description: The registered strain it was grown in, such as E. coli DH5α.
   culture_volume:
     type: quantity
     unit: mL

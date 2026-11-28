@@ -3,12 +3,13 @@
  * controls that draw, transfer, split and adjust it, and its ledger.
  *
  * An adjustment is a count: it's checked against the balance the person saw when they
- * started it (If-Balance-Revision). If anything changed it since, nothing is recorded: the
+ * started it (its revision, as If-Match; If-None-Match: * when none was recorded, ADR
+ * 0289). If anything changed it since, nothing is recorded: the
  * dialog shows the balance now and what changed it, keeps what they entered, and they
  * recount before recording again.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { ifMatch, ifNoneMatchAny, isStale, unwrap, type Schemas } from "@ikisci/sdk";
 import {
   infiniteQueryOptions,
   useInfiniteQuery,
@@ -38,8 +39,6 @@ import {
 
 type Movement = Schemas["MovementOut"];
 type Amount = Schemas["AmountOut"];
-/** The balance revision of a record with no amount recorded yet. */
-const UNRECORDED = "unrecorded";
 const DRAW_PURPOSES = [
   { value: "routine", label: "Routine use" },
   { value: "qa_sampling", label: "QA sampling" },
@@ -78,14 +77,6 @@ const KINDS: Record<Movement["kind"], string> = {
   adjusted: "Adjusted",
 };
 
-/** An ISO time in microseconds, as exact as the server's revisions: a JavaScript Date
- * keeps only milliseconds, and two changes can fall within one. */
-function micros(iso: string): number {
-  const [, whole = iso, fraction = "", zone = ""] =
-    /^(.*T\d\d:\d\d:\d\d)(?:\.(\d+))?(.*)$/.exec(iso) ?? [];
-  return Date.parse(`${whole}${zone}`) * 1000 + Number(fraction.padEnd(6, "0").slice(0, 6));
-}
-
 /** What a movement changed, signed: "−20 uL", "+5 uL". */
 function changeOf(m: Movement): string {
   return `${m.change.startsWith("-") ? `−${m.change.slice(1)}` : `+${m.change}`} ${m.unit}`;
@@ -93,8 +84,7 @@ function changeOf(m: Movement): string {
 
 /** The balance now, and the movements since the one a count was made against. */
 function useBalanceSince(observed: Amount | null, ref: string, enabled: boolean) {
-  const revision = observed?.updated_at ?? UNRECORDED;
-  const observedValue = observed?.value;
+  const revision = observed?.revision ?? 0;
   return useQuery({
     queryKey: ["balance-since", ref, revision],
     enabled,
@@ -108,18 +98,12 @@ function useBalanceSince(observed: Amount | null, ref: string, enabled: boolean)
         }),
       ]);
       const moves = unwrap(ledger);
-      let since = moves.items;
-      if (revision !== UNRECORDED) {
-        // A change sets the balance, then writes its movement: the movement that made the
-        // balance counted from is the first one after its revision. It's dropped when its
-        // balance says so: what remains changed it since.
-        const seen = micros(revision);
-        since = since.filter((m) => micros(m.created_at) > seen);
-        const made = since.at(-1);
-        if (made && made.balance === observedValue) since = since.slice(0, -1);
-      }
+      const amount = now.response.status === 404 ? null : unwrap(now);
+      // Each movement is one revision of the balance: those after the one counted from are
+      // the newest (now − then) of the ledger.
+      const since = moves.items.slice(0, Math.max(0, (amount?.revision ?? 0) - revision));
       return {
-        amount: now.response.status === 404 ? null : unwrap(now),
+        amount,
         since,
         refs: moves.refs as Record<string, Schemas["RefOut"]>,
       };
@@ -275,7 +259,6 @@ function AmountDialog({
   // The balance a count is made against: as the dialog opened, or as last recounted. A
   // refetch behind the dialog doesn't change it.
   const [observed, setObserved] = useState<Amount | null>(entity.amount ?? null);
-  const revision = observed?.updated_at ?? UNRECORDED;
   const countRef = useRef<HTMLDivElement>(null);
   const { say } = useMessages();
   const client = useQueryClient();
@@ -318,7 +301,10 @@ function AmountDialog({
         return {
           moved: unwrap(
             await iki.POST("/api/v1/entities/{ref}/amount/adjust", {
-              params: { path: { ref }, header: { "If-Balance-Revision": revision } },
+              params: {
+                path: { ref },
+                header: observed ? ifMatch(observed.revision) : ifNoneMatchAny(),
+              },
               body: { amount: quantity, reason: reason.trim() },
             }),
           ),
@@ -342,7 +328,7 @@ function AmountDialog({
     }
   }, [ENTITIES]);
   const problem = move.error ? problemOf(move.error) : undefined;
-  const stale = doing === "adjust" && problem?.code === "stale_balance";
+  const stale = doing === "adjust" && isStale(move.error);
   const latest = useBalanceSince(observed, ref, stale);
   const errors = fieldErrors(problem);
   const amountError = errors["amount"] ?? errors["each"];
@@ -405,7 +391,7 @@ function AmountDialog({
               void client.invalidateQueries({ queryKey: [...ENTITIES, "one"] });
             }
             // The page behind shows the balance now, as the dialog does.
-            if (error.problem.code === "stale_balance") {
+            if (isStale(error)) {
               void client.invalidateQueries({ queryKey: ENTITIES });
             }
           },

@@ -333,8 +333,12 @@ def test_registrars_curate_entries_on_the_revision_they_read(fake: FakeIki, clie
     assert sent.headers["If-Match"] == '"2"'
     assert json.loads(sent.content) == {"values": {"inn": "imatinib"}, "reason": "INN granted"}
     fake.on("POST", "/api/v1/entries/CPD-000123/supersede", {"hrid": "CPD-000123"})
-    client.entries.supersede("CPD-000123", replacement="CPD-000124", reason="Wrong salt form")
-    assert fake.body("POST", "/api/v1/entries/CPD-000123/supersede") == {
+    client.entries.supersede(
+        "CPD-000123", replacement="CPD-000124", revision=3, reason="Wrong salt form"
+    )
+    superseded = fake.sent("POST", "/api/v1/entries/CPD-000123/supersede")[0]
+    assert superseded.headers["If-Match"] == '"3"'
+    assert json.loads(superseded.content) == {
         "replacement": "CPD-000124",
         "reason": "Wrong salt form",
     }
@@ -349,23 +353,66 @@ def test_registrars_curate_entries_on_the_revision_they_read(fake: FakeIki, clie
         "PCX-000007",
         type="iki/antibody.Antibody",
         values={"components": chains},
+        revision=1,
         reason="An IgG1: heavy and light chains, two of each",
     )
+    assert fake.sent("POST", "/api/v1/entries/PCX-000007/supersede")[0].headers["If-Match"] == '"1"'
     assert fake.body("POST", "/api/v1/entries/PCX-000007/supersede") == {
         "type": "iki/antibody.Antibody",
         "values": {"components": chains},
         "reason": "An IgG1: heavy and light chains, two of each",
     }
     with pytest.raises(ValueError, match="Give the replacement"):
-        client.entries.supersede("PCX-000007", reason="Which?")
+        client.entries.supersede("PCX-000007", revision=1, reason="Which?")
     with pytest.raises(ValueError, match="Give the replacement"):
         client.entries.supersede(
-            "PCX-000007", replacement="ABY-000001", type="iki/antibody.Antibody", reason="Both"
+            "PCX-000007",
+            replacement="ABY-000001",
+            type="iki/antibody.Antibody",
+            revision=1,
+            reason="Both",
         )
     with pytest.raises(ValueError, match="give its type"):
         client.entries.supersede(
-            "PCX-000007", replacement="ABY-000001", values={"isotype": "IgG1"}, reason="Values"
+            "PCX-000007",
+            replacement="ABY-000001",
+            values={"isotype": "IgG1"},
+            revision=1,
+            reason="Values",
         )
+
+
+def test_a_record_moves_from_the_revision_read(fake: FakeIki, client: Client) -> None:
+    path = "/api/v1/entities/CPD-000123/move"
+    fake.on("POST", path, problem(412, "Someone changed it since you read it.", "stale"), {})
+    with pytest.raises(iki.Stale) as raised:
+        client.entities.move("CPD-000123", revision=4, reason="Superseded")
+    assert iki.is_stale(raised.value) and isinstance(raised.value, iki.Conflict)
+    client.entities.move("CPD-000123", revision=5, reason="Superseded")
+    assert [r.headers["If-Match"] for r in fake.sent("POST", path)] == ['"4"', '"5"']
+    assert fake.body("POST", path) == {"reason": "Superseded"}
+
+
+def test_a_recount_names_the_balance_counted_from_or_that_there_was_none(
+    fake: FakeIki, client: Client
+) -> None:
+    path = "/api/v1/entities/SMP-000001/amount/adjust"
+    fake.on("POST", path, {}, {})
+    client.entities.adjust("SMP-000001", (240, "uL"), revision=7, reason="Recount")
+    client.entities.adjust("SMP-000001", (100, "uL"), revision=None, reason="First count")
+    counted, first = fake.sent("POST", path)
+    assert counted.headers["If-Match"] == '"7"' and "If-None-Match" not in counted.headers
+    assert first.headers["If-None-Match"] == "*" and "If-Match" not in first.headers
+
+
+def test_a_change_that_named_no_revision_is_told_so(fake: FakeIki, client: Client) -> None:
+    path = "/api/v1/entities/SMP-000001/amount/adjust"
+    fake.on("POST", path, problem(428, "Send If-Match.", "precondition_required"))
+    with pytest.raises(iki.PreconditionRequired) as raised:
+        client.entities.adjust("SMP-000001", (1, "uL"), revision=1, reason="Recount")
+    assert iki.is_precondition_required(raised.value) and not iki.is_stale(raised.value)
+    assert iki.if_match(3) == {"If-Match": '"3"'}
+    assert iki.if_none_match_any() == {"If-None-Match": "*"}
 
 
 def test_draws_tell_the_server_their_purpose(fake: FakeIki, client: Client) -> None:

@@ -60,6 +60,11 @@ class Api:
         return self.call("DELETE", path, **kw)
 
 
+def seen(revision: int) -> dict[str, str]:
+    """The ``If-Match`` a change sends: the revision of what it replaces, as read (ADR 0289)."""
+    return {"If-Match": f'"{revision}"'}
+
+
 def problem(response: Response, status: int, code: str) -> dict[str, Any]:
     """Asserts the response is a problem with this status and code, and returns it."""
     assert response.status_code == status, (response.status_code, response.content[:500])

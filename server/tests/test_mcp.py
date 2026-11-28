@@ -883,7 +883,7 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
     assert ledger[1]["agent"] is not None
 
 
-async def test_agents_submit_the_balance_revision_they_observed(world: World) -> None:
+async def test_agents_recount_from_the_amount_revision_they_observed(world: World) -> None:
     token = await token_for(world)
     made = data(
         await tool(
@@ -903,13 +903,31 @@ async def test_agents_submit_the_balance_revision_they_observed(world: World) ->
     )
     count = {"ref": ref, "amount": {"value": 75, "unit": "uL"}, "reason": "Counted"}
     refused = error(
-        await tool(token, "adjust_amount", **count, balance_revision=made["amount"]["updated_at"])
+        await tool(token, "adjust_amount", **count, amount_revision=made["amount"]["revision"])
     )
-    assert "409, stale_balance" in refused and "recount" in refused
+    assert "412, stale" in refused and "recount" in refused.lower()
     adjusted = data(
-        await tool(token, "adjust_amount", **count, balance_revision=drawn["amount"]["updated_at"])
+        await tool(token, "adjust_amount", **count, amount_revision=drawn["amount"]["revision"])
     )
     assert adjusted["amount"]["value"] == "75"
+    # One with none recorded is counted from nothing; one recorded since refuses it.
+    blank = data(
+        await tool(
+            token,
+            "create_entity",
+            type="acme/protein.Sample",
+            project=str(world.project.pk),
+            values={"label": "S-2"},
+        )
+    )
+    first = {"ref": blank["hrid"], "amount": {"value": 5, "unit": "uL"}, "reason": "Measured"}
+    assert (
+        data(await tool(token, "adjust_amount", **first, amount_revision=None))["amount"][
+            "revision"
+        ]
+        == 1
+    )
+    assert "412, stale" in error(await tool(token, "adjust_amount", **first, amount_revision=None))
 
 
 async def test_agents_set_records_states(world: World) -> None:

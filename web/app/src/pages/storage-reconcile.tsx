@@ -9,7 +9,7 @@
  * why and names the versions it replaces; the history keeps both.
  */
 
-import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
+import { ApiError, ifMatch, unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -302,9 +302,7 @@ function showsOffer(r: Reconciliation, sources: readonly UnregisteredSource[]): 
   return sources.every((source) =>
     r.lines.some(
       (l) =>
-        l.id === source.line_id &&
-        l.found === source.position &&
-        l.line_revision === source.line_revision,
+        l.id === source.line_id && l.found === source.position && l.revision === source.revision,
     ),
   );
 }
@@ -366,7 +364,8 @@ type Asking = {
   | { do: "cancel" }
 );
 
-/** A newer version of what's recorded: not a scan that can't identify a tube, also a 409. */
+/** A newer version of what's recorded (412 `stale`), or a refusal because of one: a 409 that
+ * isn't about a scan that can't identify a tube. */
 /** How a scan identifies its tube: by its label (the default), or a typed Iki ID; and the
  * tube chosen for a label several readable tubes share. */
 interface How {
@@ -405,7 +404,10 @@ type Unidentified =
     };
 
 function isStale(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 409 && !isScanConflict(error.problem);
+  return (
+    error instanceof ApiError &&
+    (error.status === 412 || (error.status === 409 && !isScanConflict(error.problem)))
+  );
 }
 
 /** The line IDs a refused count change named, if it named them. */
@@ -437,7 +439,6 @@ function decisionOf(
 ): Schemas["ResolveIn"] {
   const note = text.trim();
   return {
-    line_revision: line.line_revision,
     resolution,
     // Left out, the saved note stays; clearing the decision clears its note too.
     ...(resolution !== null && note !== line.note ? { note: note || null } : {}),
@@ -478,7 +479,7 @@ function reviewedFor(
 ): Reviewed[] {
   return replacedBy(r, at, code, required, how).map(({ line }) => ({
     line_id: line.id,
-    line_revision: line.line_revision,
+    revision: line.revision,
   }));
 }
 
@@ -518,7 +519,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   // the background or after a refusal, replaces it only when the person reviews that one.
   const [reviewed, setReviewed] = useState(r);
   // What the Complete section shows: the count as it's read now while it's the plan reviewed.
-  const approving = r.plan_revision === reviewed.plan_revision ? r : reviewed;
+  const approving = r.revision === reviewed.revision ? r : reviewed;
   const shape = r.shape;
   const order = useMemo(() => {
     const all: { row: number; column: number; label: string }[] = [];
@@ -553,8 +554,8 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const current = () => client.getQueryData<Reconciliation>(queryKey) ?? r;
   const update = (next: Reconciliation) => {
     const latest = client.getQueryData<Reconciliation>(queryKey);
-    if (latest && latest.plan_revision > next.plan_revision) return;
-    if (next.plan_revision !== reviewed.plan_revision) {
+    if (latest && latest.revision > next.revision) return;
+    if (next.revision !== reviewed.revision) {
       setNote("");
       setAcknowledgedMissing(null);
       setReviewed(next);
@@ -583,25 +584,27 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const resolve = useApiMutation(
     async ({
       line,
+      revision,
       decision,
     }: {
       line: string;
-      decision: Parameters<typeof resolveCountLine>[2];
-    }) => resolveCountLine(r.id, line, decision),
+      revision: number;
+      decision: Parameters<typeof resolveCountLine>[3];
+    }) => resolveCountLine(r.id, line, revision, decision),
     [],
   );
   const complete = useApiMutation(
-    async (approval: Schemas["CompleteReconciliationIn"]) =>
+    async ({ revision, ...approval }: Schemas["CompleteReconciliationIn"] & { revision: number }) =>
       unwrap(
         await iki.POST("/api/v1/reconciliations/{reconciliation_id}/complete", {
-          params: { path: { reconciliation_id: r.id } },
+          params: { path: { reconciliation_id: r.id }, header: ifMatch(revision) },
           body: approval,
         }),
       ),
     [STORAGE],
   );
   const cancel = useApiMutation(
-    async (reason: string) => cancelCount(r.id, { plan_revision: current().plan_revision, reason }),
+    async (reason: string) => cancelCount(r.id, current().revision, { reason }),
     [STORAGE],
   );
   const writing = useRef(false);
@@ -610,22 +613,17 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   // Another person's change, read in the background or met on completing: the approval is
   // for the plan as it was reviewed, so it's reviewed again. Scans and decisions carry
   // their own lines' versions, and go on.
-  const newer = r.plan_revision > reviewed.plan_revision;
-  const mustReview = newer || problem?.status === 409;
+  const newer = r.revision > reviewed.revision;
+  const mustReview = newer || problem?.status === 409 || problem?.status === 412;
   const locked = saving;
   const reviewChanges = useQuery({
-    queryKey: [
-      ...historyKey("reconciliations", r.id),
-      "since",
-      reviewed.plan_revision,
-      r.plan_revision,
-    ],
-    queryFn: ({ signal }) => changesSince("reconciliations", r.id, reviewed.plan_revision, signal),
+    queryKey: [...historyKey("reconciliations", r.id), "since", reviewed.revision, r.revision],
+    queryFn: ({ signal }) => changesSince("reconciliations", r.id, reviewed.revision, signal),
     enabled: mustReview,
     // What changed since the review stays shown while a newer count's changes are read, so
     // the note doesn't go and come back, moving the button under it.
     placeholderData: (previous, query) =>
-      query?.queryKey.at(-2) === reviewed.plan_revision ? previous : undefined,
+      query?.queryKey.at(-2) === reviewed.revision ? previous : undefined,
   });
   async function saveChange(
     send: () => Promise<Reconciliation>,
@@ -699,14 +697,14 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         ...how,
         offer,
         required: null,
-        seen: count.plan_revision,
+        seen: count.revision,
         changes: null,
       });
       return;
     }
     const reviewed = replaced.map(({ line }) => ({
       line_id: line.id,
-      line_revision: line.line_revision,
+      revision: line.revision,
     }));
     void saveChange(
       () =>
@@ -743,7 +741,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         setUnidentified(null);
         setHeard(`${at} changed while you were scanning it. Check what’s recorded now.`);
         const required = affectedIds(error);
-        void refetch(count.plan_revision, required ?? reviewed.map((x) => x.line_id)).then(
+        void refetch(count.revision, required ?? reviewed.map((x) => x.line_id)).then(
           ({ fresh, changes }) => {
             scan.reset();
             setAsking({
@@ -755,7 +753,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
               ...(offer ? { unregistered: undefined } : {}),
               offer,
               required: offer ? withoutOffered(required, offer) : required,
-              seen: fresh.plan_revision,
+              seen: fresh.revision,
               changes,
             });
           },
@@ -781,15 +779,15 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         line: line.id,
         resolution,
         note: text,
-        seen: current().plan_revision,
+        seen: current().revision,
         changes: null,
       });
       return;
     }
-    const seen = current().plan_revision;
+    const seen = current().revision;
     const decision = decisionOf(line, resolution, text);
     void saveChange(
-      () => resolve.mutateAsync({ line: line.id, decision }),
+      () => resolve.mutateAsync({ line: line.id, revision: line.revision, decision }),
       undefined,
       (error) => {
         if (!isStale(error)) return;
@@ -803,7 +801,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
               line: line.id,
               resolution,
               note: text,
-              seen: fresh.plan_revision,
+              seen: fresh.revision,
               changes,
             });
           else setLineStale({ line: line.id, changes });
@@ -828,17 +826,17 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   ...asking,
                   unregistered: undefined,
                   required: withoutOffered(required ?? asking.required, asking.offer),
-                  seen: fresh.plan_revision,
+                  seen: fresh.revision,
                   changes,
                   about: aboutOf(count, asking),
                 }
               : {
                   ...asking,
                   required: required ?? asking.required,
-                  seen: fresh.plan_revision,
+                  seen: fresh.revision,
                   changes,
                 }
-            : { ...asking, seen: fresh.plan_revision, changes },
+            : { ...asking, seen: fresh.revision, changes },
         );
       });
     };
@@ -881,7 +879,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                 unregistered: undefined,
                 offer: choice.sources,
                 required: withoutOffered(asking.required, asking.offer ?? []),
-                seen: fresh.plan_revision,
+                seen: fresh.revision,
                 changes,
                 about: aboutOf(count, asking),
               });
@@ -895,7 +893,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         if (!line) return;
         const decision = decisionOf(line, asking.resolution, asking.note, reason);
         void saveChange(
-          () => resolve.mutateAsync({ line: line.id, decision }),
+          () => resolve.mutateAsync({ line: line.id, revision: line.revision, decision }),
           () => {
             setAsking(null);
             say("Saved, with your reason.");
@@ -1207,7 +1205,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   onClick={() => {
                     if (!ready) return;
                     const approval = {
-                      plan_revision: reviewed.plan_revision,
+                      revision: reviewed.revision,
                       missing_rest: missingRest,
                       note: note.trim(),
                     };
@@ -1219,7 +1217,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                       (error) => {
                         // Refused: the count is read again, for the person to review.
                         if (!isStale(error)) return;
-                        refetch(reviewed.plan_revision).catch(() => {
+                        refetch(reviewed.revision).catch(() => {
                           // The page says why it couldn't be read.
                         });
                       },
@@ -1233,7 +1231,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   disabled={locked}
                   onClick={() => {
                     cancel.reset();
-                    setAsking({ do: "cancel", seen: current().plan_revision, changes: null });
+                    setAsking({ do: "cancel", seen: current().revision, changes: null });
                   }}
                 >
                   Cancel it
@@ -1538,7 +1536,7 @@ function UnregisteredChooser({
 }) {
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
-  const offered = lines.map((line) => `${line.id}@${String(line.line_revision)}`).join(",");
+  const offered = lines.map((line) => `${line.id}@${String(line.revision)}`).join(",");
   useEffect(() => {
     // Said, and where the keyboard goes next: the scanner still works from here.
     heading.current?.focus();

@@ -614,10 +614,16 @@ function Supersede({ entry, types }: { entry: Entry; types: EntityType[] }) {
   const byType = replacing === "type";
   const named = byType ? `a new ${kind}` : replacement.trim().toUpperCase();
   const supersede = useApiMutation(
-    async (values: Record<string, unknown> | null) =>
+    async ({
+      header,
+      values,
+    }: {
+      header: { "If-Match": string };
+      values: Record<string, unknown> | null;
+    }) =>
       unwrap(
         await iki.POST("/api/v1/entries/{ref}/supersede", {
-          params: { path: { ref: entry.id } },
+          params: { path: { ref: entry.id }, header },
           body: values
             ? { type: as.type, values, reason: reason.trim() }
             : { replacement: replacement.trim().toUpperCase(), reason: reason.trim() },
@@ -625,6 +631,8 @@ function Supersede({ entry, types }: { entry: Entry; types: EntityType[] }) {
       ),
     [ENTITIES],
   );
+  // The entry as the registrar confirmed it: one changed meanwhile is refused (412).
+  const opened = useOpenedRevision(entry.revision, { open: confirming, error: supersede.error });
   const [values, setValues] = useState<Record<string, unknown> | null>(null);
   const form = useForm(confirming ? null : supersede.error, supersede.isPending);
   return (
@@ -761,17 +769,20 @@ function Supersede({ entry, types }: { entry: Entry; types: EntityType[] }) {
           setConfirming(false);
         }}
         onConfirm={() => {
-          supersede.mutate(values, {
-            onSuccess: (saved) => {
-              client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
-              setConfirming(false);
-              say(
-                values && saved.superseded
-                  ? `Superseded ${saved.hrid} with ${saved.superseded.by.hrid}, a new ${kind}. Every project with it has been told.`
-                  : `Superseded ${saved.hrid}. Every project with it has been told.`,
-              );
+          supersede.mutate(
+            { header: opened.ifMatch, values },
+            {
+              onSuccess: (saved) => {
+                client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
+                setConfirming(false);
+                say(
+                  values && saved.superseded
+                    ? `Superseded ${saved.hrid} with ${saved.superseded.by.hrid}, a new ${kind}. Every project with it has been told.`
+                    : `Superseded ${saved.hrid}. Every project with it has been told.`,
+                );
+              },
             },
-          });
+          );
         }}
       >
         <p>

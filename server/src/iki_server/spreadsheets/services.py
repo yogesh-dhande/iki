@@ -129,17 +129,15 @@ class Stale(Exception):  # noqa: N818 - reads as "the request was stale"
         self.current = current
 
 
-class StaleTemplate(Refused):
-    code = "stale_template"
+class StaleTemplate(Exception):  # noqa: N818 - reads as "the template was stale"
+    """A saved mapping changed since the revision a request was made from."""
 
     def __init__(self, saved: SavedMapping) -> None:
         super().__init__(
             f"The saved template “{saved.name}” changed to revision {saved.revision}. "
             "Review the current template before replacing it."
         )
-        self.extensions = {
-            "target": {"id": str(saved.pk), "name": saved.name, "revision": saved.revision}
-        }
+        self.current = saved.revision
 
 
 def check_revision(imported: SpreadsheetImport, expected_revision: int) -> None:
@@ -613,14 +611,14 @@ def save_mapping(
     *,
     expected_revision: int,
     replace: uuid.UUID | None = None,
-    target_revision: int | None = None,
+    replace_revision: int | None = None,
 ) -> SavedMapping:
     """Keeps the import's mapping in its project, by its headers, as ``name``: or as
-    ``replace``, changing it. The mapping kept is the one at ``expected_revision``, the
-    one the person saw. Raises :class:`Stale` or :class:`Refused`."""
+    ``replace``, changing that saved mapping from ``replace_revision``, the one the person
+    agreed to replace. The mapping kept is the import's at ``expected_revision``, the one
+    the person saw. Raises :class:`Stale`, :class:`StaleTemplate` or :class:`Refused`."""
     _may_write(user, imported.project, imported.type)
-    if (replace is None) != (target_revision is None):
-        raise Invalid({"target_revision": ["Give a template ID and its revision together."]})
+    assert (replace is None) == (replace_revision is None)  # noqa: S101 - the API gives both
     name = name.strip()
     if not name or len(name) > 100:
         raise Refused("Give it a name, of at most 100 characters.", field="name")
@@ -642,7 +640,7 @@ def save_mapping(
                 .select_related("created_by")
                 .get(pk=replace, project_id=imported.project_id, type=imported.type)
             )
-            if saved.revision != target_revision:
+            if saved.revision != replace_revision:
                 raise StaleTemplate(saved)
             saved.revision += 1
             what = "spreadsheet_mapping.changed"
@@ -677,10 +675,13 @@ def save_mapping(
     return saved
 
 
-def delete_mapping(user: User, saved: SavedMapping) -> None:
+def delete_mapping(user: User, saved: SavedMapping, *, expected_revision: int) -> None:
+    """Deletes it, if it's still at ``expected_revision``. Raises :class:`StaleTemplate`."""
     _may_write(user, saved.project, saved.type)
     with transaction.atomic():
         saved = SavedMapping.objects.select_for_update().get(pk=saved.pk)
+        if saved.revision != expected_revision:
+            raise StaleTemplate(saved)
         audit.record(
             "spreadsheet_mapping.deleted",
             actor=user,
@@ -1757,10 +1758,11 @@ def _creates_file(imported: SpreadsheetImport) -> File:
         )
 
 
-def discard(user: User, imported: SpreadsheetImport) -> None:
-    """Before it's committed: its rows go, and it's kept as discarded."""
+def discard(user: User, imported: SpreadsheetImport, *, expected_revision: int) -> None:
+    """Before it's committed, from the revision the person read: its rows go, and it's kept
+    as discarded."""
     with transaction.atomic():
-        locked = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
+        locked = _locked(imported, expected_revision)
         if locked.state in (ImportState.COMMITTING, ImportState.COMMITTED):
             raise Refused("It's been imported: its run's records are the project's now.")
         _discarded(locked)

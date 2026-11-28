@@ -529,7 +529,8 @@ rules:
   them (`expressions-unchecked`).
 - A check that can't be worked out because a value it reads is empty
   passes, as a database's CHECK does: make the field `required` to require
-  it. One that fails for any other reason refuses the save.
+  it. One that fails for any other reason refuses the save. A guard does the
+  opposite ([Empty values](#empty-values-rules-pass-guards-refuse)).
 - `message` is what whoever saves is told, as text (never HTML), with CEL
   between `{{` and `}}`. A record reads as its HRID, and a date as the day.
   `fields` are what it points at, in forms and in the API's errors
@@ -623,12 +624,33 @@ approved:
   edit. Signed approvals require a person. An unsigned approval that also
   requires a person can check `!actor.service_account` alongside the editor
   check.
-- One that can't be worked out refuses the change, whatever's empty. `when`
-  limits it to changes it's true of.
+- One that can't be worked out refuses the change, whatever's empty, as a
+  rule doesn't ([Empty values](#empty-values-rules-pass-guards-refuse)).
+  `when` limits it to changes it's true of.
 - The record's page offers only the states its person may set, saying why
   not of the others, in the guard's words. A refused change is answered
   `guard_refused`, with the guard's name.
 - A state has at most 20.
+
+#### Empty values: rules pass, guards refuse
+
+A rule and a guard can read the same expression, and treat an empty value it
+reads in opposite ways, each on purpose
+([ADR 0127](../docs/adr/0127-plugins-rules-are-checked-at-every-save.md),
+[ADR 0128](../docs/adr/0128-guards-say-when-a-state-may-be-set.md)):
+
+|                           | A rule's `check`                                               | A guard's `check`                                           |
+| ------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------- |
+| A value it reads is empty | Passes: the record is saved, as a database's CHECK lets a NULL | Refuses: the state isn't set until the value is there       |
+| Why                       | A draft is saved before every value is known                   | A state moves the record on, so what it needs must be known |
+| To refuse an empty value  | Make the field `required`, or check `record.x != null && …`    | The default                                                 |
+| To allow an empty value   | The default                                                    | Say so in its check: `record.x == null \|\| …`              |
+
+So `record.purity >= 95.0` as a rule lets a lot be saved with no purity yet,
+and as a guard on `released` refuses to release it until its purity is
+there. The validator warns when a type has a rule and a guard with the same
+check (`same-condition-rule-and-guard`), since one of them may not mean what
+its author expects of an empty value.
 
 #### Who signs, declared
 
@@ -3446,7 +3468,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `extends-list`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                                                    | Lab lists                       |
 | `row-role-not-enum`, `row-role-optional`, `unknown-row-role`, `unknown-row-field`, `row-role-not-reference`, `row-role-type-not-allowed`, `row-id-field`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Lists of rows                   |
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
-| `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
+| `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`; `same-condition-rule-and-guard` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
 | `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |

@@ -4,7 +4,7 @@ kind: EntityType
 name: Request
 label: Request
 abstract: true
-schema_version: 2
+schema_version: 3
 description: A project's specification of work to be done by another team.
 service:
   request:
@@ -87,11 +87,15 @@ fields:
         description: The service won't do it, and says why.
         set_by: [iki/lab_roles.coordinator]
         reason: required
+  # One scale with the service's work items: what the asking team sees is the priority
+  # the service works to.
   priority:
     type: enum
-    values: [routine, urgent]
+    values: [routine, high, urgent]
     default: routine
-    description: How soon the service does it, which it decides.
+    description: >-
+      How soon the service does it, which it decides: routine, in its turn; high, ahead
+      of routine work; urgent, before anything else.
   scheduled_on:
     type: date
     label: Scheduled

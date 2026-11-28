@@ -6,6 +6,8 @@
 import {
   ApiError,
   createIkiClient,
+  ifMatch,
+  isStale,
   unwrap,
   type IkiClient,
   type Problem,
@@ -592,13 +594,11 @@ export function useOpenedRevision(
   if (open && (opened === null || (isStale(error) && opened !== revision))) setOpened(revision);
   if (!open && opened !== null) setOpened(null);
   const at = opened ?? revision;
-  return { revision: at, ifMatch: { "If-Match": `"${String(at)}"` } };
+  return { revision: at, ifMatch: ifMatch(at) };
 }
 
-/** Whether a change was refused because the record changed since it was read (412). */
-export function isStale(error: unknown): error is ApiError {
-  return error instanceof ApiError && error.problem.code === "stale";
-}
+/** Whether a change was refused because what it named changed since it was read (412). */
+export { isStale };
 
 /** Field errors from a `validation_failed` problem, by body field name. */
 export function fieldErrors(problem: Problem | undefined): Record<string, string> {
