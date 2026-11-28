@@ -709,7 +709,7 @@ def test_a_writer_is_given_no_reference_its_reader_cant_read(
 
     def given(user: Any) -> dict[str, Any]:
         record = exports._plugin_record(user, tube, tube.revision, wanted, set())
-        fields: dict[str, Any] = record.request["roles"]["sample"]["fields"]
+        fields: dict[str, Any] = record.gathered.roles["sample"]["fields"]
         return fields
 
     # A reference names its record's entry (ADR 0115).

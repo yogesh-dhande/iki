@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("iki_entities", "0028_record_exports"),
+        ("iki_entities", "0029_entry_hands_its_identity_on"),
     ]
 
     operations = [
