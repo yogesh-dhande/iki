@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 
-from iki_server.entities import registry
+from iki_server.entities import computing, registry
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, shape, to_json
 from iki_spec import rules as spec_rules
@@ -48,6 +48,7 @@ __all__ = [
     "cel_value",
     "check_failure",
     "checks_of",
+    "computed_broken",
     "kept",
     "raise_broken",
     "record_variables",
@@ -160,6 +161,8 @@ def digest_of(type_name: str) -> str:
             for r in checks_of(type_name)
         ],
         "plugins": [[p, plugins[p].version] for p in owners if p in plugins],
+        # What its computed values are worked out by (ADR 0297), which its rules read.
+        "computed": computing.digest_of(type_name),
     }
     return hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
 
@@ -380,12 +383,20 @@ def _applies(rule: Rule, changed: frozenset[str] | None) -> bool:
 
 
 def broken(
-    type_name: str, savings: Sequence[Saving], *, before_signing: bool = False
+    type_name: str,
+    savings: Sequence[Saving],
+    *,
+    before_signing: bool = False,
+    reading: frozenset[str] | None = None,
 ) -> list[list[Broken]]:
     """The checks each record about to be saved breaks: false, or not worked out for a
-    reason other than an empty value. Each record's are in its rules' order."""
+    reason other than an empty value. Each record's are in its rules' order. With
+    ``reading``, only the checks that read those fields and no others: a registry entry's,
+    of its entry fields, which a registrar registers with no record (ADR 0165)."""
     groups: dict[tuple[tuple[str, str], ...], list[Rule]] = {}
-    checks = checks_of(type_name)
+    checks = tuple(
+        r for r in checks_of(type_name) if reading is None or (r.reads and set(r.reads) <= reading)
+    )
     for rule in checks:
         if not before_signing or rule.recheck_before_signing:
             groups.setdefault(rule.reference_revisions, []).append(rule)
@@ -525,6 +536,21 @@ def check_failure(check: spec_rules.Outcome, when: spec_rules.Outcome | None) ->
     if check.error is not None:
         return None if check.empty else check.error
     return None if check.value else ""
+
+
+def computed_broken(type_name: str, name: str, messages: Sequence[str]) -> Broken:
+    """A computed value (ADR 0297) its field refuses, as what a chunk's line breaks, so an
+    import says it where it says the rules a line breaks."""
+    f = shape(type_name).fields()[name]
+    text = f"{f.label} {' '.join(messages)}"
+    rule = Rule(
+        name=f"computed_{name}",
+        label=f.label,
+        plugin=registry.types()[type_name].plugin,
+        message=text,
+        fields=(name,),
+    )
+    return Broken(rule, text, (name,))
 
 
 def raise_broken(

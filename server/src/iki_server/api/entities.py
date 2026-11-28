@@ -20,7 +20,7 @@
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
@@ -30,7 +30,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q, QuerySet
+from django.db.models import F, Q, QuerySet, prefetch_related_objects
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict, ValidationError, field_serializer
@@ -324,7 +324,19 @@ class FieldOut(Schema):
     plugin: str = Field(description="The plugin that defines the field.")
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
-    computed: bool = Field(description="Set only by actions.")
+    computed: bool = Field(
+        description="Set by Iki, never by a person: by actions' runs, or worked out from "
+        "the record's own values at every save, by `cel` (ADR 0297)."
+    )
+    cel: str | None = Field(
+        None,
+        description="A computed field's CEL expression, which Iki works its value out by at "
+        "every save, over `record` (ADR 0297). Null for a field people or runs set.",
+    )
+    cel_reads: list[str] = Field(
+        default_factory=list,
+        description="The record's fields `cel` reads: changing one changes this field.",
+    )
     reason_on_clear: bool | None = Field(
         None, description="True when clearing this Boolean requires a reason."
     )
@@ -925,6 +937,18 @@ class SupersededOut(Schema):
     by_id: UUID
     at: datetime
     reason: str
+    carries: list[str] | None = Field(
+        None,
+        description="For a replacement of another type (ADR 0165), which a record can't "
+        "become: the fields whose values a move gives the project's new record of it, those "
+        "the two types' records share. The rest stay with this record, which the move "
+        "archives. None for one of its own type, which the record moves to whole.",
+    )
+    held: bool = Field(
+        False,
+        description="The record's project has a record of the replacement, which a move "
+        "can't go onto: the one a move to an entry of another type made, say.",
+    )
 
 
 class EntryRefOut(Schema):
@@ -1462,6 +1486,8 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,
+        "cel": f.cel,
+        "cel_reads": list(f.cel_reads),
         "reason_on_clear": f.reason_on_clear or None,
         "unit": f.unit,
         "unit_symbol": units.symbol(f.unit) if f.unit else None,
@@ -1920,9 +1946,12 @@ def _gone(user: User, ref: str) -> None:
 
 
 def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
+    # Their projects, for their states' and signatures' checks: one read for the page.
+    prefetch_related_objects(entities, "owner_project")
     # Read these versions before the values. A concurrent change may show newer values
     # alongside an older version, which the review or signature then refuses.
     entries = _entries_of(user, entities)
+    holding = _holding(user, entities, entries)
     held, breaches = _holds_of(user, entities, entries)
     recalculations: dict[UUID, list[str]] = defaultdict(list)
     for entity_id, action in (
@@ -1961,6 +1990,8 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         e.owner_project_id for e in entities if eligibility.purpose_roles(e.type)
     }
     permissions.remember_roles(user, [p for p in projects.values() if p.pk in restricted_projects])
+    offered = states.options_of(user, entities, values, history=signed_history)
+    signs = _signs_can(user, entities, values, signing, offered)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -1983,7 +2014,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             and storage.spec(entity.type) is not None
             and storage.holds_material(user, entity)
         )
-        transitions = states.options(user, entity, values[entity.pk], history=signed_history)
+        transitions = offered.get(entity.pk, {})
         mine = ids_in(fields, values[entity.pk])
         shown = {
             name: to_json(fields[name], value, readable_refs=refs)
@@ -2015,7 +2046,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 ]
                 if entity.owner_project_id in readers
                 else [],
-                "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
+                "entry": _entry_of(entity, entries, holding),
                 "needs_recalculation": recalculations.get(entity.pk, []),
                 "holds": held.get(entity.pk, []),
                 "breaches": breaches.get(entity.pk, []),
@@ -2042,7 +2073,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     if draw_amount
                     else [],
                     "states": _states_can(transitions),
-                    "sign": _sign_can(user, entity, values[entity.pk], signing, transitions),
+                    "sign": signs.get(entity.pk, []),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
@@ -2211,21 +2242,27 @@ class _Signing:
         return self._cant[0]
 
 
-def _sign_can(
+def _signs_can(
     user: User,
-    entity: Entity,
-    values: dict[str, Any],
+    entities: list[Entity],
+    values: Mapping[Any, dict[str, Any]],
     signing: _Signing,
-    transitions: dict[str, list[states.Option]],
-) -> list[dict[str, Any]]:
-    out = []
-    for change in sig_changes.signed(transitions, values):
-        slots = sig_services.slots(
-            user, entity, change, given=signing.given(entity), cant=signing.cant(), values=values
-        )
+    offered: Mapping[Any, dict[str, list[states.Option]]],
+) -> dict[Any, list[dict[str, Any]]]:
+    """What each record's signed states need, and whether ``user`` may give them: their
+    guards and holds checked for the whole page at once."""
+    wanted = [
+        sig_services.Signable(entity, change, signing.given(entity), values[entity.pk])
+        for entity in entities
+        for change in sig_changes.signed(offered.get(entity.pk, {}), values[entity.pk])
+    ]
+    found = sig_services.slots_of(user, wanted, cant=signing.cant()) if wanted else []
+    out: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for each, slots in zip(wanted, found, strict=True):
+        change = each.change
         allowed = any(s.why_not is None for s in slots)
         open_slots = [s for s in slots if s.signature is None]
-        out.append(
+        out[each.entity.pk].append(
             {
                 "field": change.field,
                 "field_label": change.field_label,
@@ -2267,6 +2304,39 @@ def _slot_out(slot: Any) -> dict[str, Any]:  # noqa: ANN401 - a signatures.servi
     }
 
 
+def _holding(
+    user: User, entities: list[Entity], entries: Mapping[Any, Mapping[str, Any]]
+) -> set[tuple[Any, Any]]:
+    """Of these records whose entries were superseded, (replacement, project) for each whose
+    project has a record of its entry's replacement the user can read."""
+    wanted = {
+        (found["superseded"]["by_id"], e.owner_project_id)
+        for e in entities
+        if (found := entries.get(e.entry_id)) is not None and found["superseded"] is not None
+    }
+    if not wanted:
+        return set()
+    rows = access.visible(user).filter(
+        entry_id__in={r for r, _ in wanted}, owner_project_id__in={p for _, p in wanted}
+    )
+    return set(rows.values_list("entry_id", "owner_project_id")) & wanted
+
+
+def _entry_of(
+    entity: Entity, entries: Mapping[Any, Mapping[str, Any]], holding: set[tuple[Any, Any]]
+) -> dict[str, Any] | None:
+    """A record's entry, as ``EntryRefOut``: with whether its project has a record of the
+    entry's replacement, if it was superseded."""
+    found = entries.get(entity.entry_id) if entity.entry_id is not None else None
+    if found is None or found["superseded"] is None:
+        return dict(found) if found is not None else None
+    by = found["superseded"]["by_id"]
+    return {
+        **found,
+        "superseded": {**found["superseded"], "held": (by, entity.owner_project_id) in holding},
+    }
+
+
 def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]:
     """The registry entries these records are of (ADR 0115), as ``EntryRefOut``."""
     ids = {e.entry_id for e in entities if e.entry_id is not None}
@@ -2279,6 +2349,7 @@ def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]
     for row in rows:
         superseded = None
         if row.superseded_by_id is not None:
+            from iki_server.entities import entries
             from iki_server.entities.entries import supersession
 
             found = supersession(row)
@@ -2295,6 +2366,9 @@ def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]
                 "by_id": row.superseded_by_id,
                 "at": found.at,
                 "reason": found.reason,
+                "carries": list(entries.carried(row.type, found.replacement.type))
+                if found.replacement.type != row.type
+                else None,
             }
         out[row.pk] = {
             "id": row.pk,

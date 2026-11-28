@@ -9,6 +9,7 @@ import pytest
 from api_client import problem
 from django.utils import timezone
 from org_world import World
+from structlog.testing import capture_logs
 from test_api_entities import api_as, create, patch
 from test_oauth import bearer, signed_in_token
 from test_runs import COMPUTE, launch, protein
@@ -23,6 +24,7 @@ from iki_server.graph import queries
 from iki_server.notifications.models import Notification
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.runs import approvals, triggers
+from iki_server.runs import services as run_services
 from iki_server.runs.models import (
     ActionRun,
     FiringState,
@@ -511,6 +513,52 @@ def test_lost_firings_are_swept_up(world: World) -> None:
     assert triggers.recover() == 1
     firing.refresh_from_db()
     assert firing.state == FiringState.LAUNCHED
+
+
+def test_a_firing_whose_launch_keeps_breaking_fails_without_holding_up_the_rest(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on(world)
+    editor = api_as(world, "editor")
+    broken = protein(editor, world.project, "kit")
+    protein(editor, world.project, "src")
+    # Both tasks were lost; the broken one fired first, so a sweep comes to it first.
+    TriggerFiring.objects.update(created_at=timezone.now() - timedelta(minutes=2))
+    first, second = TriggerFiring.objects.order_by("id")
+    assert str(first.entity_id) == broken["id"]
+    launch = run_services.launch
+
+    def launch_or_break(
+        user: User, action: Any, project: Project, inputs: Any, *a: Any, **k: Any
+    ) -> Any:
+        if [first.entity_id] in inputs.values():
+            raise RuntimeError("a bug in launching this one")
+        return launch(user, action, project, inputs, *a, **k)
+
+    monkeypatch.setattr(run_services, "launch", launch_or_break)
+    with capture_logs() as logs:
+        assert triggers.recover() == 1
+    second.refresh_from_db()
+    assert second.state == FiringState.LAUNCHED
+    first.refresh_from_db()
+    assert (first.state, first.failures, first.run) == (FiringState.PENDING, 1, None)
+    (failed,) = [e for e in logs if e["event"] == "trigger_fire_failed"]
+    assert failed["firing"] == str(first.pk) and failed["failures"] == 1
+    assert failed["log_level"] == "error"
+    # It's tried each pass, and fails after the last: never pending for good.
+    for _ in range(triggers.MAX_FAILURES - 2):
+        assert triggers.recover() == 0
+    assert triggers.recover() == 1
+    first.refresh_from_db()
+    assert (first.state, first.failures, first.run) == (FiringState.FAILED, 5, None)
+    assert first.error == {
+        "code": "launch_failed",
+        "message": "Its run couldn't start: launching it failed 5 times with an unexpected "
+        "error, which the server's log records.",
+    }
+    shown = {f["id"]: f for f in firings(world)}[str(first.pk)]
+    assert (shown["state"], shown["error"]) == ("failed", first.error)
+    assert triggers.recover() == 0
 
 
 def test_firings_can_be_narrowed_to_a_trigger(world: World) -> None:

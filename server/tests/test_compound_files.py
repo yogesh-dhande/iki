@@ -35,13 +35,13 @@ def record(**given: Any) -> CompoundFile:
 
 
 def test_a_molfile_is_named_and_says_which_record_it_is() -> None:
-    written = molfile(record(latest=False))
+    written = molfile(record())
     text = written.content.decode()
     lines = text.split("\n")
     # The header block: its name, the program line RDKit wrote, and a comment.
     assert lines[0] == "aspirin"
     assert "RDKit" in lines[1] and lines[1][20:22] == "2D"
-    assert lines[2] == "Exported from Iki: CPD-000007 (revision 3, not its latest)."
+    assert lines[2] == "Exported from Iki: CPD-000007 (revision 3)."
     assert lines[3].endswith("V2000")
     assert text.endswith("M  END\n")
     mol = Chem.MolFromMolBlock(text)

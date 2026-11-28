@@ -30,6 +30,7 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
+from iki_server.core import sweeps
 from iki_server.entities import access, hrids, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
@@ -488,13 +489,15 @@ def advance(workflow_id: str | UUID, *, wait: bool = True) -> str:
 
 def recover() -> int:
     """Moves on every running workflow run no other transaction is: in case a task that
-    should have was lost. Returns how many ended."""
-    ended = 0
+    should have was lost. Returns how many ended. One that can't be moved on is logged
+    and left for the next pass, behind none of the others."""
     ids = WorkflowRun.objects.filter(status=WorkflowStatus.RUNNING).order_by("id")
-    for pk in ids.values_list("pk", flat=True)[:RECOVER_AT_MOST]:
-        if advance(pk, wait=False) not in ("running", "busy"):
-            ended += 1
-    return ended
+    return sweeps.each(
+        list(ids.values_list("pk", flat=True)[:RECOVER_AT_MOST]),
+        lambda pk: advance(pk, wait=False) not in ("running", "busy"),
+        failed="workflow_recovery_failed",
+        key="workflow",
+    )
 
 
 # --- Moving on ---------------------------------------------------------------------------------

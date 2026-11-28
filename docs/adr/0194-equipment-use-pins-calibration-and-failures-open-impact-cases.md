@@ -5,6 +5,7 @@
 - Relates to [0116](0116-lab-roles-are-declared-by-plugins-and-given-per-project.md),
   [0126](0126-an-electronic-signature-is-bound-to-the-revision-it-signs.md),
   [0179](0179-a-corrected-result-goes-back-for-review.md)
+- Amended 2026-11-27: a use measured after a failed calibration isn't covered
 - Refined by:
   [0239](0239-qa-opens-an-impact-case-for-a-result-no-use-was-recorded-for.md),
   where Equipment QA opens a case for a result no use was recorded for, and a result has
@@ -57,6 +58,31 @@ one case. If re-tracing, include the existing impacts so already signed
 dispositions are preserved. A new case is pending until signed off or
 released. QA records the disposition and supporting reason using the
 failure's review procedure.
+
+Amended 2026-11-27: a use measured after a failure isn't covered. The action
+reads the calibration in force at the measurement, and the instrument's own
+Calibration state, which its run already includes; it searches no service
+history. Each use records whether a calibration covered it, and if not, why.
+It is never refused for this, since its result still needs a disposition:
+
+- A signed passing calibration whose validity includes the measurement covers
+  it, unless the instrument is marked Failed.
+- With a signed failed calibration selected, a use measured at or after its
+  suspected onset is recorded as not covered ("Plate reader 2 failed
+  calibration on 2026-03-01."), and the same run opens the result's impact
+  case for that failure, with this use as its evidence. A result has one case
+  for each failure (ADR 0239), keyed by the two, whoever opens it: a trace, an
+  instrument use or Equipment QA. The first stands (`on_match: keep`, ADR
+  0082), so a second use of the result, or a later trace, finds it.
+- With the instrument marked Failed and the passing calibration before the
+  failure selected, the use is recorded as not covered ("Plate reader 2's
+  calibration is marked Failed."). The run can't see the failure, so the
+  failure's trace, once it is signed, opens the case, as for any use.
+
+A use measured while the instrument is marked Failed is treated as after the
+failure even when the record is late and the measurement came before it. QA
+dispositions such a result as unaffected; a use is never counted as covered
+when the instrument says it has failed.
 
 ## Consequences
 

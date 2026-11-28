@@ -178,8 +178,3 @@ export function FilePreview({ file }: { file: PreviewFile }) {
     </Suspense>
   );
 }
-
-/** Whether Iki has a viewer for the file's format. */
-export function usePreviewable(file: PreviewFile): boolean {
-  return useViewer(file).viewer !== undefined;
-}

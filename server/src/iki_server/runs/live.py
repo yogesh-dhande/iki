@@ -7,6 +7,7 @@ transaction commits, so work that was rolled back says nothing.
 """
 
 import uuid
+from collections.abc import Iterable
 
 from iki_server.realtime import events
 
@@ -22,9 +23,16 @@ def batch_topic(batch_id: uuid.UUID) -> str:
 def changed(run_id: uuid.UUID, batch_id: uuid.UUID | None = None) -> None:
     """Its status, an attempt's, or progress. With `batch_id` (when its status changed),
     the batch's page hears too (``GET /api/v1/batches/{ref}/events``)."""
-    events.publish_to(topic(run_id), "run", {"id": str(run_id)})
-    if batch_id is not None:
-        events.publish_to(batch_topic(batch_id), "run", {"id": str(run_id)})
+    changed_each([(run_id, batch_id)])
+
+
+def changed_each(runs: Iterable[tuple[uuid.UUID, uuid.UUID | None]]) -> None:
+    """:func:`changed` for each (run, batch) of ``runs``, in one statement."""
+    events.publish_each(
+        (to, "run", {"id": str(run_id)})
+        for run_id, batch_id in runs
+        for to in (topic(run_id), *([batch_topic(batch_id)] if batch_id is not None else []))
+    )
 
 
 def logged(run_id: uuid.UUID, attempt: int, size: int) -> None:

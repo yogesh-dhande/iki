@@ -32,7 +32,7 @@ import {
   useMessages,
 } from "../ui";
 import { listed } from "../views";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 /** How often the firings are read again while some wait to be fired. */
 const FIRINGS_REFRESH_MS = 5_000;

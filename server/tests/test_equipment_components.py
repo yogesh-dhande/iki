@@ -71,8 +71,21 @@ USE_ROW: dict[str, Any] = {
         "calibration": PASSING,
         "calibration_revision": 4,
         "measurement_at": "2026-04-02T10:30:00Z",
+        "covered": True,
     },
     "refs": {INSTRUMENT: {"hrid": "INS-000001"}, RESULT: {"hrid": "QCD-000001"}},
+}
+#: Measured after the instrument's calibration failed, so no calibration covers it.
+UNCOVERED_ROW: dict[str, Any] = {
+    "hrid": "EQU-000002",
+    "values": {
+        **USE_ROW["values"],
+        "calibration": FAILURE,
+        "measurement_at": "2026-05-01T08:00:00Z",
+        "covered": False,
+        "not_covered_because": "Plate reader 2 failed calibration on 2026-04-30.",
+    },
+    "refs": USE_ROW["refs"],
 }
 IMPACT_ROW: dict[str, Any] = {
     "hrid": "EQI-000001",
@@ -162,10 +175,14 @@ def test_equipment_evidence_fits_a_phone_and_opens_the_record(
         assert page.get_by_text("Pending disposition").count() == 0
         opened = IMPACT_ROW
     else:
-        give(page, element, [USE_ROW])
-        assert page.get_by_text("QCD-000001 · revision 7").is_visible()
-        assert page.get_by_text("Unavailable reference · revision 4").is_visible()
+        give(page, element, [USE_ROW, UNCOVERED_ROW])
+        assert page.get_by_text("QCD-000001 · revision 7").count() == 2
+        assert page.get_by_text("Unavailable reference · revision 4").count() == 2
         assert page.get_by_text(PASSING, exact=True).count() == 0
+        assert page.get_by_text("Covered", exact=True).is_visible()
+        assert page.get_by_text(
+            "Not covered: Plate reader 2 failed calibration on 2026-04-30.", exact=True
+        ).is_visible()
         opened = USE_ROW
 
     page.get_by_role("button", name=f"Open {opened['hrid']}").focus()

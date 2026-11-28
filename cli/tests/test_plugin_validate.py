@@ -29,16 +29,18 @@ def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
     code = main(["plugin", "validate", str(PLUGINS / "protein"), "--with", str(PLUGINS / "dna")])
     assert code == 0
     assert capsys.readouterr().out == (
-        "✓ acme/protein 3.0.0 is valid: 20 entity types, 0 extensions, 0 settings, 12 actions, "
+        "✓ acme/protein 3.0.0 is valid: 24 entity types, 0 extensions, 0 settings, 12 actions, "
         "1 environment, 6 workflows, 6 triggers, 2 components, 0 writers.\n"
     )
 
 
 def test_the_summary_counts_a_plugins_writers(capsys: pytest.CaptureFixture[str]) -> None:
     example = Path(__file__).parents[2] / "examples" / "plugins" / "liquid_handling"
+    # The example's version moves with every change to it; the counts are what's tested.
+    version = yaml.safe_load((example / "plugin.yaml").read_text())["version"]
     assert main(["plugin", "validate", str(example)]) == 0
     assert capsys.readouterr().out == (
-        "✓ acme/liquid_handling 0.1.1 is valid: 2 entity types, 0 extensions, 0 settings, "
+        f"✓ acme/liquid_handling {version} is valid: 2 entity types, 0 extensions, 0 settings, "
         "0 actions, 0 environments, 0 workflows, 0 triggers, 0 components, 1 writer.\n"
     )
 

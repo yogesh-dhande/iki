@@ -136,14 +136,20 @@ IMPORTS_WASI = recording(
     rest='(import "wasi_snapshot_preview1" "fd_write" (func (param i32 i32 i32 i32)'
     " (result i32)))" + REST,
 )
-#: Speaks another ABI.
-ABI_2 = recording(
-    "(i32.const 0)",
-    rest=REST.replace(
+
+
+def reading(abi: int, source: str = "") -> str:
+    """``source`` (an echo, by default), saying it reads ``abi``."""
+    return (source or ECHO).replace(
         '(func (export "iki_abi") (result i32) (i32.const 1))',
-        '(func (export "iki_abi") (result i32) (i32.const 2))',
-    ),
-)
+        f'(func (export "iki_abi") (result i32) (i32.const {abi}))',
+    )
+
+
+#: Reads an ABI older than any this Iki runs.
+ABI_0 = reading(0, recording("(i32.const 0)"))
+#: Reads an ABI newer than this Iki runs.
+ABI_2 = reading(2, recording("(i32.const 0)"))
 #: Lacks ``iki_notes``.
 INCOMPLETE = recording(
     "(i32.const 0)",

@@ -39,6 +39,12 @@ Choose the lab's permanent `namespace/name` in `plugin.yaml`. Change the
 sample fields and ID prefix for your labels, the default code for unlabelled
 samples, and the code list and data version in `setup/storage_codes.sh`. Change
 the web component and its declared fields together when changing the label.
+The component's source is `web/src/sample-label.js`, which asks Iki for the
+next page with [@ikisci/component](../../../web/packages/component)'s `more`.
+`web/` is a package of its own: run `npm install` there once and commit the
+`package-lock.json` it writes, then `npm run bundle` after each change to
+rebuild `components/sample-label.js`, the one module Iki serves. The
+template's CI runs `npm run check`, which fails if they don't match.
 Update the examples and expected labels in `tests/` with values from your lab.
 The manifest also declares `tube_scan`, a rack scanner's export. Its header lets
 Iki recognize a scan even when the filename has lost its extension. To accept

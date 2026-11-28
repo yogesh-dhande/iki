@@ -60,9 +60,16 @@ serviced, and its schedule says no calibration is due.
    Its status uses the latest observed outcome, signed evidence, expiration
    time and the Instrument's own service and calibration states.
 3. When a measurement is recorded, run **Record instrument use** from the
-   instrument. Select the measured record, the signed passing calibration
-   and the measurement timestamp with a time zone. Iki checks the match and
-   pins the result and calibration revisions. The Instrument evidence tab
+   instrument. Select the measured record, the instrument's latest signed
+   calibration before the measurement and the measurement timestamp with a
+   time zone. Iki checks the match and pins the result and calibration
+   revisions. A passing calibration whose validity includes the measurement
+   covers it. A use measured after a signed failed calibration is recorded as
+   **not covered**, with why ("Plate reader 2 failed calibration on
+   2026-03-01."), and the same run opens the result's impact case. While the
+   instrument is marked Failed, no passing calibration before it covers a use:
+   it's recorded as not covered, and tracing the failure once it's signed opens
+   its case. The Instrument evidence tab
    shows that evidence on the instrument, and on the measured record's page,
    whatever its type: a QC deliverable, an assay result or a sample. A record
    no instrument use names has no such tab.
@@ -88,8 +95,8 @@ if there is a known calibration failure.
    uses and prior impacts for this instrument. The action opens one case for
    each result with a use at or after the suspected onset and before the next
    signed passing calibration, from the result's first use in that window. A
-   result that already has a case for the failure gets no second: select its
-   case among the prior impacts, or the trace is refused, naming it. Until a
+   result that already has a case for the failure gets no second: the trace
+   finds it, opened by a use, a trace or Equipment QA, and leaves it as it is. Until a
    recovery is available, the window stays
    open. The run's log says, for each failure, the interval it reviewed, how
    many of the selected uses fell in it, and whether no recovery bounded it.

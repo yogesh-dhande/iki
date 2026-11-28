@@ -22,9 +22,9 @@ within each domain, each from a copy's cysteine to another's.
 
 - **`iki/antibody.Antibody`** (`ABY-000001`): an antibody by its chains, at
   most one kind of each: a `heavy` chain and, unless it's a VHH or an scFv, a
-  `light` chain. One chain may carry two specificities (blinatumomab's two
-  scFvs, format `other`); one of more kinds of chain (a bispecific IgG's) or
-  more copies (an IgM pentamer's ten of each, with its J chain) is a protein
+  `light` chain, and for an IgM's or an IgA's polymer, its `j_chain`. One
+  chain may carry two specificities (blinatumomab's two scFvs, format
+  `other`); one of more kinds of chain (a bispecific IgG's) is a protein
   complex.
   - A whole IgG (`igg`) is two copies of each; a Fab (`fab`), an Fv (`fv`, the
     two variable domains alone), a single domain (`vhh`, a camelid's or a
@@ -36,7 +36,9 @@ within each domain, each from a copy's cysteine to another's.
     whole IgG and a half-antibody of the same two chains, one copy of each.
     The same chains and copies registered as another complex type, such as a
     protein complex, are this antibody: that registration is refused, saying
-    so.
+    so. An antibody registered as a protein complex by mistake is superseded
+    by a registrar with its chains registered as an antibody, which takes over
+    its identity; each project with it moves its record there (ADR 0165).
   - Its format and isotype are what its chains are, so they don't need to be
     in its identity: an IgG1 and an IgG4 of the same variable domains have
     different heavy chains (their constant regions differ), and an IgG and a
@@ -57,10 +59,23 @@ within each domain, each from a copy's cysteine to another's.
     chimeric or humanized antibody's constant region is human, whatever its
     variable domains are ([ADR 0265](../../docs/adr/0265-an-antibodys-isotype-is-named-by-its-constant-regions-species.md)).
 
+- **Polymers.** An IgM pentamer or hexamer, or an IgA dimer or larger
+  polymer, is format `other`, given to `assemble` as how many `subunits` it
+  has, two heavy and two light chains each, with its J chain: a pentamer is 10
+  heavy and 10 light chains and a J chain (Hiramoto et al., _Sci Adv_
+  4:eaau1199, 2018), a hexamer 12 of each, which has no J chain (Wiersma et
+  al., _J Immunol_ 160:5979-5989, 1998, made pentamers with and without one,
+  and hexamers without), and an IgA polymer 2 to 5 subunits (Kumar et al.,
+  _Science_ 367:1008-1014, 2020, solved dimers, tetramers and pentamers with
+  their J chain). Its heavy chain's constant region must be an IgM's or an
+  IgA's. The rule `a_j_chain_joins_a_polymer` holds a J chain to one copy of
+  such a polymer at every save. The bonds between its subunits and to its J
+  chain aren't placed. A secretory IgA, with its secretory component, is a
+  protein complex
+  ([ADR 0271](../../docs/adr/0271-an-igm-or-iga-polymer-is-an-antibody-of-its-subunits-and-j-chain.md)).
 - **Other architectures.** An antibody of more than one kind of heavy or light
-  chain (a bispecific IgG, a CrossMab, a DVD-Ig with two light chains) or more
-  copies (an IgM pentamer, an IgA dimer with its J chain) is registered as a
-  protein complex (`iki/complex.ProteinComplex`) of its chains, each with its
+  chain (a bispecific IgG, a CrossMab, a DVD-Ig with two light chains) is
+  registered as a protein complex (`iki/complex.ProteinComplex`) of its chains, each with its
   copies and a role the lab names, such as `heavy_a` and `light_b`. It's found
   beside antibodies by searching `iki/core.Complex`, and the complex plugin
   computes its formula, masses and absorbance. A lab that registers many of
@@ -186,8 +201,9 @@ depending on the allele (Dard et al., _Eur J Hum Genet_ 9:765-772, 2001), so
 IgG3 is compared with each: IGHG3\*01's four (X03604), IGHG3\*03's three
 (X16110) and IGHG3\*04's two (X99549), as IMGT's alignment of the IGHG3 alleles
 gives them; a short-hinge IgG3 isn't IgG1's. The one it's nearest is its
-isotype when it's at least 90% identical to it and the next is at least 3
-differences further:
+isotype when it's at least 93% identical to it, the next is at least 3
+differences further, and it's at least 3 differences nearer it than any
+macaque reference (below):
 
 - an isotype left out is the chain's, and the run says how sure (_"Its isotype
   is igg1, from its heavy chain: … IgG1's, 99.4% identical to IMGT's IGHG1\*01
@@ -206,11 +222,34 @@ differences further:
   from its residue 37, the two the same between"_;
 - one that matches a human reference has a human constant region
   (`constant_species: human`), and another species given is refused;
-- one that matches no human reference (a mouse's IgG1 is about 64% identical
-  to the nearest) needs its species given with its isotype, which must be one
-  that species has (a mouse has `igg2a`, not `igg2` or `igg4`). Both are kept
-  as given, unread, with a warning: Iki ships human references only, so the
-  species is the registrant's statement.
+- one nearer a macaque's than any human one is an Old World monkey's: its
+  species and isotype are left out, with a warning, and given as `macaque`,
+  its isotype is read off the macaque references the same way;
+- one that matches no human or macaque reference (a mouse's IgG1 is about 64%
+  identical to the nearest) needs its species given with its isotype, which
+  must be one that species has (a mouse has `igg2a`, not `igg2` or `igg4`).
+  Both are kept as given, unread, with a warning: the species is the
+  registrant's statement.
+
+Identity alone doesn't tell a human constant region from a monkey's. An Old
+World monkey's whole IgG is 88-91% identical to the nearest human one (rhesus
+IGHG1\*03 90.7%, a baboon's IgG1 90.4%, an African green monkey's 90.4%), and a
+rhesus Fab's CH1 up to 93% (PDB 9ZRZ), while a human allele is a residue or two
+from the \*01 reference and a heavily engineered Fc about 95%. So `assemble`
+also compares the chain with IMGT's constant regions of a rhesus macaque
+(_Macaca mulatta_ isolate AG07107: IGHG1\*03, IGHG2\*08, IGHG3\*07,
+IGHG4\*05, IGHA\*22, IGHM\*03, IGHE\*01 and IGHD\*03, from IMGT's annotation
+of its IGH locus, EMBL/GenBank BK063715; Nguefack Ngoune et al., _Vaccines_
+10:394, 2022), counting each residue of the chain that differs from each. Every
+human allele and marketed antibody in the tests is 7 or more differences nearer
+a human reference, and every macaque, baboon and African green monkey constant
+region nearer a macaque one, or, for a few CH1s alone, as near, and so not
+human. A cynomolgus macaque's are the same genes (its
+IgG1, GenBank L13307, is 98.5% identical to the rhesus IGHG1\*03), so
+`macaque` is either. A baboon's or an African green monkey's is as near the
+rhesus references (93-99%) as other macaque alleles are, so Iki doesn't give a
+species it can't tell: the registrant does. A chimpanzee's is as near a human's
+as human alleles are to each other, and is read as human.
 
 Allotypes differ from these alleles by a residue or two, and engineered Fc
 regions (S228P, LALA, YTE) by a few; subclasses differ by 20 or more over a
@@ -304,10 +343,8 @@ unless it's given a name.
 An `other`'s copies are as given, or two of each chain whose CH3 (an IgM's or
 IgE's CH4) pairs with another's, as an Fc fusion's does, and one otherwise: an
 isolated CH2 is a monomer (Prabakaran et al., _Acta Crystallogr D_ 64:1062-1067,
-2008). An IgM's chains make one of its subunits, two of each; the run says that
-its pentamer, 10 heavy and 10 light chains and a J chain (Hiramoto et al.,
-_Sci Adv_ 4:eaau1199, 2018), or its hexamer, 12 of each, is a protein complex
-(`iki/complex.ProteinComplex`) of its chains with their copies.
+2008). An IgM's chains make one of its subunits, two of each, unless `subunits`
+says it's a polymer (above): the run says so.
 
 `number_chains` runs [ANARCI](https://github.com/oxpig/ANARCI) (BSD-3-Clause)
 with HMMER's hmmscan, in the plugin's `numbering-tools` image

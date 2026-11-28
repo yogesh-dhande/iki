@@ -68,6 +68,8 @@ expect:
           calibration: 00000000-0000-7000-8003-000000000003
           calibration_revision: 1
           measurement_at: "2026-01-05T09:00:00+00:00"
+          covered: true
+          not_covered_because: null
 ---
 apiVersion: iki/v1
 kind: ActionTest
@@ -86,6 +88,104 @@ inputs:
         valid_until: "2026-02-05T09:00:00Z"
 params: { measurement_at: "2026-02-05T09:00:00Z" }
 expect: { error: The selected calibration does not cover the measurement time. }
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_use_after_a_signed_failure_isnt_covered_and_opens_its_case
+action: record_instrument_use
+description: >-
+  Synthetic times. The check on 12 January found the spectrophotometer out of tolerance,
+  suspect since the 8th, and no passing check has followed: a reading on the 13th is
+  recorded, not refused, as not covered, and its result's impact case opens with it.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer, calibration: failed } }]
+  result: [{ type: iki/core.Collection, values: { name: Absorbance at 260 nm } }]
+  calibration:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: out_of_tolerance
+        review: signed_off
+        review_flow: regulated_qc
+        suspect_since: "2026-01-08T10:00:00Z"
+        performed_at: "2026-01-12T09:00:00Z"
+params: { measurement_at: "2026-01-13T10:00:00Z" }
+expect:
+  output:
+    creates:
+      - type: iki/equipment.InstrumentUse
+        values:
+          instrument: 00000000-0000-7000-8003-000000000001
+          result: 00000000-0000-7000-8003-000000000002
+          calibration: 00000000-0000-7000-8003-000000000003
+          measurement_at: "2026-01-13T10:00:00+00:00"
+          covered: false
+          not_covered_because: Demonstration spectrophotometer failed calibration on 2026-01-12.
+      - type: iki/equipment.CalibrationImpact
+        derived_from:
+          - 00000000-0000-7000-8003-000000000001
+          - 00000000-0000-7000-8003-000000000003
+        values:
+          instrument: 00000000-0000-7000-8003-000000000001
+          failure: 00000000-0000-7000-8003-000000000003
+          failure_revision: 1
+          use: { $create: use }
+          result: 00000000-0000-7000-8003-000000000002
+          measurement_at: "2026-01-13T10:00:00+00:00"
+          review_flow: regulated_qc
+          opened: traced
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_use_while_the_instrument_is_marked_failed_isnt_covered
+action: record_instrument_use
+description: >-
+  The passing check of 1 January is valid until July, but the instrument has been marked
+  Failed since: a reading in April is recorded as not covered by it. The failure's trace,
+  once it's signed, opens the result's case.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer, calibration: failed } }]
+  result: [{ type: iki/core.Collection, values: { name: Absorbance at 260 nm } }]
+  calibration:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: in_tolerance
+        review: released
+        performed_at: "2026-01-01T09:00:00Z"
+        valid_until: "2026-07-01T09:00:00Z"
+params: { measurement_at: "2026-04-01T10:00:00Z" }
+expect:
+  output:
+    creates:
+      - type: iki/equipment.InstrumentUse
+        values:
+          calibration: 00000000-0000-7000-8003-000000000003
+          covered: false
+          not_covered_because: Demonstration spectrophotometer's calibration is marked Failed.
+---
+apiVersion: iki/v1
+kind: ActionTest
+name: a_failed_calibration_says_nothing_before_its_onset
+action: record_instrument_use
+description: A reading before the failure's suspected onset was made under the passing check before it.
+inputs:
+  instrument: [{ values: { name: Demonstration spectrophotometer, calibration: failed } }]
+  result: [{ type: iki/core.Collection, values: { name: Absorbance at 260 nm } }]
+  calibration:
+    - values:
+        instrument: 00000000-0000-7000-8003-000000000001
+        kind: calibration
+        outcome: out_of_tolerance
+        review: signed_off
+        review_flow: research
+        suspect_since: "2026-01-08T10:00:00Z"
+        performed_at: "2026-01-12T09:00:00Z"
+params: { measurement_at: "2026-01-08T09:59:59Z" }
+expect:
+  {
+    error: "The measurement was before the failed calibration's suspected onset: select the passing calibration in force then.",
+  }
 ---
 apiVersion: iki/v1
 kind: ActionTest

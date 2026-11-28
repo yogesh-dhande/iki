@@ -21,4 +21,6 @@ description: >-
 on: entity.updated
 type: PlasmidPrep
 fields: [a260, path_length, dilution_factor, concentration_method]
+watch_included:
+  concentration_method: [calculation]
 action: compute_plasmid_prep

@@ -28,6 +28,7 @@ import {
   useBatchUpdates,
   type Batch,
   type RunStatus,
+  VIA,
 } from "../runs";
 import {
   Badge,
@@ -41,7 +42,7 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { StatusBadge, VIA } from "./runs";
+import { StatusBadge } from "./run-text";
 
 /** The order a batch's counts read in: going first, then how they ended. */
 const ORDER: RunStatus[] = [

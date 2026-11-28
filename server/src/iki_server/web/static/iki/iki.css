@@ -3396,6 +3396,12 @@ textarea:disabled {
   color: var(--muted);
 }
 
+/* Under a long list's first matches: how many there are, and to type to narrow them. */
+.listbox-more {
+  border-top: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
 /* File fields: upload one, or choose one already in the project. */
 .file-choice {
   display: grid;
@@ -5322,6 +5328,7 @@ input[type="file"]::file-selector-button {
   overflow-wrap: anywhere;
 }
 
+/* A spreadsheet import's options: chips in a row. */
 .sheet-options {
   display: flex;
   flex-wrap: wrap;
@@ -7569,7 +7576,7 @@ button.scan-choice:disabled {
 
 /* A sheet's list cell's options: under the cell, over the sheet, which clips its cells;
    placed from the cell as it opens and as the sheet scrolls. */
-.popover.sheet-options {
+.popover.list-cell-options {
   position: fixed;
   top: auto;
   right: auto;
@@ -7578,7 +7585,7 @@ button.scan-choice:disabled {
   max-height: min(18rem, 45vh);
 }
 
-.popover.sheet-options[hidden] {
+.popover.list-cell-options[hidden] {
   display: none;
 }
 
@@ -7649,5 +7656,28 @@ button.scan-choice:disabled {
 
 .reorder-moves {
   display: flex;
+  flex-wrap: wrap;
+  gap: calc(4rem / 13);
+}
+
+/* A long list's pages, on its page and in its reordering: which it shows, and the next. */
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: calc(8rem / 13);
+  margin: calc(8rem / 13) 0 calc(12rem / 13);
+}
+
+.pager-range {
+  margin: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pager-moves {
+  display: flex;
+  flex-wrap: wrap;
   gap: calc(4rem / 13);
 }

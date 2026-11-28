@@ -30,7 +30,7 @@ be set to a state that locks it until its holds are reviewed.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -40,7 +40,7 @@ from psycopg import sql
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import registry
+from iki_server.entities import guards, registry
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.org import lab_roles, permissions
@@ -54,11 +54,13 @@ __all__ = [
     "GuardRefused",
     "NeedsSignatures",
     "Option",
+    "conditions_of",
     "install_guards",
     "locked_why",
     "locking",
     "on_edit",
     "options",
+    "options_of",
     "refusal",
     "return_for_edit",
     "set_state",
@@ -230,30 +232,55 @@ def options(
     """For each of a record's state fields, the states it could be set to (every one but
     the one it's in), each with why ``user`` may not set it. ``values``: the record's,
     as the database stores them: its guards read them."""
-    if entity.registry_id is not None:
-        return {}
-    history = entries.for_records([entity]) if history is None else history
-    out: dict[str, list[Option]] = {}
-    for name, f in state_fields(entity.type).items():
-        current = values.get(name)
-        candidates = [
-            st
-            for st in transitions(entity, f, current or "", history).values()
-            if not st.removed and st.name != current
-        ]
-        whys = {st.name: _why_not_who(user, entity, name, st) for st in candidates}
-        conditions = _conditions(
-            user, entity, name, [st for st in candidates if whys[st.name] is None], values
-        )
-        found = []
+    return options_of(user, [entity], {entity.pk: values}, history=history).get(entity.pk, {})
+
+
+def options_of(
+    user: User,
+    entities: Sequence[Entity],
+    values: Mapping[UUID, Mapping[str, Any]],
+    *,
+    history: Mapping[tuple[UUID, str], entries.Entry] | None = None,
+) -> dict[UUID, dict[str, list[Option]]]:
+    """:func:`options` for each of a page of records, by ID: their holds and what their
+    guards read are read once for all of them. ``values``: each record's, by ID. A
+    registry entry has none."""
+    records = [e for e in entities if e.registry_id is None]
+    history = entries.for_records(records) if history is None else history
+    asks: list[tuple[Entity, Field, list[State], dict[str, tuple[str, bool] | None]]] = []
+    for entity in records:
+        for name, f in state_fields(entity.type).items():
+            current = values[entity.pk].get(name)
+            candidates = [
+                st
+                for st in transitions(entity, f, current or "", history).values()
+                if not st.removed and st.name != current
+            ]
+            whys = {st.name: _why_not_who(user, entity, name, st) for st in candidates}
+            asks.append((entity, f, candidates, whys))
+    conditions = conditions_of(
+        user,
+        [
+            guards.Ask(
+                entity,
+                f.name,
+                [st for st in candidates if whys[st.name] is None],
+                values[entity.pk],
+            )
+            for entity, f, candidates, whys in asks
+        ],
+    )
+    out: dict[UUID, dict[str, list[Option]]] = {e.pk: {} for e in records}
+    for (entity, f, candidates, whys), found in zip(asks, conditions, strict=True):
+        offered = []
         for st in candidates:
             refusal = whys[st.name]
             if refusal is not None:
-                found.append(Option(f, st, refusal[0]))
+                offered.append(Option(f, st, refusal[0]))
             else:
-                why, guard = conditions.get(st.name, (None, None))
-                found.append(Option(f, st, why, guard))
-        out[name] = found
+                why, guard = found.get(st.name, (None, None))
+                offered.append(Option(f, st, why, guard))
+        out[entity.pk][f.name] = offered
     return out
 
 
@@ -301,36 +328,64 @@ def _conditions(
     """Why the record can't be set to each of ``candidates`` now, as the record is, by
     state: its holds (for a state that locks it, ADR 0127) or a guard (ADR 0128), with
     the guard's name."""
-    from iki_server.entities import checking, guards, holds, requests
+    return conditions_of(user, [guards.Ask(entity, field, candidates, values, signatures)])[0]
 
-    if not candidates:
-        return {}
-    out: dict[str, tuple[str, str | None]] = {}
-    completion = requests.spec_of(entity.type)
-    if completion and completion.completed_field == field:
-        for st in candidates:
-            if st.name in completion.completed_states and (
-                why := requests.delivery_refusal(entity)
-            ):
-                out[st.name] = (why, None)
-    if any(st.locks for st in candidates):
-        held = holds.blocks_locking(entity)
-        if held:
-            out.update({st.name: (held, None) for st in candidates if st.locks})
-    if any(st.signatures for st in candidates):
-        saving = checking.Saving(values.get, id=entity.pk, hrid=entity.hrid)
-        failed = checking.broken(entity.type, [saving], before_signing=True)[0]
-        if failed:
-            out.update(
+
+def conditions_of(
+    user: User, asks: Sequence[guards.Ask]
+) -> list[dict[str, tuple[str, str | None]]]:
+    """Why each of ``asks``' records can't be set to each of its states now, by state, with
+    the guard refusing it, if one does (:func:`condition`): a page of records' at once.
+    Their holds are read once, for the holds and the guards alike."""
+    from iki_server.entities import checking, holds, requests
+
+    out: list[dict[str, tuple[str, str | None]]] = [{} for _ in asks]
+    held = holds.open_of(
+        {a.entity.pk for a in asks if any(st.locks or st.guards for st in a.states)}
+    )
+    # The rules a signed state checks again before signing, for each type's records at once.
+    signed: dict[str, list[int]] = {}
+    for i, ask in enumerate(asks):
+        if any(st.signatures for st in ask.states):
+            signed.setdefault(ask.entity.type, []).append(i)
+    failures: dict[int, list[checking.Broken]] = {}
+    for type_name, at in signed.items():
+        savings = [
+            checking.Saving(asks[i].values.get, id=asks[i].entity.pk, hrid=asks[i].entity.hrid)
+            for i in at
+        ]
+        failures.update(
+            zip(at, checking.broken(type_name, savings, before_signing=True), strict=True)
+        )
+    rest: list[guards.Ask] = []
+    for i, (found, ask) in enumerate(zip(out, asks, strict=True)):
+        entity, field, candidates = ask.entity, ask.field, ask.states
+        if not candidates:
+            rest.append(ask)
+            continue
+        completion = requests.spec_of(entity.type)
+        if completion and completion.completed_field == field:
+            for st in candidates:
+                if st.name in completion.completed_states and (
+                    why := requests.delivery_refusal(entity)
+                ):
+                    found[st.name] = (why, None)
+        if any(st.locks for st in candidates):
+            blocking = holds.blocks_locking(entity, held.get(entity.pk, []))
+            if blocking:
+                found.update({st.name: (blocking, None) for st in candidates if st.locks})
+        if failed := failures.get(i):
+            found.update(
                 {
                     st.name: (failed[0].message, failed[0].rule.key)
                     for st in candidates
                     if st.signatures
                 }
             )
-    rest = [st for st in candidates if st.name not in out]
-    for name, refusal in guards.refusals(user, entity, field, rest, values, signatures).items():
-        out[name] = (refusal.message, refusal.guard.name)
+        rest.append(replace(ask, states=[st for st in candidates if st.name not in found]))
+    for found, refused in zip(out, guards.refusals_of(user, rest, held), strict=True):
+        for name, refusal in refused.items():
+            found[name] = (refusal.message, refusal.guard.name)
     return out
 
 

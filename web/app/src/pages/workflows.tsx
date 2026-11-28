@@ -18,6 +18,7 @@ import {
   isBlank,
   type Draft,
   type Schemaed,
+  NO_RULES,
 } from "../entity-values";
 import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
@@ -32,6 +33,8 @@ import {
   type Workflow,
   type WorkflowRun,
   type WorkflowStatus,
+  WORKFLOW_STATUS,
+  inputField,
 } from "../runs";
 import {
   Button,
@@ -44,10 +47,10 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { inputField, listed, NO_RULES } from "./new-run";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 import { StepGraph } from "./step-graph";
-import { When, WORKFLOW_STATUS } from "./workflow-runs";
+import { When } from "./run-text";
+import { listed } from "../requests";
 
 /** How often a list with workflow runs still going is read again. */
 const LIST_REFRESH_MS = 5_000;

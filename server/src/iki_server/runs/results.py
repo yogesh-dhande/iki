@@ -381,6 +381,8 @@ class _Create:
     #: Physical inventory is recorded and placed only when this fresh create succeeds.
     receipt: Mapping[str, Any] | None = None
     destination: UUID | None = None
+    #: A match is kept as it is, rather than updated (``on_match: keep``).
+    keep: bool = False
 
 
 def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
@@ -524,6 +526,7 @@ def _create(
         fills,
         item.get("receipt"),
         destination,
+        keep=effect.on_match == "keep",
     )
 
 
@@ -872,9 +875,20 @@ def _write_creates(
         if match is not None:
             if create.receipt is not None:
                 raise Rejected("conflict", "A receipt cannot match an existing stock record.")
-            saved = update_match(check, create.pointer, create.type, match, values)
-            if saved is None:
-                continue
+            if create.keep:
+                # Whoever made it first made it: it stands as it is (``on_match: keep``).
+                if match.type not in subtypes(create.type):
+                    check.error(
+                        create.pointer + "/type",
+                        f"It matches {match.hrid}, a {match.type}, which isn't a {create.type}.",
+                    )
+                    continue
+                saved = entities.Saved(match)
+            else:
+                updated = update_match(check, create.pointer, create.type, match, values)
+                if updated is None:
+                    continue
+                saved = updated
         else:
             receipt = create.receipt
             try:

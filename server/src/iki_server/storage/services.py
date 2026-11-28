@@ -441,10 +441,13 @@ def plan(
     confirmations: Mapping[Any, str | Confirmation] | None = None,
     receiving: bool = False,
     taken_into_custody: frozenset[UUID] = frozenset(),
+    placing: bool = True,
 ) -> list[Planned]:
     """What each move would do, and each problem with it, changing nothing. ``receiving``
     takes custody from wherever a record was recorded. A receipt preview supplies the
-    records it will have taken out of their prior locations before putting any away."""
+    records it will have taken out of their prior locations before putting any away.
+    Without ``placing``, only whether each record can go in its container at all is
+    checked, before any position is chosen: what a picker offers wells for."""
     if len(wanted) > MAX_MOVES:
         raise Wrong({"items": [f"has more than {MAX_MOVES} moves."]})
     records = [w.record.pk for w in wanted]
@@ -504,7 +507,7 @@ def plan(
                 problems.append(f"{record.hrid} isn't in storage.")
             continue
         _into(user, planned, readable, receiving=receiving)
-        if problems:
+        if problems or not placing:
             continue
         shape = planned.shape
         if shape is None:
@@ -529,6 +532,8 @@ def plan(
         else:
             claimed[w.to.pk].add(position)
             planned.row, planned.column = position
+    if not placing:
+        return out
     # Then the next free positions, in each container's order.
     for planned in out:
         if planned.problems or planned.to is None or planned.shape is None:
