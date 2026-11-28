@@ -1005,6 +1005,7 @@ def _lab_list(plugin: str, body: dict[str, Any], document: Document) -> EntityTy
     }
     options = body.get("options")
     label = body.get("label") or _words(name)
+    fields = {**list_fields(), **own}
     return EntityType(
         plugin=plugin,
         name=name,
@@ -1013,7 +1014,9 @@ def _lab_list(plugin: str, body: dict[str, Any], document: Document) -> EntityTy
         label_plural=body.get("label_plural") or label + "s",
         description=body.get("description"),
         identity=(LIST_CODE,),
-        fields={**list_fields(), **own},
+        fields=fields,
+        # Its label, and any field of its own marked unique, is a rule (ADR 0082).
+        rules=unique_rules(fields, plugin, identity=(LIST_CODE,)),
         display_title="{{ label }}",
         file=document.file,
         list_spec=ListSpec(
