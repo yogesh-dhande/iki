@@ -352,7 +352,7 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
   // The server names the line that changed, at its version now.
   answer(
     `PATCH ${api}/lines/${first.id}`,
-    problem(409, "conflict", "This receipt line changed.", undefined, {
+    problem(412, "stale", "This receipt line changed.", undefined, {
       affected_lines: [{ line_id: first.id, revision: 2 }],
     }),
   );
@@ -368,6 +368,8 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
   await user.click(line("TUB-000001").getByRole("button", { name: "Missing" }));
   const dialog = await why(user, "Not in the box after all", "Save the change");
   const alert = await dialog.findByText(/^TUB-000001 changed while you were looking at it/);
+  // Said once: the refusal's own detail isn't shown beside what changed.
+  expect(dialog.getAllByRole("alert")).toHaveLength(1);
   expect(alert.closest("[role=alert]")).toHaveTextContent(
     "TUB-000001: Now rejected · note “Thawed”, checked by Ada Lovelace, 12 Jan 2026, 09:30 UTC.",
   );
@@ -1018,7 +1020,7 @@ it("reloads a receipt that changed since it was reviewed, and waits to be comple
   await user.selectOptions(where("TUB-000002"), "Keep in my custody");
   answer(
     `POST ${api}/complete`,
-    problem(409, "conflict", "This receipt changed.", undefined, {
+    problem(412, "stale", "This receipt changed.", undefined, {
       affected_lines: [{ line_id: "line-000002", revision: 2 }],
     }),
   );

@@ -283,7 +283,7 @@ it("reviews a refused completion's count only once the latest one is shown", asy
   );
   // A colleague found it in A4 meanwhile, and moved it there. The refusal comes back before
   // the count as it is now does.
-  answer(`POST ${api}/complete`, problem(409, "conflict", "The count changed."));
+  answer(`POST ${api}/complete`, problem(412, "stale", "The count changed."));
   const latest = inventory(2, { ...moved, found: "A4", revision: 2 });
   const showLatest = holdResponse(`GET ${api}`, latest);
   answer(
