@@ -1878,7 +1878,10 @@ def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
 def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
     """Trace paired reads from a public yeast library to a signed quality summary."""
     prefix = "iki/sequencing."
-    give_lab_roles(alice, project, prefix + "reviewer")
+    # Research's sign-off is someone's who didn't import it (ADR 0301): bob reviews.
+    bob = sign_in_as("bob")
+    assign_reviewer(alice, bob, project, "iki/lab_roles.reviewer")
+    choose_review(alice, project, prefix + "FASTQSummary")
     accession = "SRR8690267"
     read_sets = matching_records(alice, project, prefix + "ReadSet", "run_accession", accession)
     if read_sets:
@@ -1931,7 +1934,7 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
     if counts != [(4, 90.0), (4, 14.0)]:
         fail(f"{summary['hrid']} recorded unexpected FASTQ excerpt statistics {counts}")
     if summary["values"]["review"] == "recorded":
-        signature = signing(alice, summary, "signed_off", "alice", field="review")
+        signature = signing(bob, summary, "signed_off", "bob", field="review")
         if signature["status"] != "signed" or not signature["set"]:
             fail(f"signing {summary['hrid']} gave {signature}")
     ok(f"{reads['hrid']}: signed quality summary for four public yeast read pairs")
@@ -1940,6 +1943,7 @@ def sequencing(alice: requests.Session, project: dict[str, Any]) -> None:
 def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> None:
     """Import raw counts from one sample of a public yeast count matrix."""
     prefix = "iki/sequencing_analysis."
+    choose_review(alice, project, prefix + "SequencingAnalysisResult")
     library_type = "iki/sequencing.SequencingLibrary"
     name = "GEO GSE176296 WTJ.1 excerpt"
     libraries = matching_records(alice, project, library_type, "name", name)
@@ -2177,6 +2181,7 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
 def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
     """Import the HUPO-PSI mzTab excerpt for legacy PRIDE 16649."""
     prefix = "iki/proteomics."
+    choose_review(alice, project, prefix + "ProteomicsResult")
     name = "PRIDE 16649 visual cortex mzTab excerpt"
     seen = matching_records(alice, project, prefix + "ProteomicsDataset", "name", name)
     dataset = (
@@ -4187,6 +4192,27 @@ def give_lab_roles(alice: requests.Session, project: dict[str, Any], *roles: str
     )
     if given.status_code != 200:
         fail(f"giving alice {', '.join(roles)} answered HTTP {given.status_code}")
+
+
+#: Core's result review, whose slots the shared lab roles play (ADRs 0301, 0304).
+RESULT_REVIEW = "iki/core.result_review@1"
+
+
+def choose_review(
+    alice: requests.Session, project: dict[str, Any], kind: str, flow: str = "research"
+) -> None:
+    """The project's choice of review for a reviewed type (ADR 0302), before any record
+    of it is made: as its Admin applies the plugin's starter, without the walk through."""
+    path = f"/review-choices/{kind}?project={project['id']}"
+    now = api_call(alice, "GET", path)
+    if now.status_code != 200:
+        fail(f"reading the review choice for {kind} answered HTTP {now.status_code}")
+    chosen = now.json().get("project") or {}
+    if (chosen.get("procedure"), chosen.get("flow")) == (RESULT_REVIEW, flow):
+        return
+    made = api_call(alice, "PUT", path, {"procedure": RESULT_REVIEW, "flow": flow})
+    if made.status_code != 200:
+        fail(f"choosing {flow} for {kind} answered HTTP {made.status_code}: {made.text[:300]}")
 
 
 def matching_records(
@@ -6246,6 +6272,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
 def biologics_ms(alice: requests.Session, project: dict[str, Any], antibody_id: str) -> None:
     """Map a published trastuzumab peptide onto the already registered Fv."""
     prefix = "iki/biologics_ms."
+    choose_review(alice, project, prefix + "MSResult")
     antibody = record(alice, antibody_id)
     seen = matching_records(alice, project, prefix + "MSResult", "antibody", entry_of(antibody))
     if seen:

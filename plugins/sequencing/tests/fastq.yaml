@@ -3,7 +3,6 @@ kind: ActionTest
 name: archived_yeast_mate_quality
 description: Count the first four complete read pairs in public ENA run SRR8690267.
 action: summarize_fastq
-settings: { review_flow: regulated_qc }
 files:
   first: tests/data/SRR8690267_1.fastq
   second: tests/data/SRR8690267_2.fastq
@@ -25,7 +24,6 @@ expect:
           read_set_revision: 1
           library_revision: 1
           sample: 00000000-0000-7000-8003-000000000099
-          review_flow: regulated_qc
           statistics:
             - mate: 1
               sha256: 6b24de24501313e95f0597303d570b12bdf2df74317030452f8ae58d6bb22999
@@ -58,10 +56,9 @@ expect:
 ---
 apiVersion: iki/v1
 kind: ActionTest
-name: record_only_summary_keeps_its_procedure
-description: A lab that records quality without sign-off gets the same statistics, marked Record only.
+name: single_end_reads_summarize_one_mate
+description: A single-end read set gets its one mate's statistics.
 action: summarize_fastq
-settings: { review_flow: record_only }
 files: { first: tests/data/SRR8690267_1.fastq }
 inputs:
   reads:
@@ -75,7 +72,6 @@ expect:
     creates:
       - type: iki/sequencing.FASTQSummary
         values:
-          review_flow: record_only
           statistics:
             - mate: 1
               sha256: 6b24de24501313e95f0597303d570b12bdf2df74317030452f8ae58d6bb22999

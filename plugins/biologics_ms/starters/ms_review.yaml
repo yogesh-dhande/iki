@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Starter
+name: ms_review
+version: 1.0.0
+label: Biologics mass spectrometry
+description: Choose how new intact mass and peptide map results are reviewed, or recorded without sign-off, and who submits, reviews and releases them.
+governs: MSResult
+procedure: iki/core.result_review@1
+flows: [research, regulated_qc, record_only]
+suggested: research
+summaries:
+  record_only: The comparison is kept as evidence, as it was imported, and no one signs it.
+slots:
+  analyst: { minimum: editor }
+  reviewer: { minimum: viewer }
+  qa: { minimum: viewer }

@@ -474,7 +474,6 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                             if identity(protein) not in selected_proteins
                         ],
                     },
-                    "review_flow": run.get("settings", {}).get("review_flow", "research"),
                 },
             }
         ],

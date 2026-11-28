@@ -55,7 +55,6 @@ apiVersion: iki/v1
 kind: ActionTest
 name: choose_one_gene_count_column
 action: import_counts
-settings: { review_flow: regulated_qc }
 files: { data: tests/data/GSE176296-counts.tsv }
 inputs:
   library:
@@ -72,7 +71,6 @@ expect:
       - type: iki/sequencing_analysis.SequencingAnalysisResult
         values:
           format: counts
-          review_flow: regulated_qc
           summary:
             selector: WTJ.1
             projection: Every gene's raw integer count in the WTJ.1 column.
@@ -83,7 +81,6 @@ apiVersion: iki/v1
 kind: ActionTest
 name: retain_productive_pbmc_rearrangements
 action: import_airr
-settings: { review_flow: record_only }
 files: { data: tests/data/pbmc-b-airr.tsv }
 inputs:
   library:
@@ -98,7 +95,6 @@ expect:
       - type: iki/sequencing_analysis.SequencingAnalysisResult
         values:
           format: airr
-          review_flow: record_only
           summary:
             projection: "Every rearrangement: the file names no repertoire."
             rows: 4

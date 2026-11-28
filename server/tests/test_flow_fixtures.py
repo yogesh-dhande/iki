@@ -39,30 +39,71 @@ def served() -> dict[str, Any]:
     from first_party_dependencies import FIRST_PARTY, PLUGINS
 
     from iki_server.api.entities import _flow_field
+    from iki_spec import procedures
+    from iki_spec.builtin import core_plugin
     from iki_spec.validate import load_plugin
 
     types: list[dict[str, Any]] = []
     roles: dict[str, str] = {}
+    installed = dict(core_plugin().procedures)
     for plugin, names in DRAWN.items():
         directory = PLUGINS / plugin
         loaded = load_plugin(directory, dependencies=list(FIRST_PARTY[directory]))
         assert loaded.problems == [], loaded.problems
         assert loaded.plugin is not None
+        installed.update(loaded.plugin.procedures)
         for role in loaded.plugin.roles.values():
             roles[role.qualified_name] = role.label
         for name in names:
             spec = loaded.plugin.types[f"iki/{plugin}.{name}"]
-            types.append(
-                {
-                    "type": spec.qualified_name,
-                    "label": spec.label,
-                    "fields": [
-                        _flow_field(field)
-                        for field in spec.fields.values()
-                        if field.type == "state" and not field.removed
-                    ],
-                }
-            )
+            review = spec.review
+            drawn: dict[str, Any] = {
+                "type": spec.qualified_name,
+                "label": spec.label,
+                "fields": [
+                    _flow_field(field)
+                    for field in spec.fields.values()
+                    if field.type == "state"
+                    and not field.removed
+                    and (review is None or field.name != review.field)
+                ],
+                "review": None,
+            }
+            if review is not None:
+                # Each flow its starter offers, played as the starter binds it (ADR 0306).
+                flows = []
+                for starter in loaded.plugin.starters.values():
+                    if starter.governs != spec.qualified_name:
+                        continue
+                    procedure = installed[starter.procedure]
+                    binding = {
+                        slot: (
+                            given.role
+                            if (given := starter.slots.get(slot)) and given.role
+                            else f"{procedures.SHARED_ROLES}.{slot}"
+                        )
+                        for slot in procedure.slots
+                    }
+                    for flow in starter.flows:
+                        field = procedures.review_field(review, procedure, flow, binding=binding)
+                        flows.append(
+                            {
+                                "procedure": starter.procedure,
+                                "procedure_label": procedure.label,
+                                "flow": flow,
+                                "label": procedure.flows[flow].label,
+                                "summary": starter.summaries.get(flow)
+                                or procedure.flows[flow].summary,
+                                "starter": starter.qualified_name,
+                                "suggested": flow == starter.suggested,
+                                "chosen": False,
+                                "default": False,
+                                "pinned": False,
+                                "field": _flow_field(field),
+                            }
+                        )
+                drawn["review"] = {"field": review.field, "follows": review.by, "flows": flows}
+            types.append(drawn)
     return {"roles": dict(sorted(roles.items())), "types": types}
 
 

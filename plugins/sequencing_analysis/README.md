@@ -31,20 +31,23 @@ To record which registered antibody an AIRR rearrangement encodes, install
 
 ## Review
 
-A project's Admin chooses the procedure for the project's new results with the
-`sequencing-analysis-review` starter, in the project's settings under Starters, and picks who
-holds each lab role it asks for. A project that hasn't chosen uses the
-deployment setting `review_flow`
-([ADR 0266](../../docs/adr/0266-a-project-chooses-its-omics-results-review.md)):
+A project's Admin chooses how the project's new analysis results are reviewed with the
+`iki/sequencing_analysis.analysis_review` starter, in Project settings → Starters, and picks who holds each
+shared lab role it asks for (`iki/lab_roles`). An Org Admin may set the
+deployment's default in Admin → Review procedures. Until one of them chooses,
+analysis results can't be recorded. Each result is pinned to the procedure it was
+recorded under, so a change applies to new analysis results only
+([ADR 0302](../../docs/adr/0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md)).
+The flows are core's result review (`iki/core.result_review@1`):
 
-| Procedure                          | What a result needs                                                                                                           | Lab roles                |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
-| **Research** (`research`, default) | A reviewer signs the recorded result.                                                                                         | Reviewer                 |
-| **Regulated QC** (`regulated_qc`)  | An analyst signs submission, a reviewer independent of the creator, submitter and editors signs review, and QA signs release. | Analyst, reviewer and QA |
-| **Record only** (`record_only`)    | Nothing: the result is kept as evidence and offers no sign-off.                                                               | None                     |
+| Flow                     | What a result needs                                                                                                                   | Lab roles                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| **Research** (suggested) | A reviewer who didn't create or edit it signs it off.                                                                                 | Reviewer                 |
+| **Regulated QC**         | An analyst signs the submission, a reviewer independent of the creator, submitter and editors signs the review, and QA signs release. | Analyst, reviewer and QA |
+| **Record only**          | Nothing: the result is kept as evidence and offers no sign-off.                                                                       | None                     |
 
-Each result keeps the procedure it was recorded under. Changes to signed
-findings return it to Recorded. Assign the matching project roles before review.
+To review a result recorded under Record only, import the report again once the project
+chooses a flow with review.
 
 ## Public fixtures
 

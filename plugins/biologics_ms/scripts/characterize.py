@@ -316,7 +316,6 @@ def result(run: dict[str, Any]) -> dict[str, Any]:
                         }
                         for row in (*parents, *parts)
                     ],
-                    "review_flow": run.get("settings", {}).get("review_flow", "research"),
                 },
             }
         ],

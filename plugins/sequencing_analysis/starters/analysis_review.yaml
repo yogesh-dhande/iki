@@ -1,0 +1,16 @@
+apiVersion: iki/v1
+kind: Starter
+name: analysis_review
+version: 1.0.0
+label: Sequencing analysis results
+description: Choose how newly imported variant, count and repertoire results are reviewed, or recorded without sign-off, and who submits, reviews and releases them.
+governs: SequencingAnalysisResult
+procedure: iki/core.result_review@1
+flows: [research, regulated_qc, record_only]
+suggested: research
+summaries:
+  record_only: The result is kept as evidence, as it was imported, and no one signs it.
+slots:
+  analyst: { minimum: editor }
+  reviewer: { minimum: viewer }
+  qa: { minimum: viewer }

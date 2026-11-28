@@ -314,7 +314,6 @@ def result(run: dict[str, Any], artifact: Path, format_: str) -> dict[str, Any]:
                             {"id": row["id"], "revision": row["revision"]} for row in parents
                         ],
                     },
-                    "review_flow": run.get("settings", {}).get("review_flow", "research"),
                 },
             }
         ],

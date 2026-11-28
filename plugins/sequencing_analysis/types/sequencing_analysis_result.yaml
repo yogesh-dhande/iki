@@ -29,85 +29,12 @@ fields:
     computed: true
     immutable: true
     description: The selection, which rows it keeps, the report's counts and the first twelve selected rows.
-  review_flow:
-    type: enum
-    label: Review procedure
-    values: [research, regulated_qc, record_only]
-    computed: true
-    immutable: true
-    description: >-
-      The procedure when the result was recorded: its project's choice, or the deployment's
-      if the project hasn't chosen. Record only has no sign-off.
   notes: { type: text, max_length: 3000, description: Findings for the reviewer. }
-  review:
-    type: state
-    initial: recorded
-    states:
-      recorded:
-        label: Recorded
-        set_by: [analyst, reviewer, qa]
-        reason: required
-      signed_off:
-        label: Signed off
-        set_by: [reviewer]
-        locks: true
-        signatures: [{ meaning: review }]
-        guards:
-          reviewed_procedure:
-            check: record.review_flow != "record_only"
-            message: This result was recorded under Record only, which has no sign-off.
-          research:
-            check: record.review_flow == "research" && state.from == "recorded"
-            message: Sign off a recorded research result.
-      submitted:
-        label: Submitted
-        set_by: [analyst]
-        locks: true
-        signatures: [{ meaning: authorship }]
-        guards:
-          reviewed_procedure:
-            check: record.review_flow != "record_only"
-            message: This result was recorded under Record only, which has no sign-off.
-          qc:
-            check: record.review_flow == "regulated_qc" && state.from == "recorded"
-            message: Submit a recorded result in the regulated QC flow.
-      reviewed:
-        label: Independently reviewed
-        set_by: [reviewer]
-        locks: true
-        signatures: [{ meaning: review }]
-        guards:
-          reviewed_procedure:
-            check: record.review_flow != "record_only"
-            message: This result was recorded under Record only, which has no sign-off.
-          submitted:
-            check: record.review_flow == "regulated_qc" && state.from == "submitted"
-            message: Review the analyst's signed submission.
-          independent:
-            check: >-
-              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
-              edits.review.recorded.all(e, e.by != actor.person)
-            message: A reviewer independent of the creator, submitter and editors must sign.
-      released:
-        label: QA released
-        set_by: [qa]
-        locks: true
-        signatures: [{ meaning: approval, label: QA release }]
-        guards:
-          reviewed_procedure:
-            check: record.review_flow != "record_only"
-            message: This result was recorded under Record only, which has no sign-off.
-          reviewed:
-            check: state.from == "reviewed" && last.review.reviewed.from == "submitted"
-            message: Release a result after its independent review.
-          independent:
-            check: >-
-              history.review[0].by != actor.person && last.review.submitted.by != actor.person &&
-              last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)
-            message: QA release requires a signer independent of the creator, analyst, reviewer and editors.
+review:
+  needs: { locks: signed }
 rules:
   action_evidence:
-    check: record.report != null && record.summary != null && record.pipeline_context != null && record.review_flow != null
+    check: record.report != null && record.summary != null && record.pipeline_context != null
     message: Import the VCF, count matrix or AIRR report to preserve it and its source.
-    fields: [report, summary, pipeline_context, review_flow]
+    fields: [report, summary, pipeline_context]
 display: { title: "{{ hrid }}" }
