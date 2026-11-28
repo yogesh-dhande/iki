@@ -1709,7 +1709,11 @@ class FieldOut(TypedDict):
     assignment_field: str | None
     #: The states of `assignment_field` in which it's their work.
     assignment_states: list[str]
-    #: Set only by actions.
+    #: A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+    cel: NotRequired[str | None]
+    #: The record's fields `cel` reads: changing one changes this field.
+    cel_reads: NotRequired[list[str]]
+    #: Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
     computed: bool
     description: str | None
     #: Its plugin is detached (ADR 0091): it keeps its value, which can't change.
@@ -3728,7 +3732,11 @@ class ParamOut(TypedDict):
     assignment_field: str | None
     #: The states of `assignment_field` in which it's their work.
     assignment_states: list[str]
-    #: Set only by actions.
+    #: A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+    cel: NotRequired[str | None]
+    #: The record's fields `cel` reads: changing one changes this field.
+    cel_reads: NotRequired[list[str]]
+    #: Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
     computed: bool
     #: What it is when not given.
     default: NotRequired[Any]

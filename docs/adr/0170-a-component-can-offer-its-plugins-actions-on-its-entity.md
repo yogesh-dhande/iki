@@ -4,6 +4,8 @@
 - Date: 2026-11-20
 - Refines: [0084](0084-plugin-components-run-in-sandboxed-frames.md),
   [0117](0117-components-show-many-entities-in-more-places.md)
+- Extended by: [0286](0286-the-component-package-is-the-frame-protocols-one-source.md),
+  the frame protocol's one source, versioned and published
 
 ## Context
 

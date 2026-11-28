@@ -44,9 +44,9 @@ after a semicolon inside the object.
 Create an `iki/lots.PolymerLot` and select the registered polymer in **Lot of**.
 Enter the number-average molar mass (Mn), the mass-average molar mass (Mw), and
 the method used for each. For conventional size-exclusion chromatography, record
-the calibration standard and eluent as well. The `compute_polymer_lot` action
-calculates the dimensionless molar-mass dispersity Đ = Mw/Mn when both values
-are available and Mn is positive. [IUPAC definition](https://doi.org/10.1351/PAC-REC-08-05-02) ·
+the calibration standard and eluent as well. The lot works out its
+dimensionless molar-mass dispersity Đ = Mw/Mn, to three places, whenever it's
+saved with both values and a positive Mn. [IUPAC definition](https://doi.org/10.1351/PAC-REC-08-05-02) ·
 [Lots plugin](../lots/README.md)
 
 The dev seed uses the July 1992 NIST certificate for polystyrene SRM 1478.

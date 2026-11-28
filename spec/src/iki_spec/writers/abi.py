@@ -57,7 +57,6 @@ class Record:
     name: str
     type: str
     revision: int
-    latest: bool
     revised_at: datetime
     roles: Mapping[str, Any] = field(default_factory=dict)
     withheld: Sequence[str] = ()
@@ -77,7 +76,7 @@ class Encoder(Protocol):
 
 class Abi1:
     """ABI 1 (ADR 0230): ``begin`` is ``{abi, format, records, writer}``, ``record`` the
-    record's ``{hrid, id, latest, name, revised_at, revision, roles, type, withheld}`` and
+    record's ``{hrid, id, name, revised_at, revision, roles, type, withheld}`` and
     ``end`` is ``{}``."""
 
     abi = 1
@@ -95,7 +94,6 @@ class Abi1:
         return {
             "hrid": record.hrid,
             "id": str(record.id),
-            "latest": record.latest,
             "name": record.name,
             "revised_at": stamp.replace("+00:00", "Z"),
             "revision": record.revision,

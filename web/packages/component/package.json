@@ -1,8 +1,13 @@
 {
   "name": "@ikisci/component",
   "version": "0.1.0-dev.0",
-  "description": "Types and helpers for plugins' components: what Iki gives a component's element, and what it may ask Iki for.",
+  "description": "Iki's component frame protocol: what a plugin's component is given, what it may ask Iki for, the validators Iki's page reads it with, and a bundler for its module.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yogesh-dhande/iki.git",
+    "directory": "web/packages/component"
+  },
   "type": "module",
   "sideEffects": false,
   "exports": {
@@ -10,14 +15,32 @@
       "@ikisci/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./host": {
+      "@ikisci/source": "./src/host.ts",
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
+    },
+    "./bundle": "./bin/bundle.mjs"
+  },
+  "bin": {
+    "iki-component-bundle": "./bin/iki-component-bundle.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
+  },
+  "peerDependencies": {
+    "rolldown": "^1.3.3"
+  },
+  "peerDependenciesMeta": {
+    "rolldown": {
+      "optional": true
+    }
   }
 }

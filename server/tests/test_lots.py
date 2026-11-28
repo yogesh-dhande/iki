@@ -364,8 +364,12 @@ def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() 
     assert result.plugin is not None
     triggers = result.plugin.triggers.values()
     fired = sorted((t.type.rsplit(".", 1)[1], t.on) for t in triggers)
-    kinds = ["ConjugateLot", "OligoLot", "PlasmidPrep", "PolymerLot", "ProteinLot"]
+    kinds = ["ConjugateLot", "OligoLot", "PlasmidPrep", "ProteinLot"]
     assert fired == sorted((k, on) for k in kinds for on in ("entity.created", "entity.updated"))
+    # A polymer lot's dispersity needs no action: its type works it out (ADR 0297).
+    dispersity = result.plugin.types["iki/lots.PolymerLot"].fields["dispersity"]
+    assert dispersity.cel is not None
+    assert dispersity.cel_reads == ("mn", "mw")
     # What each action writes is what its trigger watches the inputs of.
     actions = result.plugin.actions
     assert actions["compute_oligo_lot"].inputs["lot"].include == ("oligonucleotide",)
@@ -379,6 +383,10 @@ def test_each_kind_of_lot_works_out_its_values_when_its_recorded_and_measured() 
         "concentration_method",
     )
     assert actions["compute_plasmid_prep"].inputs["lot"].include == ("concentration_method",)
+    # And each is worked out again when the lab changes what its method calculates.
+    for kind in ("protein_lot", "conjugate_lot", "plasmid_prep"):
+        watched = result.plugin.triggers[f"compute_{kind}_when_measured"].watch_included
+        assert watched["concentration_method"] == ("calculation",), kind
 
 
 def script(tmp_path: Path, kind: str, *entities: dict[str, Any]) -> dict[str, Any]:
@@ -409,15 +417,49 @@ def test_a_batch_of_lots_each_gets_its_own(tmp_path: Path) -> None:
     nothing new to write writes nothing."""
     out = script(
         tmp_path,
-        "polymer",
-        lot(1, mn=236000, mw=241000),
-        lot(2, mn=29184, mw=38560, dispersity=1.321),
-        lot(3, mn={"value": 35800, "unit": "g/mol"}, mw={"value": 37400, "unit": "g/mol"}),
+        "plasmid",
+        lot(1, a260=0.5, path_length=1.0),
+        lot(2, a260=0.5, path_length=1.0, a260_concentration=25.0, concentration=25.0),
+        lot(3, a260=0.2, path_length={"value": 1.0, "unit": "cm"}, dilution_factor=10),
     )
     assert out["updates"]["lot"] == [
-        {"entity": lot(1)["id"], "values": {"dispersity": 1.021}},
-        {"entity": lot(3)["id"], "values": {"dispersity": 1.045}},
+        {"entity": lot(1)["id"], "values": {"a260_concentration": 25.0, "concentration": 25.0}},
+        {"entity": lot(3)["id"], "values": {"a260_concentration": 100.0, "concentration": 100.0}},
     ]
+
+
+#: Polymer lots' certificates: Mn, Mw, and the dispersity each states.
+CERTIFIED = [
+    # PSS polystyrene standard PSS120219 (PSS/Agilent certificate PSS-PSSKIT, lot
+    # PSSKIT-17): Mw 241,000, Mn 236,000, PDI 1.02.
+    ({"mn": 236000, "mw": 241000}, 1.021),
+    # NIST SRM 1478, polystyrene: Mn 35,800 g/mol by membrane osmometry, Mw 37,400 g/mol by
+    # sedimentation equilibrium (https://tsapps.nist.gov/srmext/certificates/1478.pdf).
+    ({"mn": 35800, "mw": 37400}, 1.045),
+    # mPEG-PLGA 50:50, PolySciTech AK026 lot 250221RAI-A: Mn 29,184, Mw 38,560 by GPC in THF
+    # against polystyrene, PDI 1.32.
+    ({"mn": 29184, "mw": 38560}, 1.321),
+    # Without Mn, or with one of 0, there's none.
+    ({"mw": 38560}, None),
+    ({"mn": 0, "mw": 38560}, None),
+]
+
+
+def test_a_polymer_lots_dispersity_is_its_mw_over_its_mn_to_three_places() -> None:
+    """Đ = Mw/Mn (IUPAC, doi:10.1351/PAC-REC-08-05-02), which its type works out at every
+    save (ADR 0297), as each certificate states it."""
+    plugin = load_plugin(LOTS, dependencies=FIRST_PARTY[LOTS]).plugin
+    assert plugin is not None
+    spec = plugin.types["iki/lots.PolymerLot"]
+    fields = {n: f for t in (plugin.types["iki/lots.Lot"], spec) for n, f in t.fields.items()}
+    dispersity = fields["dispersity"]
+    assert dispersity.cel_reads == ("mn", "mw")
+    outcomes = rules.evaluate(
+        rules.computed_variables(spec.label, fields),
+        [(dispersity.cel or "", rules.VALUE, rules.computed_result(dispersity))],
+        [{"record": values} for values, _ in CERTIFIED],
+    )
+    assert [row[0].result for row in outcomes] == [want for _, want in CERTIFIED]
 
 
 def test_a_distribution_without_area_has_no_dar(tmp_path: Path) -> None:
@@ -1085,6 +1127,7 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
             "of_carrier": of_carrier,
             "of_polymer": services.current_values_of([srm])[srm.pk]["polymer"]
                           == polystyrene.entry_id,
+            "srm_dispersity": services.current_values_of([srm])[srm.pk]["dispersity"],
             "wrong_polymer_weights": wrong_polymer_weights,
             "mw_by_osmometry": mw_by_osmometry,
             "of_monomer": of_monomer,
@@ -1125,6 +1168,8 @@ def test_lots_of_any_entity_keep_their_amounts_rules_and_disposition(
         "conjugate": ["must refer to a iki/conjugate.Conjugate, not a iki/oligo.Oligonucleotide."]
     }
     assert result["of_polymer"] is True
+    # Worked out as it's saved, from its certificate's Mn and Mw (ADR 0297).
+    assert result["srm_dispersity"] == 1.045
     assert result["of_monomer"] == {
         "polymer": ["must refer to a iki/polymer.Polymer, not a iki/small_molecule.Compound."]
     }
@@ -1329,6 +1374,91 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         pending = Recalculation.objects.filter(action="iki/lots.compute_oligo_lot")
         assert pending.filter(entity=waiting).exists()
         assert not Recalculation.objects.filter(entity=unrelated).exists()
+
+        # What a concentration method calculates is fixed (ADR 0143): a lab that finds its
+        # own A280 method, on a variable path length, is one whose instrument reports the
+        # concentration directly supersedes it with an option that calculates nothing.
+        # Moving a project's lots to the replacement flags each lot that named it, and
+        # only those, and works it out again where the project turned the calculation on.
+        from iki_server.entities import entries, lists
+        from iki_server.org.models import Project, Registry, RegistryRole
+        registry = Registry.objects.get(pk=project.registry_id)
+        RegistryRole.objects.create(registry=registry, user=admin,
+                                    role=RegistryRole.Role.REGISTRAR)
+        ProjectTrigger.objects.create(project=project,
+                                      trigger="iki/lots.compute_protein_lot_when_measured",
+                                      enabled_by=admin, enabled_at=timezone.now())
+        methods = "iki/lots.ProteinConcentrationMethod"
+        ours = lists.add(admin, registry, methods,
+                         {{"code": "a280_vpl", "label": "A280, variable path length",
+                           "calculation": "a280"}})
+        bca = lists.find(project.registry_id, methods, "bca")
+        insulin = services.create(
+            alice, "iki/protein.Protein", project,
+            {{"name": "insulin B chain", "sequence": "FVNQHLCGSHLVEALYLVCGERGFFYTPKT"}},
+        ).entity
+        by_method = {{
+            name: services.create(
+                alice, "iki/lots.ProteinLot", project,
+                {{"protein": str(insulin.pk), "a280": 0.52, "path_length": 0.1,
+                  **({{"concentration_method": str(method.entry.pk)}} if method else {{}})}},
+                amount={{"value": 5, "unit": "mg"}},
+            ).entity
+            for name, method in (("ours", ours), ("bca", bca), ("unnamed", None))
+        }}
+        flagged = Recalculation.objects.filter(action="iki/lots.compute_protein_lot")
+        refired = TriggerFiring.objects.filter(
+            trigger__trigger="iki/lots.compute_protein_lot_when_measured"
+        )
+        assert not flagged.exists() and not refired.exists()
+        # Its label is the option's own, which no calculation reads.
+        ours.entry.refresh_from_db()
+        lists.change(admin, ours.entry, {{"label": "A280, SoloVPE"}},
+                     reason="Name the instrument", expected_revision=ours.entry.revision)
+        assert not flagged.exists() and not refired.exists()
+        # Its calculation can't be changed, only superseded.
+        ours.entry.refresh_from_db()
+        assert errors(lambda: lists.change(
+            admin, ours.entry, {{"calculation": None}}, reason="Entered as measured",
+            expected_revision=ours.entry.revision,
+        ))
+        reported = lists.add(admin, registry, methods,
+                             {{"code": "solovpe_reported", "label": "SoloVPE, as reported"}})
+        entries.supersede(admin, ours.entry, reported.entry,
+                          reason="The instrument reports the concentration: enter it as measured")
+        # Superseding moves nothing: the lot names the old option until it's moved.
+        assert not flagged.exists() and not refired.exists()
+        moved = lists.repoint(alice, project, ours.entry, reason="To the option as reported")
+        assert [e.pk for e in moved] == [by_method["ours"].pk]
+        assert list(flagged.values_list("entity_id", flat=True)) == [by_method["ours"].pk]
+        assert list(refired.values_list("entity_id", flat=True)) == [by_method["ours"].pk]
+
+        # A record moved to its superseded entry's replacement is the replacement's: its
+        # lots read the replacement's facts, so each is flagged and worked out again, though
+        # its reference didn't change. Insulin A chain was registered with A21 mistyped.
+        flagged.delete()
+        refired.delete()
+        core = Project.objects.create(team=project.team, name="Protein core",
+                                      registry_id=project.registry_id)
+        ProjectMembership.objects.create(project=core, user=alice, role=ProjectRole.EDITOR)
+        mistyped = services.create(
+            alice, "iki/protein.Protein", project,
+            {{"name": "insulin A chain", "sequence": "GIVEQCCTSICSLYQLENYCD"}},
+        ).entity
+        right = services.create(
+            alice, "iki/protein.Protein", core,
+            {{"name": "insulin A chain", "sequence": "GIVEQCCTSICSLYQLENYCN"}},
+        ).entity
+        lot = services.create(
+            alice, "iki/lots.ProteinLot", project,
+            {{"protein": str(mistyped.pk), "a280": 0.52, "path_length": 0.1}},
+            amount={{"value": 5, "unit": "mg"}},
+        ).entity
+        entries.supersede(admin, Entity.objects.get(pk=mistyped.entry_id),
+                          Entity.objects.get(pk=right.entry_id), reason="A21 is asparagine")
+        entries.move(alice, mistyped, reason="To the right sequence")
+        assert list(flagged.values_list("entity_id", flat=True)) == [lot.pk]
+        assert list(refired.values_list("entity_id", flat=True)) == [lot.pk]
 
         # Who may release it: QA who neither made it nor recorded it, knowing where it
         # came from. Made by left empty isn't someone else.

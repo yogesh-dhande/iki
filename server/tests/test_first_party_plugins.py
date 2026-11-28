@@ -105,7 +105,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         )
         primer = make("iki/dna.Primer", bases="ACG", target=str(puc.pk))
         assert Ext_iki_dna_DNASequence.objects.get(entity_id=puc.pk).construct_id == "PUC-19"
-        assert make("acme/example.Sample", name="Reference vial").hrid.startswith("SMP-")
+        assert make("acme/example.Sample", name="Reference vial").hrid.startswith("ASMP-")
         sample = make(
             "acme/storage_labels.Sample", name="S1", kind="dna", construct=str(puc.pk),
         )

@@ -1,6 +1,6 @@
 # 0127. Plugins' rules are checked at every save, and a rule can hold a record for review
 
-- Status: Accepted
+- Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules)
 - Date: 2026-11-18
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),
   [0056](0056-bulk-imports.md),

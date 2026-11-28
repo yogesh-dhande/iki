@@ -1,6 +1,6 @@
 # 0080. Triggers run actions when entities change
 
-- Status: Accepted
+- Status: Accepted (refined by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): a value from the record's own values is worked out at every save, not by a triggered action)
 - Date: 2026-11-13
 - Refines: [0013](0013-agents-via-mcp-oauth-approvals.md),
   [0079](0079-workflows-are-dags-of-ordinary-runs.md)
@@ -111,6 +111,28 @@ records. Registry changes apply to every holder. Project observations apply
 within their project. Filling a previously empty registry value can wake its
 dependents because that value can be filled only once. A completed calculation
 clears its notice after checking its input and evidence revisions.
+
+Note of 2026-11-27: the build checks those reads. A calculation's trigger
+(`on: entity.updated`, its action updating the record it's given, no `recheck`)
+lists under `watch_included` every reference its input includes whose
+entities have a value that can change, naming the fields it reads, which must
+be fields they have and not states. A required, immutable value, or a lab
+list's immutable fact, is fixed: naming it only says the calculation reads it,
+and it never wakes one. A reference with nothing that can change needs no
+entry. When the trigger lists `fields`, every reference its input includes is
+among them, fixed or not: a move to a superseded entry's or lab list option's
+replacement re-points even an immutable one (ADR 0115, ADR 0270). A recheck
+can't watch references, since a change to what they name has no editor whose
+credential could run it.
+
+A fixed fact never changes, so what changes what a calculation read of it is
+supersession (ADR 0143). A lab whose A280 method should calculate nothing
+supersedes its option with one that doesn't; each record moved to the
+replacement is flagged as needing its calculations again, and its trigger
+fires where the project turned it on. Superseding alone moves nothing and
+flags nothing, and neither does a label change. A record moved to its own
+entry's replacement is that entry's record now: each record of the project
+that reads through a reference to it is flagged, and fired where it's on.
 
 ## Amendment of 2026-11-27 — a firing whose launch keeps breaking
 

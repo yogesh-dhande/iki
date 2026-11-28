@@ -3,8 +3,9 @@
 A plugin's upgrade can add a rule, tighten one, or migrate values: records saved before
 may break it. Edits ratchet (:mod:`iki_server.entities.checking`), so they can still be
 changed in other ways, but they mustn't be left to fail silently later. So
-``sync_plugins`` checks again every record of each type whose checks, or whose plugins'
-versions, changed since it last did (:class:`RulesChecked` keeps a digest):
+``sync_plugins`` checks again every record of each type whose checks, computed fields'
+expressions or plugins' versions changed since it last did (:class:`RulesChecked` keeps a
+digest), once it's worked their computed values out again (ADR 0297):
 
 - a record breaking a rule that holds is held, by the deploy, as a save would have held
   it, and the rule's reviewers are told;
@@ -28,7 +29,7 @@ import structlog
 from django.db.models.functions import Now
 
 from iki_server.audit import log as audit
-from iki_server.entities import checking, holds, registry
+from iki_server.entities import checking, computing, holds, registry
 from iki_server.entities.models import Entity, RuleBreach, RuleHold, RulesChecked
 from iki_server.notifications import kinds
 
@@ -86,6 +87,8 @@ def recheck() -> list[Checked]:
         known = RulesChecked.objects.filter(type=type_name).first()
         if known is not None and known.digest == digest:
             continue
+        # Its computed values first (ADR 0297): its rules read them as they'll be.
+        _rework(type_name)
         if not checks:
             # Its rules are gone: what was reported of them goes too. Holds stay, to review.
             RuleBreach.objects.filter(entity__type=type_name).delete()
@@ -96,6 +99,31 @@ def recheck() -> list[Checked]:
         )
     _tell(out)
     return out
+
+
+def _rework(type_name: str) -> None:
+    """Works a type's records' computed values out again, by its expressions as they are
+    now: they may be new, or changed, since they were worked out (ADR 0297)."""
+    if not computing.fields_of(type_name):
+        return
+    done = computing.rework(
+        type_name,
+        None,
+        computing.reason(type_name, "its expressions are new, or changed, since it was saved."),
+    )
+    if not done.records:
+        return
+    audit.record(
+        "plugin.computed_worked_out",
+        data={
+            "type": type_name,
+            "records": done.records,
+            "changed": done.changed,
+            "locked": done.locked,
+        },
+    )
+    if done.locked:
+        log.warning("plugins.computed_kept_locked", type=type_name, locked=done.locked)
 
 
 def _check(type_name: str) -> Checked:

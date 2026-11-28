@@ -9,15 +9,16 @@
  * options (`aria-activedescendant`), Enter and Tab choose the highlighted one and leave
  * the cell as they otherwise would, and Escape closes the list, then puts the cell back.
  * A list of options' cell (`multiple`) takes several, apart by semicolons: choosing one
- * replaces what's typed after the last.
+ * replaces what's typed after the last. A list of thousands shows its first matches
+ * (SHOWN_MATCHES), and the cell's own option, and says how many there are.
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 
 import type { EntityType } from "../entities";
-import { matching, optionsQuery, type ListOption } from "../lab-lists";
+import { matching, narrowText, optionsQuery, SHOWN_MATCHES, type ListOption } from "../lab-lists";
 import { SEPARATOR } from "../sheet";
 
 /** Where the cell's input leaves the sheet's active cell, once it's done. */
@@ -34,6 +35,17 @@ function withLast(text: string, label: string): string {
   const at = text.lastIndexOf(";");
   const before = at < 0 ? "" : text.slice(0, at).trimEnd();
   return before ? `${before}${SEPARATOR}${label}` : label;
+}
+
+const NONE: ListOption[] = [];
+
+/** The option a cell's text names, by its label or code, in any case. */
+function namedBy(options: readonly ListOption[], text: string): ListOption | undefined {
+  const wanted = text.trim().toLocaleLowerCase();
+  if (!wanted) return undefined;
+  return options.find(
+    (o) => o.label.toLocaleLowerCase() === wanted || o.code.toLocaleLowerCase() === wanted,
+  );
 }
 
 export function ListCell({
@@ -61,23 +73,31 @@ export function ListCell({
   onCancel: () => void;
 }) {
   const id = useId();
+  const listId = `${id}-options`;
+  const optionId = (index: number) => `${id}-option-${String(index)}`;
   const options = useQuery(optionsQuery(list.name, { project: projectId }));
   const input = useRef<HTMLInputElement | null>(null);
   const [open, setOpen] = useState(true);
   // Narrowed by what's typed once something is: opened on a value, every option shows.
   const [narrowing, setNarrowing] = useState(typedFirst);
-  const every = options.data ?? [];
-  const shown = narrowing ? matching(every, lastPart(text)) : every;
-  const current = lastPart(text).trim().toLocaleLowerCase();
-  const [active, setActive] = useState(() =>
-    Math.max(
-      -1,
-      every.findIndex(
-        (o) => o.label.toLocaleLowerCase() === current || o.code.toLocaleLowerCase() === current,
-      ),
-    ),
+  const every = options.data ?? NONE;
+  const typed = lastPart(text);
+  const found = useMemo(
+    () => (narrowing ? matching(every, typed) : every),
+    [narrowing, every, typed],
   );
+  // The cell's own option, which it opened on: shown, though it's past the first matches.
+  const own = useMemo(
+    () => (narrowing ? undefined : namedBy(every, typed)),
+    [narrowing, every, typed],
+  );
+  const shown = useMemo(() => {
+    const first = found.slice(0, SHOWN_MATCHES);
+    return own && !first.includes(own) ? [own, ...first.slice(0, SHOWN_MATCHES - 1)] : first;
+  }, [found, own]);
+  const [active, setActive] = useState(() => (own ? shown.indexOf(own) : -1));
   const highlighted = open && active >= 0 ? shown[active] : undefined;
+  const more = found.length > shown.length;
   const [place, setPlace] = useState<{
     top: number;
     bottom: number;
@@ -115,14 +135,16 @@ export function ListCell({
   const [seen, setSeen] = useState(options.data);
   if (options.data !== seen) {
     setSeen(options.data);
-    if (!narrowing && active < 0) {
-      setActive(
-        every.findIndex(
-          (o) => o.label.toLocaleLowerCase() === current || o.code.toLocaleLowerCase() === current,
-        ),
-      );
-    }
+    if (!narrowing && active < 0 && own) setActive(shown.indexOf(own));
   }
+
+  // The highlighted option is in view, as the arrow keys move it through a list that
+  // scrolls, as the search palette's is.
+  const placed = place !== undefined;
+  useLayoutEffect(() => {
+    if (!open || !placed || active < 0) return;
+    document.getElementById(`${id}-option-${String(active)}`)?.scrollIntoView({ block: "nearest" });
+  }, [open, placed, active, id]);
 
   const choose = (option: ListOption, leave: Leave) => {
     if (multiple) {
@@ -178,8 +200,6 @@ export function ListCell({
     }
   };
 
-  const listId = `${id}-options`;
-  const optionId = (index: number) => `${id}-option-${String(index)}`;
   return (
     <>
       <input
@@ -216,7 +236,7 @@ export function ListCell({
         // Not a control itself: a press in it keeps focus in the cell's input.
         // eslint-disable-next-line jsx-a11y/no-static-element-interactions
         <div
-          className="popover sheet-options"
+          className="popover list-cell-options"
           hidden={!open || !place}
           data-placement={place?.up ? "top" : "bottom"}
           style={
@@ -255,14 +275,25 @@ export function ListCell({
               </div>
             ))}
           </div>
-          <p className={shown.length ? "visually-hidden" : "listbox-empty"} role="status">
+          <p
+            className={
+              more
+                ? "listbox-empty listbox-more"
+                : shown.length
+                  ? "visually-hidden"
+                  : "listbox-empty"
+            }
+            role="status"
+          >
             {options.isPending
               ? "Loading its options…"
               : options.isError
                 ? "Couldn’t load its options. Type its code or label."
-                : shown.length
-                  ? ""
-                  : `No option matches “${lastPart(text).trim()}”.`}
+                : more
+                  ? narrowText(shown.length, found.length)
+                  : shown.length
+                    ? ""
+                    : `No option matches “${typed.trim()}”.`}
           </p>
         </div>,
         document.body,

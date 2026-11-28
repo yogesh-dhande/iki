@@ -31,7 +31,7 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { ComputeHeader } from "./compute";
+import { ComputeHeader } from "./compute-header";
 import { NotFound } from "./errors";
 
 export function ComputeQuotasPage() {

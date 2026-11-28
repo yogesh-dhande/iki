@@ -57,6 +57,7 @@ from iki_server.entities import (
     access,
     assignments,
     checking,
+    computing,
     constraints,
     holds,
     identity,
@@ -89,7 +90,7 @@ from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
 from iki_server.setup import starter_flows
-from iki_spec.model import EntityType, Field, names_people
+from iki_spec.model import LIST_LABEL, EntityType, Field, names_people
 
 __all__ = [
     "Invalid",
@@ -723,6 +724,10 @@ def _unique_values() -> Iterator[None]:
                 f"Another record has just been saved that this one would break “{label}” with."
             )
             raise Invalid({n: [message] for n in names or ("",)}) from None
+        if unique.is_label_clash(error):
+            raise Invalid(
+                {LIST_LABEL: ["Another option of the list has just been given this label."]}
+            ) from None
         if not unique.is_clash(error):
             raise
         raise Invalid(
@@ -795,7 +800,8 @@ def prepare(
     reason.
 
     Bulk imports (ADR 0056) check each record with this, as :func:`create` does, but
-    without the plugins' rules (``check_rules=False``): they check a chunk's at once.
+    without the plugins' rules (``check_rules=False``): they work a chunk's computed values
+    out (ADR 0297) and check its rules at once.
     """
     if type_name not in registry.types() or type_name == "iki/core.Entity":
         raise Invalid({"type": [f"There's no entity type {type_name}."]})
@@ -821,6 +827,8 @@ def prepare(
             errors[name] = [kept[name]]
         elif name == ledger_field:
             errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
+        elif f.cel is not None:
+            errors[name] = [computing.REFUSED]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         elif f.type == "state":
@@ -846,6 +854,15 @@ def prepare(
                 errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
+    unworked: dict[str, list[str]] = {}
+    if not errors and check_rules:
+        # Its computed values (ADR 0297), before its rules read them; one its field refuses
+        # is said with what its rules say. A bulk import works a chunk's out at once, as
+        # it checks their rules (``imports.breaking``).
+        try:
+            computing.fill(type_name, [given])
+        except Invalid as error:
+            unworked = dict(error.errors)
     if not errors:
         from iki_server.amounts import stock
 
@@ -865,7 +882,7 @@ def prepare(
         *checking.broken(type_name, [checking.Saving(given.get)])[0],
         *checking.apart(project.pk, form, own),
     ]
-    holding = checking.raise_broken(found, hold_reason=hold_reason)
+    holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
     return form, given, holding
 
 
@@ -1017,6 +1034,9 @@ def update(
             if name == ledger_field and not _recording_draw:
                 errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
                 continue
+            if f.cel is not None:
+                errors[name] = [computing.REFUSED]
+                continue
             if (
                 f.computed
                 and not by_run
@@ -1090,6 +1110,18 @@ def update(
                 value = "Needs re-verification" if name == spec.recheck else None
                 if rows.get(name) != value or name in new:
                     new[name] = value
+        unworked: dict[str, list[str]] = {}
+        if new:
+            # Its computed values (ADR 0297), from what it will hold, before its rules; one
+            # its field refuses is said with what its rules say.
+            try:
+                new.update(
+                    computing.changes(
+                        locked.type, lambda n: new[n] if n in new else rows.get(n), rows.get
+                    )
+                )
+            except Invalid as error:
+                unworked = dict(error.errors)
         changing = {**new, **for_entry}
         if changing:
             if returns:
@@ -1128,7 +1160,7 @@ def update(
                     changed=changed,
                 ),
             ]
-            holding = checking.raise_broken(found, hold_reason=hold_reason)
+            holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
         entry_revision = None
         if for_entry:
             assert rows.entry is not None  # noqa: S101 - entry fields are an entry's
@@ -1187,6 +1219,29 @@ def update(
                         reason=revision.reason,
                     )
     return updated if by_run else saved
+
+
+def reworked(entity: Entity, values: Mapping[str, Any], reason: str) -> Revision:
+    """Writes computed values worked out again (ADR 0297), as a deploy or a bundle's
+    import does: a ``migrated`` revision by no one, via the system, for ``reason``, as a
+    plugin migration's values are (:class:`iki_server.plugins.operations.MigrateValues`).
+    Only an unlocked record's: the database refuses a locked one's. Like a migration's,
+    it tells no webhook and fires no trigger: the deploy's audit event counts them."""
+    locked = Entity.objects.select_for_update().get(pk=entity.pk)
+    form = shape(locked.type)
+    rows = Rows.of(_specific(locked))
+    touched = _write(form, rows, values, locked.pk)
+    changed = sorted(values)
+    with quietly():
+        revision = _revise(locked, RevisionKind.MIGRATED, changed, None, reason, via="system")
+    _write_history(touched, rows, revision.number)
+    log.record(
+        "entity.migrated",
+        target=locked,
+        project=locked.owner_project,
+        data={"revision": revision.number, "changed_fields": changed, "reason": reason},
+    )
+    return revision
 
 
 def _referred_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value
@@ -1526,24 +1581,48 @@ def entry_at(
     then (one it moved from, ADR 0115), and the entry's revision: ``entry_revision``, as a
     run pins it, or else the entry's latest while that revision of the record was its
     latest (now, for its latest), as the entry changes without the record changing."""
-    if entity.registry_id is not None:
-        return (entity.pk, number)
-    moved = (
-        entity.revisions.filter(kind=RevisionKind.MOVED, number__gt=number)
-        .order_by("number")
-        .values_list("moved_from_id", flat=True)
-        .first()
-    )
-    entry_id = moved or entity.entry_id
-    if entry_id is None:
-        return None
-    if entry_revision is not None:
-        return (entry_id, entry_revision)
+    return entries_at([(entity, number, entry_revision)])[0]
+
+
+def entries_at(
+    wanted: Sequence[tuple[Entity, int, int | None]],
+) -> list[tuple[Any, int] | None]:
+    """:func:`entry_at` for each (entity, revision, entry revision) of ``wanted``, reading
+    their records' moves once for all of them. Only a record without its entry's revision,
+    which no run pins, reads its entry's revisions on its own."""
+    records = {entity.pk for entity, _, _ in wanted if entity.registry_id is None}
+    moves: dict[Any, list[tuple[int, Any]]] = defaultdict(list)
+    if records:
+        for owner, number, moved_from in (
+            Revision.objects.filter(entity_id__in=records, kind=RevisionKind.MOVED)
+            .order_by("entity_id", "number")
+            .values_list("entity_id", "number", "moved_from_id")
+        ):
+            moves[owner].append((number, moved_from))
+    out: list[tuple[Any, int] | None] = []
+    for entity, number, entry_revision in wanted:
+        if entity.registry_id is not None:
+            out.append((entity.pk, number))
+            continue
+        moved = next((source for at, source in moves[entity.pk] if at > number), None)
+        entry_id = moved or entity.entry_id
+        if entry_id is None:
+            out.append(None)
+        elif entry_revision is not None:
+            out.append((entry_id, entry_revision))
+        else:
+            out.append((entry_id, _entry_revision_then(entity, number, entry_id)))
+    return out
+
+
+def _entry_revision_then(entity: Entity, number: int, entry_id: Any) -> int:  # noqa: ANN401 - an ID
+    """The entry's latest revision while the record's revision ``number`` was its latest:
+    now, for its latest."""
     after = entity.revisions.filter(number=number + 1).values_list("created_at", flat=True).first()
     then = Revision.objects.filter(entity_id=entry_id)
     if after is not None:
         then = then.filter(created_at__lt=after)
-    return (entry_id, then.order_by("-number").values_list("number", flat=True).first() or 0)
+    return then.order_by("-number").values_list("number", flat=True).first() or 0
 
 
 def entry_revision(entity: Entity) -> int | None:
@@ -1571,28 +1650,71 @@ def values_and_entry_at(
     entity: Entity, number: int, entry_revision: int | None = None, *, removed: bool = False
 ) -> tuple[dict[str, Any], tuple[uuid.UUID, int] | None]:
     """Read both the record values and the historical entry they were composed from."""
-    form = shape(entity.type)
-    is_entry = entity.registry_id is not None
-    entry = entry_at(entity, number, entry_revision) if form.has_entries else None
-    out: dict[str, Any] = {}
-    for part in form.parts:
-        if is_entry and not part.entry:
-            continue
-        if part.entry and not is_entry:
-            if entry is None:
+    return values_and_entries_at([(entity, number, entry_revision)], removed=removed)[0]
+
+
+def values_and_entries_at(
+    wanted: Sequence[tuple[Entity, int, int | None]], *, removed: bool = False
+) -> list[tuple[dict[str, Any], tuple[uuid.UUID, int] | None]]:
+    """:func:`values_and_entry_at` for each (entity, revision, entry revision) of
+    ``wanted``, in order. Each table's history is read once for all of them, so a lease
+    reads a pack's documents in as many queries however many there are (ADR 0055)."""
+    having = [i for i, (entity, _, _) in enumerate(wanted) if shape(entity.type).has_entries]
+    entries: list[tuple[Any, int] | None] = [None] * len(wanted)
+    for i, entry in zip(having, entries_at([wanted[i] for i in having]), strict=True):
+        entries[i] = entry
+    reads: dict[type[Model], set[tuple[Any, int]]] = defaultdict(set)
+    plans: list[list[tuple[Part, Any, int]]] = []
+    for (entity, number, _), entry in zip(wanted, entries, strict=True):
+        is_entry = entity.registry_id is not None
+        plan = []
+        for part in shape(entity.type).parts:
+            if is_entry and not part.entry:
                 continue
-            key, at = entry
-        else:
-            key, at = entity.pk, number
-        row = (
-            part.history._default_manager.filter(entity_id=key, revision__lte=at)
-            .order_by("-revision")
-            .first()
-        )
-        for name, f in part.fields.items():
-            if removed or not f.removed:
-                out[name] = history_value(row, f) if row is not None else None
-    return out, entry
+            if part.entry and not is_entry:
+                if entry is None:
+                    continue
+                key, at = entry
+            else:
+                key, at = entity.pk, number
+            reads[part.history].add((key, at))
+            plan.append((part, key, at))
+        plans.append(plan)
+    rows = {history: _history_rows(history, pairs) for history, pairs in reads.items()}
+    out = []
+    for plan, entry in zip(plans, entries, strict=True):
+        values: dict[str, Any] = {}
+        for part, key, at in plan:
+            row = rows[part.history].get((key, at))
+            for name, f in part.fields.items():
+                if removed or not f.removed:
+                    values[name] = history_value(row, f) if row is not None else None
+        out.append((values, entry))
+    return out
+
+
+def _history_rows(history: type[Model], wanted: set[tuple[Any, int]]) -> dict[Any, Model]:
+    """Of a history table, the row each (entity, revision) of ``wanted`` reads: its latest
+    at or before that revision, by the table's key. One lookup each, however long its
+    history."""
+    keys, revisions = zip(*sorted(wanted, key=lambda w: (str(w[0]), w[1])), strict=True)
+    quote = connection.ops.quote_name
+    columns = {f.name: quote(str(f.column)) for f in history._meta.concrete_fields}
+    table, entity, revision = (
+        quote(history._meta.db_table),
+        columns["entity_id"],
+        columns["revision"],
+    )
+    # What's interpolated is the table's and its columns' quoted names; every value is a
+    # parameter.
+    found = history._default_manager.raw(
+        "SELECT kept.*, wanted.at AS iki_wanted_at"  # noqa: S608 - see above
+        " FROM unnest(%s::uuid[], %s::integer[]) AS wanted(entity_id, at)"
+        f" CROSS JOIN LATERAL (SELECT * FROM {table} AS h WHERE h.{entity} = wanted.entity_id"
+        f" AND h.{revision} <= wanted.at ORDER BY h.{revision} DESC LIMIT 1) AS kept",
+        [list(keys), list(revisions)],
+    )
+    return {(row.entity_id, row.iki_wanted_at): row for row in found}  # type: ignore[attr-defined]
 
 
 def revision_values(entity: Entity, number: int, fields: Mapping[str, Field]) -> dict[str, Any]:

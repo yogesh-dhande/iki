@@ -25,7 +25,7 @@ import { MAX_BATCH } from "../runs";
 import { readStoredFile } from "../stored";
 import { buttonClass, Loading, ProblemAlert } from "../ui";
 import type { Capture, Position } from "../views";
-import type { Source } from "./entity-viewer";
+import type { Source } from "./viewer-body";
 
 type Viewer = Schemas["AlignmentViewerOut"];
 type Aligned = Extract<Reading, { kind: "alignment" }>;
