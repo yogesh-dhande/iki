@@ -6,6 +6,8 @@
   [0047](0047-workers-run-only-the-code-a-run-was-launched-with.md)
 - Refined by: [0170](0170-a-component-can-offer-its-plugins-actions-on-its-entity.md),
   on offering a plugin's actions from its tab
+- Extended by: [0286](0286-the-component-package-is-the-frame-protocols-one-source.md),
+  the frame protocol's one source, versioned and published
 
 ## Context
 

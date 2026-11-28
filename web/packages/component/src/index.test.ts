@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EVENTS, more, open, refine, select } from "./index.js";
+import { EVENTS, more, open, refine, run, select } from "./index.js";
 
 function heard(send: (element: EventTarget) => void) {
   const element = new EventTarget();
@@ -49,5 +49,10 @@ describe("a component's element", () => {
         open(e, record, 4);
       }),
     ).toEqual([{ type: "iki-open", detail: { entity: record, revision: 4 }, bubbles: true }]);
+    expect(
+      heard((e) => {
+        run(e, "acme/protein.compute");
+      }),
+    ).toEqual([{ type: "iki-run", detail: { action: "acme/protein.compute" }, bubbles: true }]);
   });
 });

@@ -150,7 +150,7 @@ check-web: ## The parsers (iki-wasm), ESLint, Prettier, tsc, Vitest, the generat
 
 .PHONY: web
 web: ## Build the server's web app and the standalone package stories
-	$(PNPM) --filter @ikisci/app --filter @ikisci/science --filter @ikisci/ui build
+	$(PNPM) --filter @ikisci/app --filter @ikisci/component --filter @ikisci/science --filter @ikisci/ui build
 
 .PHONY: web-dev
 web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (needs the dev cluster)
