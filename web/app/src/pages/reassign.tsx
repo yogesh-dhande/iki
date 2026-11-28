@@ -8,6 +8,7 @@
  * the selection and checks them before reassigning.
  */
 
+import type { StaleRecord } from "@ikisci/sdk";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 
@@ -19,7 +20,7 @@ import { AFTER_ASSIGNING, assignMany, type Assigned } from "../people";
 import { Button, ConfirmDialog, ProblemAlert, SelectField, TextField, useMessages } from "../ui";
 
 type Op = "set" | "add" | "remove";
-type Stale = NonNullable<ReturnType<typeof problemOf>["stale"]>;
+type Stale = StaleRecord[];
 
 export function ReassignDialog({
   type,
@@ -67,7 +68,10 @@ export function ReassignDialog({
     AFTER_ASSIGNING,
   );
   const problem = assign.error ? problemOf(assign.error) : undefined;
-  const stale = problem?.code === "stale" ? (problem.stale ?? []) : null;
+  const stale =
+    problem?.code === "stale"
+      ? (problem.stale ?? []).filter((s): s is StaleRecord => "hrid" in s)
+      : null;
   // What changed takes focus, to be read before reassigning again: once the note has
   // rendered, which in a busy browser can be after the next frame.
   useEffect(() => {

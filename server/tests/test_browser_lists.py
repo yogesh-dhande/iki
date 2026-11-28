@@ -270,7 +270,10 @@ def test_a_prep_picks_its_method_and_everyone_reads_it_by_its_label(
 ) -> None:
     curator = registrar(world)
     held = prep(world, "Anti-HER2 prep 11", method=str(option("dialysis").entry.pk))
-    lists.archive(curator, option("dialysis").entry, reason="Desalting columns now")
+    dialysis = option("dialysis").entry
+    lists.archive(
+        curator, dialysis, expected_revision=dialysis.revision, reason="Desalting columns now"
+    )
 
     page = open_as("editor", f"/projects/kinase-atlas/entities/new/?type={PREP}")
     page.set_viewport_size({"width": 1440, "height": 900})
@@ -418,7 +421,13 @@ def test_a_projects_records_move_off_a_superseded_option(open_as: Any, world: Wo
     wrong = lists.add(curator, registry, METHOD, {"code": "protien_g", "label": "Protein G (typo)"})
     right = lists.add(curator, registry, METHOD, {"code": "protein_g", "label": "Protein G"})
     made = prep(world, "Anti-TNF prep 3", method=str(wrong.entry.pk))
-    entries.supersede(curator, wrong.entry, right.entry, reason="Added twice, once misspelled")
+    entries.supersede(
+        curator,
+        wrong.entry,
+        right.entry,
+        expected_revision=wrong.entry.revision,
+        reason="Added twice, once misspelled",
+    )
 
     # The project's Admins are told, and the notice opens the option's page for the project.
     notice = Notification.objects.get(recipient=world.users["admin"])

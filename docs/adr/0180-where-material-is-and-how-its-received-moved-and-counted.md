@@ -1,6 +1,6 @@
 # 0180. Where material is, and how it's received, moved and counted
 
-- Status: Accepted
+- Status: Accepted (layouts and containers: [0260](0260-a-labs-storage-layout-and-containers-are-its-own.md); preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md))
 - Date: 2026-11-22
 - Refines: [0139](0139-a-records-amount-is-a-ledger-of-what-moved.md),
   [0132](0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md),

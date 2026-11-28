@@ -610,6 +610,11 @@ def api_call(
     return session.request(method, f"{IKI}/api/v1{path}", json=body, headers=headers)
 
 
+def seen(revision: int) -> dict[str, str]:
+    """If-Match: the revision a change replaces, as it was read (ADR 0289)."""
+    return {"If-Match": f'"{revision}"'}
+
+
 def entry_of(entity: dict[str, Any]) -> str:
     """What a reference to an entity holds: for a type with an identity, its registry
     entry's ID (ADR 0115), which every project's record of it shares; otherwise its own."""
@@ -3417,11 +3422,8 @@ def receive_at_core(
         alice,
         "PATCH",
         at,
-        {
-            "handed_over_by": "Courier, waybill 1Z-DEV",
-            "note": "Dry ice present",
-            "plan_revision": damaged.json()["receipt"]["plan_revision"],
-        },
+        {"handed_over_by": "Courier, waybill 1Z-DEV", "note": "Dry ice present"},
+        seen(damaged.json()["receipt"]["revision"]),
     )
     if described.status_code != 200:
         fail(f"recording the handover answered {described.status_code}: {described.text[:300]}")
@@ -3435,8 +3437,8 @@ def receive_at_core(
                 {"line": lines[first], "to": incoming_code, "position": "A1"},
                 {"line": lines[second], "to": incoming_code, "position": "A2"},
             ],
-            "plan_revision": described.json()["plan_revision"],
         },
+        seen(described.json()["revision"]),
     )
     if done.status_code != 200:
         fail(
@@ -3484,7 +3486,7 @@ def receive_at_core(
         ):
             fail(f"unexpected reconciliation plan for {incoming['hrid']}: {lines}")
         wrong = next(line for line in lines if line["entity"] == tubes[1]["id"])
-        return str(wrong["id"]), int(wrong["line_revision"])
+        return str(wrong["id"]), int(wrong["revision"])
 
     # Counting the core's box: one where it should be, the other found in the wrong position.
     started = api_call(alice, "POST", f"/storage/containers/{incoming['id']}/reconciliations")
@@ -3508,7 +3510,8 @@ def receive_at_core(
         alice,
         "PATCH",
         f"{count}/lines/{wrong}",
-        {"resolution": "moved", "line_revision": line_revision},
+        {"resolution": "moved"},
+        seen(line_revision),
     )
     if resolved.status_code != 200:
         fail(f"resolving the move to B1 answered {resolved.status_code}: {resolved.text[:300]}")
@@ -3518,7 +3521,8 @@ def receive_at_core(
         alice,
         "POST",
         f"{count}/complete",
-        {"note": "Weekly count", "plan_revision": plan["plan_revision"]},
+        {"note": "Weekly count"},
+        seen(plan["revision"]),
     )
     if finished.status_code != 200:
         fail(
@@ -4454,7 +4458,7 @@ def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: l
         receipt = started.json()
         at = f"/receipts/{receipt['id']}"
         lines = []
-        revision = receipt["plan_revision"]
+        revision = receipt["revision"]
         for tube_id in tube_ids:
             tube = record(alice, tube_id)
             code = tube["values"].get("barcode") or tube["hrid"]
@@ -4462,15 +4466,13 @@ def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: l
             if scanned.status_code != 200 or scanned.json()["found"] not in ("matched", "again"):
                 fail(f"scanning {tube['hrid']} answered {scanned.status_code}: {scanned.text}")
             lines.append(scanned.json()["line"])
-            revision = scanned.json()["receipt"]["plan_revision"]
+            revision = scanned.json()["receipt"]["revision"]
         custody = api_call(
             alice,
             "PATCH",
             at,
-            {
-                "handed_over_by": "Example courier, training run",
-                "plan_revision": revision,
-            },
+            {"handed_over_by": "Example courier, training run"},
+            seen(revision),
         )
         if custody.status_code != 200:
             fail(f"recording the example handover answered {custody.status_code}: {custody.text}")
@@ -4478,10 +4480,8 @@ def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: l
             alice,
             "POST",
             f"{at}/complete",
-            {
-                "plan_revision": custody.json()["plan_revision"],
-                "keep_in_custody": lines,
-            },
+            {"keep_in_custody": lines},
+            seen(custody.json()["revision"]),
         )
         if done.status_code != 200:
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")

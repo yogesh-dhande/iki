@@ -1431,6 +1431,7 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         reported = lists.add(admin, registry, methods,
                              {{"code": "solovpe_reported", "label": "SoloVPE, as reported"}})
         entries.supersede(admin, ours.entry, reported.entry,
+                          expected_revision=ours.entry.revision,
                           reason="The instrument reports the concentration: enter it as measured")
         # Superseding moves nothing: the lot names the old option until it's moved.
         assert not flagged.exists() and not refired.exists()
@@ -1460,9 +1461,12 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
             {{"protein": str(mistyped.pk), "a280": 0.52, "path_length": 0.1}},
             amount={{"value": 5, "unit": "mg"}},
         ).entity
-        entries.supersede(admin, Entity.objects.get(pk=mistyped.entry_id),
-                          Entity.objects.get(pk=right.entry_id), reason="A21 is asparagine")
-        entries.move(alice, mistyped, reason="To the right sequence")
+        wrong_entry = Entity.objects.get(pk=mistyped.entry_id)
+        entries.supersede(admin, wrong_entry, Entity.objects.get(pk=right.entry_id),
+                          expected_revision=wrong_entry.revision, reason="A21 is asparagine")
+        mistyped = Entity.objects.get(pk=mistyped.pk)
+        entries.move(alice, mistyped, expected_revision=mistyped.revision,
+                     reason="To the right sequence")
         assert list(flagged.values_list("entity_id", flat=True)) == [lot.pk]
         assert list(refired.values_list("entity_id", flat=True)) == [lot.pk]
 

@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { ApiError, createIkiClient, encodeName, isProblem, unwrap } from "./index.js";
+import {
+  ApiError,
+  createIkiClient,
+  encodeName,
+  ifMatch,
+  ifNoneMatchAny,
+  isPreconditionRequired,
+  isProblem,
+  isStale,
+  unwrap,
+} from "./index.js";
 
 function recorder(body: unknown, status = 200) {
   const requests: Request[] = [];
@@ -259,5 +269,34 @@ describe("isProblem", () => {
     expect(isProblem(PROBLEM)).toBe(true);
     expect(isProblem({ status: 500 })).toBe(false);
     expect(isProblem(null)).toBe(false);
+  });
+});
+
+describe("preconditions", () => {
+  it("names the revision a change replaces as a strong ETag", async () => {
+    expect(ifMatch(7)).toEqual({ "If-Match": '"7"' });
+    expect(ifNoneMatchAny()).toEqual({ "If-None-Match": "*" });
+    const { requests, fetch } = recorder({});
+    const iki = createIkiClient({ baseUrl: BASE, fetch });
+    await iki.PATCH("/api/v1/entities/{ref}", {
+      params: { path: { ref: "PLS-1" }, header: ifMatch(3) },
+      body: { values: {}, reason: "" },
+    });
+    expect(requests[0]?.headers.get("If-Match")).toBe('"3"');
+  });
+
+  it("refuses a revision that isn't one", () => {
+    for (const wrong of [0, -1, 1.5, Number.NaN]) expect(() => ifMatch(wrong)).toThrow(RangeError);
+  });
+
+  it("tells a stale change (412) from one that named no revision (428)", () => {
+    const of = (status: number, code: string) =>
+      new ApiError({ type: "about:blank", title: "", status, detail: "", code });
+    expect(isStale(of(412, "stale"))).toBe(true);
+    expect(isStale(of(428, "precondition_required"))).toBe(false);
+    expect(isStale(of(409, "refused"))).toBe(false);
+    expect(isPreconditionRequired(of(428, "precondition_required"))).toBe(true);
+    expect(isPreconditionRequired(of(412, "stale"))).toBe(false);
+    expect(isStale(new Error("412"))).toBe(false);
   });
 });

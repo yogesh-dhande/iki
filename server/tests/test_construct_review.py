@@ -172,13 +172,18 @@ def exercise_move() -> None:
         Registry.default(), RegistryRole.Role.REGISTRAR, auditor, by=world.users["org_admin"]
     )
     assert wrong.entry_id is not None and right.entry_id is not None
+    mistaken = Entity.objects.get(pk=wrong.entry_id)
     entries.supersede(
         auditor,
-        Entity.objects.get(pk=wrong.entry_id),
+        mistaken,
         Entity.objects.get(pk=right.entry_id),
+        expected_revision=mistaken.revision,
         reason="Registered with a mistyped final base",
     )
-    moved = entries.move(editor, wrong, reason="To the corrected backbone")
+    wrong.refresh_from_db()
+    moved = entries.move(
+        editor, wrong, expected_revision=wrong.revision, reason="To the corrected backbone"
+    )
     assert [e.pk for e in moved.repointed] == [reviewed.pk]
     now = services.current_values_of([reviewed])[reviewed.pk]
     assert str(now["backbone"]) == str(right.entry_id)

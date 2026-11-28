@@ -338,9 +338,12 @@ def _taken_in_registry(form: Any, entry: Entity, new: Mapping[str, Any]) -> dict
 # --- Superseding --------------------------------------------------------------------------------
 
 
-def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) -> Revision:
-    """Replaces a mistaken entry with another, for good, and tells its holders. A lab list's
-    option (ADR 0270) is replaced, under the list's lock, by one its dropdowns offer."""
+def supersede(
+    user: User, entry: Entity, replacement: Entity, *, expected_revision: int, reason: str
+) -> Revision:
+    """Replaces a mistaken entry with another, for good, from the revision of it the
+    registrar read, and tells its holders. A lab list's option (ADR 0270) is replaced, under
+    the list's lock, by one its dropdowns offer. Raises :class:`services.Stale`."""
     from iki_server.entities import lists
 
     found = _registrar(user, entry)
@@ -352,6 +355,8 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
             lists.lock(entry.registry_id, entry.type)
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         other = Entity.objects.select_for_update().get(pk=replacement.pk)
+        if locked.revision != expected_revision:
+            raise services.Stale(locked.revision)
         if locked.superseded_by_id is not None:
             raise Refused(f"{locked.hrid} was superseded already.")
         if other.pk == locked.pk:
@@ -457,6 +462,7 @@ def supersede_as(
     type_name: str,
     values: Mapping[str, Any] | None = None,
     *,
+    expected_revision: int,
     reason: str,
 ) -> Entity:
     """Supersedes an entry registered as the wrong type with a new entry of its identity
@@ -464,7 +470,8 @@ def supersede_as(
     tells its holders. The new entry has the superseded one's values for the fields the two
     types share, and ``values`` for the rest, or in place of them: its own facts, and its
     parts' roles as its type names them, say. Its identity is the same, and is the new
-    entry's from now on: registering it finds the new entry. Returns the new entry."""
+    entry's from now on: registering it finds the new entry. From the entry's revision the
+    registrar read: raises :class:`services.Stale`. Returns the new entry."""
     found = _registrar(user, entry)
     said = reason.strip()
     if not said:
@@ -476,6 +483,8 @@ def supersede_as(
         # registration of it waits, then finds the new entry.
         services.lock_identity(registry.types()[entry.type], entry.registry_id, entry.identity_hash)
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
+        if locked.revision != expected_revision:
+            raise services.Stale(locked.revision)
         if locked.superseded_by_id is not None:
             raise Refused(f"{locked.hrid} was superseded already.")
         if locked.purged_at is not None:
@@ -693,16 +702,24 @@ class Moved:
 
 
 def move(
-    user: User, record: Entity, *, reason: str, values: Mapping[str, Any] | None = None
+    user: User,
+    record: Entity,
+    *,
+    expected_revision: int,
+    reason: str,
+    values: Mapping[str, Any] | None = None,
 ) -> Moved:
-    """Moves a project's record to its superseded entry's replacement, with a reason. To
-    a replacement of another type (ADR 0165), ``values`` are the new record's own, beside
-    those it carries."""
+    """Moves a project's record to its superseded entry's replacement, from the revision of
+    it the person read, with a reason. To a replacement of another type (ADR 0165),
+    ``values`` are the new record's own, beside those it carries. Raises
+    :class:`services.Stale`."""
     said = reason.strip()
     if not said:
         raise Invalid({"reason": ["Say why the record is being moved."]})
     with transaction.atomic():
         locked = Entity.objects.select_for_update().get(pk=record.pk)
+        if locked.revision != expected_revision:
+            raise services.Stale(locked.revision)
         if locked.entry_id is None:
             raise Refused(f"{locked.hrid} isn't a record of a registry entry.")
         old = Entity.objects.get(pk=locked.entry_id)

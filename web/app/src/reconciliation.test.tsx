@@ -10,7 +10,7 @@ import {
   type Reconciliation,
   type ReconciliationLine,
 } from "./storage";
-import { answer, calls, ME, page, problem } from "./test-server";
+import { answer, calls, made, ME, page, problem } from "./test-server";
 
 const id = "00000000-0000-7000-8000-000000000001";
 const api = `/api/v1/reconciliations/${id}`;
@@ -36,7 +36,7 @@ function tube(number: number, changes: Partial<ReconciliationLine> = {}): Reconc
     resolution_stale: false,
     note: "",
     resolved_by: null,
-    line_revision: 1,
+    revision: 1,
     observation: null,
     reviewed_observation: null,
     ...changes,
@@ -46,7 +46,7 @@ function tube(number: number, changes: Partial<ReconciliationLine> = {}): Reconc
 function inventory(revision: number, ...lines: ReconciliationLine[]): Reconciliation {
   return {
     id,
-    plan_revision: revision,
+    revision: revision,
     container: {
       id: "box",
       hrid: "BOX-000001",
@@ -174,10 +174,10 @@ it.each(["matched", "no_longer_found"] as const)(
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(complete()).not.toHaveAttribute("aria-disabled", "true"));
     expect(row.queryByRole("button", { name: "Clear previous decision" })).not.toBeInTheDocument();
-    expect(calls("PATCH", endpoint).map((call) => call.body)).toEqual([
+    expect(calls("PATCH", endpoint).map(made)).toEqual([
       // Clearing a decision clears its note: none is sent.
-      { line_revision: 1, resolution: null, reason: "The tube was rescanned" },
-      { line_revision: 1, resolution: null, reason: "The tube was rescanned" },
+      { "If-Match": '"1"', resolution: null, reason: "The tube was rescanned" },
+      { "If-Match": '"1"', resolution: null, reason: "The tube was rescanned" },
     ]);
   },
 );
@@ -229,7 +229,7 @@ it("requires review after a newer count arrives and an older resolution response
   const endpoint = `${api}/lines/${moved.id}`;
   const finishResolve = holdResponse(
     `PATCH ${endpoint}`,
-    inventory(2, { ...moved, note: "Checked A2", line_revision: 2 }, unchecked),
+    inventory(2, { ...moved, note: "Checked A2", revision: 2 }, unchecked),
   );
   const row = decision("TUB-000001");
   await user.type(row.getByRole("textbox", { name: /Note/ }), "Checked A2");
@@ -241,7 +241,7 @@ it("requires review after a newer count arrives and an older resolution response
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
   // A colleague scanned the tube in A3 instead and separately approved that move.
-  const newer = inventory(3, { ...moved, found: "A3", line_revision: 3 }, unchecked);
+  const newer = inventory(3, { ...moved, found: "A3", revision: 3 }, unchecked);
   answer(`GET ${api}`, newer);
   await act(async () => {
     await queryClient.invalidateQueries({
@@ -261,8 +261,8 @@ it("requires review after a newer count arrives and an older resolution response
     screen.queryByRole("button", { name: "Complete the reconciliation" }),
   ).not.toBeInTheDocument();
   expect(calls("POST", `${api}/complete`)).toHaveLength(0);
-  expect(calls("PATCH", endpoint)[0]?.body).toEqual({
-    line_revision: 1,
+  expect(calls("PATCH", endpoint).map(made)[0]).toEqual({
+    "If-Match": '"1"',
     resolution: "moved",
     note: "Checked A2",
   });
@@ -283,8 +283,8 @@ it("reviews a refused completion's count only once the latest one is shown", asy
   );
   // A colleague found it in A4 meanwhile, and moved it there. The refusal comes back before
   // the count as it is now does.
-  answer(`POST ${api}/complete`, problem(409, "conflict", "The count changed."));
-  const latest = inventory(2, { ...moved, found: "A4", line_revision: 2 });
+  answer(`POST ${api}/complete`, problem(412, "stale", "The count changed."));
+  const latest = inventory(2, { ...moved, found: "A4", revision: 2 });
   const showLatest = holdResponse(`GET ${api}`, latest);
   answer(
     `GET ${api}/history`,
@@ -320,9 +320,9 @@ it("reviews a refused completion's count only once the latest one is shown", asy
   answer(`GET ${api}`, { ...latest, status: "completed", can_change: false });
   await user.click(complete());
   expect(await screen.findByRole("heading", { name: "Completed" })).toBeVisible();
-  expect(calls("POST", `${api}/complete`).map((call) => call.body)).toEqual([
-    { plan_revision: 1, missing_rest: false, note: "" },
-    { plan_revision: 2, missing_rest: false, note: "" },
+  expect(calls("POST", `${api}/complete`).map(made)).toEqual([
+    { "If-Match": '"1"', missing_rest: false, note: "" },
+    { "If-Match": '"2"', missing_rest: false, note: "" },
   ]);
 });
 
@@ -333,10 +333,10 @@ it("shows what changed, and who changed it, when a first decision is refused as 
   answer(
     `PATCH ${endpoint}`,
     problem(409, "count_lines_changed", "The count evidence changed.", undefined, {
-      affected_lines: [{ line_id: moved.id, line_revision: 2 }],
+      affected_lines: [{ line_id: moved.id, revision: 2 }],
     }),
   );
-  answer(`GET ${api}`, inventory(2, { ...moved, found: "A3", line_revision: 2 }));
+  answer(`GET ${api}`, inventory(2, { ...moved, found: "A3", revision: 2 }));
   answer(
     `GET ${api}/history`,
     page([
@@ -358,8 +358,8 @@ it("shows what changed, and who changed it, when a first decision is refused as 
     "Scan changed by Ada Lovelace, 12 Jan 2026, 09:30 UTC: LAB-000001 at A3 (“It was in A3”).",
   );
   expect(changed.getByText("Recorded at A4, found at A3.")).toBeVisible();
-  expect(calls("PATCH", endpoint).map((call) => call.body)).toEqual([
-    { line_revision: 1, resolution: "moved", note: "Verified at A2" },
+  expect(calls("PATCH", endpoint).map(made)).toEqual([
+    { "If-Match": '"1"', resolution: "moved", note: "Verified at A2" },
   ]);
   expect(calls("POST", `${api}/complete`)).toHaveLength(0);
 });
@@ -385,7 +385,7 @@ it("requires a new decision for a moved tube even when moving is still a legal c
     ...observed,
     note: "",
     resolution_stale: false,
-    line_revision: 2,
+    revision: 2,
   });
   answer(`PATCH ${endpoint}`, reviewed);
   await user.selectOptions(row.getByRole("combobox"), "moved");
@@ -394,8 +394,8 @@ it("requires a new decision for a moved tube even when moving is still a legal c
   expect(await screen.findByRole("list", { name: "Planned destinations" })).toHaveTextContent(
     "TUB-000001 → BOX-000001, A3",
   );
-  expect(calls("PATCH", endpoint).at(-1)?.body).toEqual({
-    line_revision: 1,
+  expect(calls("PATCH", endpoint).map(made).at(-1)).toEqual({
+    "If-Match": '"1"',
     resolution: "moved",
     // The stale decision's note isn't carried over to the new one.
     note: null,
@@ -407,8 +407,8 @@ it("requires a new decision for a moved tube even when moving is still a legal c
   answer(`POST ${api}/complete`, done);
   await user.click(complete());
   expect(await screen.findByRole("heading", { name: "Completed" })).toBeVisible();
-  expect(calls("POST", `${api}/complete`).map((call) => call.body)).toEqual([
-    { plan_revision: 2, missing_rest: false, note: "" },
+  expect(calls("POST", `${api}/complete`).map(made)).toEqual([
+    { "If-Match": '"2"', missing_rest: false, note: "" },
   ]);
 });
 
@@ -423,7 +423,7 @@ it("discards only the draft whose scan position changed, even if its finding is 
   await user.type(firstDraft.getByRole("textbox", { name: /Note/ }), "A3 needs checking");
   await user.selectOptions(secondDraft.getByRole("combobox"), "kept");
   await user.type(secondDraft.getByRole("textbox", { name: /Note/ }), "Ask about the tube at A4");
-  answer(`POST ${api}/scans`, inventory(2, { ...first, found: "A1", line_revision: 2 }, second));
+  answer(`POST ${api}/scans`, inventory(2, { ...first, found: "A1", revision: 2 }, second));
   // The tube was scanned at A3: seeing it at A1 replaces that, and asks why.
   await user.type(screen.getByRole("textbox", { name: "What’s in A1" }), `${first.code}{Enter}`);
   const dialog = within(
@@ -434,10 +434,10 @@ it("discards only the draft whose scan position changed, even if its finding is 
   );
   await giveReason(user, "Moved during the count", "Record the new scan");
   expect(await rows.findByText("Recorded at A4, found at A1.")).toBeVisible();
-  expect(calls("POST", `${api}/scans`).map((call) => call.body)).toEqual([
+  expect(calls("POST", `${api}/scans`).map((c) => c.body)).toEqual([
     {
       scans: [{ position: "A1", code: first.code }],
-      reviewed_lines: [{ line_id: first.id, line_revision: 1 }],
+      reviewed_lines: [{ line_id: first.id, revision: 1 }],
       reason: "Moved during the count",
     },
   ]);
@@ -481,11 +481,11 @@ it("sends a fresh scan in one step, and the same scan again as reviewed evidence
     expect(calls("POST", `${api}/scans`)).toHaveLength(2);
   });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-  expect(calls("POST", `${api}/scans`).map((call) => call.body)).toEqual([
+  expect(calls("POST", `${api}/scans`).map((c) => c.body)).toEqual([
     { scans: [{ position: "A2", code: "LAB-000002" }] },
     {
       scans: [{ position: "A1", code: "LAB-000001" }],
-      reviewed_lines: [{ line_id: matched.id, line_revision: 1 }],
+      reviewed_lines: [{ line_id: matched.id, revision: 1 }],
     },
   ]);
 });
@@ -503,10 +503,10 @@ it("asks why a scan replaces an empty position, and keeps the reason when it’s
   answer(
     `POST ${api}/scans`,
     problem(409, "count_lines_changed", "The count evidence changed.", undefined, {
-      affected_lines: [{ line_id: empty.id, line_revision: 2 }],
+      affected_lines: [{ line_id: empty.id, revision: 2 }],
     }),
   );
-  answer(`GET ${api}`, inventory(2, { ...empty, line_revision: 2 }));
+  answer(`GET ${api}`, inventory(2, { ...empty, revision: 2 }));
   answer(
     `GET ${api}/history`,
     page([
@@ -537,15 +537,15 @@ it("asks why a scan replaces an empty position, and keeps the reason when it’s
   );
   await user.click(dialog.getByRole("button", { name: "Record the new scan" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(calls("POST", `${api}/scans`).map((call) => call.body)).toEqual([
+  expect(calls("POST", `${api}/scans`).map((c) => c.body)).toEqual([
     {
       scans: [{ position: "A3", code: "LAB-000077" }],
-      reviewed_lines: [{ line_id: empty.id, line_revision: 1 }],
+      reviewed_lines: [{ line_id: empty.id, revision: 1 }],
       reason: "A tube was behind the rack",
     },
     {
       scans: [{ position: "A3", code: "LAB-000077" }],
-      reviewed_lines: [{ line_id: empty.id, line_revision: 2 }],
+      reviewed_lines: [{ line_id: empty.id, revision: 2 }],
       reason: "A tube was behind the rack",
     },
   ]);
@@ -567,8 +567,8 @@ it("asks why before cancelling, and says who cancelled it and why", async () => 
   await giveReason(user, "Box was moved to another freezer", "Cancel it");
   expect(await screen.findByRole("heading", { name: "Cancelled" })).toBeVisible();
   expect(screen.getByText(/By Ada Lovelace .*: “Box was moved to another freezer”/)).toBeVisible();
-  expect(calls("POST", `${api}/cancel`).map((call) => call.body)).toEqual([
-    { plan_revision: 1, reason: "Box was moved to another freezer" },
+  expect(calls("POST", `${api}/cancel`).map(made)).toEqual([
+    { "If-Match": '"1"', reason: "Box was moved to another freezer" },
   ]);
 });
 
@@ -635,7 +635,7 @@ it("lists confirmed move and placement destinations and blocks completion during
     `PATCH ${endpoint}`,
     inventory(
       3,
-      { ...moved, resolution: "kept", note: "Keep the recorded slot", line_revision: 2 },
+      { ...moved, resolution: "kept", note: "Keep the recorded slot", revision: 2 },
       placed,
       unchecked,
       empty,
@@ -727,7 +727,7 @@ it("says only that a count scan can’t identify a tube, and takes a typed Iki I
   await waitFor(() => {
     expect(calls("POST", `${api}/scans`)).toHaveLength(2);
   });
-  expect(calls("POST", `${api}/scans`).at(-1)?.body).toEqual({
+  expect(calls("POST", `${api}/scans`).map(made).at(-1)).toEqual({
     scans: [{ position: "A1", code: "TUB-000001", mode: "iki_id" }],
   });
 });
@@ -769,7 +769,7 @@ function unregisteredAt(found: string, number: number, revision = 1): Reconcilia
     expected: null,
     found,
     finding: "unexpected",
-    line_revision: revision,
+    revision: revision,
     observation: {
       id: `00000000-0000-7000-8000-0000000${serial.slice(1)}e`,
       line_id: `00000000-0000-4000-8000-${serial.padStart(12, "0")}`,
@@ -793,7 +793,7 @@ function choiceAt(position: string, ...sources: ReconciliationLine[]) {
       position,
       observations: sources.map((line) => ({
         line_id: line.id,
-        line_revision: line.line_revision,
+        revision: line.revision,
         position: line.found,
       })),
     },
@@ -806,7 +806,7 @@ async function scanAt(user: UserEvent, position: string, code: string) {
 }
 
 function scans() {
-  return calls("POST", `${api}/scans`).map((call) => call.body);
+  return calls("POST", `${api}/scans`).map((c) => c.body);
 }
 
 it("asks whether an unregistered label seen in other slots is another tube, and records that", async () => {
@@ -816,7 +816,7 @@ it("asks whether an unregistered label seen in other slots is another tube, and 
   answer(`POST ${api}/scans`, (call: { body: unknown }) => {
     const body = call.body as { scans: { unregistered?: unknown }[] };
     return body.scans[0]?.unregistered
-      ? inventory(2, a1, a2, { ...unregisteredAt("A3", 3), line_revision: 1 })
+      ? inventory(2, a1, a2, { ...unregisteredAt("A3", 3), revision: 1 })
       : choiceAt("A3", a1, a2);
   });
   await scanAt(user, "A3", LABEL);
@@ -874,7 +874,7 @@ it("moves only the named tube, with its reviewed version and a reason", async ()
       return problem(422, "invalid", "Check the fields.", [
         { pointer: "#/reason", detail: "Say why the evidence changed." },
       ]);
-    return inventory(2, a1, { ...a2, found: "A3", line_revision: 2 });
+    return inventory(2, a1, { ...a2, found: "A3", revision: 2 });
   });
   await scanAt(user, "A3", LABEL);
   const chooser = await screen.findByRole("region", { name: "‘BUFFER A’ at A3 is…" });
@@ -916,13 +916,13 @@ it("moves only the named tube, with its reviewed version and a reason", async ()
     "aria-invalid",
     "true",
   );
-  answer(`POST ${api}/scans`, inventory(2, a1, { ...a2, found: "A3", line_revision: 2 }));
+  answer(`POST ${api}/scans`, inventory(2, a1, { ...a2, found: "A3", revision: 2 }));
   await user.click(dialog.getByRole("button", { name: "Record the move" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   expect(screen.getByText("A3: BUFFER A, moved from A2.")).toBeVisible();
   const move = {
     scans: [{ position: "A3", code: LABEL, unregistered: { action: "move", line_id: a2.id } }],
-    reviewed_lines: [{ line_id: a2.id, line_revision: 1 }],
+    reviewed_lines: [{ line_id: a2.id, revision: 1 }],
     reason,
   };
   expect(scans()).toEqual([{ scans: [{ position: "A3", code: LABEL }] }, move, move]);
@@ -937,7 +937,7 @@ it("reviews what's recorded where the moved tube lands, and asks there which tub
     code: "",
     entity: null,
     ref: null,
-    line_revision: 4,
+    revision: 4,
   });
   const { user } = await openInventory(a1, empty);
   answer(`POST ${api}/scans`, (call: { body: unknown }) => {
@@ -971,14 +971,14 @@ it("reviews what's recorded where the moved tube lands, and asks there which tub
   expect(scans()).toEqual([
     {
       scans: [{ position: "A3", code: LABEL }],
-      reviewed_lines: [{ line_id: empty.id, line_revision: 4 }],
+      reviewed_lines: [{ line_id: empty.id, revision: 4 }],
       reason,
     },
     {
       scans: [{ position: "A3", code: LABEL, unregistered: { action: "move", line_id: a1.id } }],
       reviewed_lines: [
-        { line_id: a1.id, line_revision: 1 },
-        { line_id: empty.id, line_revision: 4 },
+        { line_id: a1.id, revision: 1 },
+        { line_id: empty.id, revision: 4 },
       ],
       reason,
     },
@@ -1003,7 +1003,7 @@ it("shows who changed the tube chosen as moved, and asks again", async () => {
   answer(
     `POST ${api}/scans`,
     problem(409, "count_lines_changed", "The count evidence changed.", undefined, {
-      affected_lines: [{ line_id: a2.id, line_revision: 2 }],
+      affected_lines: [{ line_id: a2.id, revision: 2 }],
     }),
   );
   answer(`GET ${api}`, inventory(2, a1, reread));
@@ -1026,13 +1026,13 @@ it("shows who changed the tube chosen as moved, and asks again", async () => {
   // The choice is asked again; the reason stays as typed.
   const again = within(await dialog.findByRole("region", { name: "‘BUFFER A’ at A3 is…" }));
   expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(reason);
-  answer(`POST ${api}/scans`, inventory(3, a1, { ...reread, found: "A3", line_revision: 3 }));
+  answer(`POST ${api}/scans`, inventory(3, a1, { ...reread, found: "A3", revision: 3 }));
   await user.click(again.getByRole("button", { name: /^The tube from A2/ }));
   await user.click(dialog.getByRole("button", { name: "Record the move" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   const move = (revision: number) => ({
     scans: [{ position: "A3", code: LABEL, unregistered: { action: "move", line_id: a2.id } }],
-    reviewed_lines: [{ line_id: a2.id, line_revision: revision }],
+    reviewed_lines: [{ line_id: a2.id, revision: revision }],
     reason,
   });
   expect(scans().slice(1)).toEqual([move(1), move(2)]);
@@ -1051,7 +1051,7 @@ it("refreshes the count when the tube chosen can no longer have moved, and offer
   );
   await user.type(dialog.getByRole("textbox", { name: "Why are you changing this?" }), "Moved");
   // Meanwhile, Ada scanned A2's tube at A4.
-  const elsewhere = { ...a2, found: "A4", line_revision: 2 };
+  const elsewhere = { ...a2, found: "A4", revision: 2 };
   answer(`POST ${api}/scans`, choiceAt("A3", a1));
   answer(`GET ${api}`, inventory(2, a1, elsewhere));
   answer(
@@ -1099,14 +1099,14 @@ it("keeps the registered-tube chooser and the neutral refusal apart from this ch
   expect(screen.queryByRole("region", { name: /is…$/ })).not.toBeInTheDocument();
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   // A rescan where it was is the same evidence again: no choice, no reason.
-  answer(`POST ${api}/scans`, inventory(2, { ...a1, line_revision: 2 }));
+  answer(`POST ${api}/scans`, inventory(2, { ...a1, revision: 2 }));
   await scanAt(user, "A1", LABEL);
   await waitFor(() => {
     expect(scans()).toHaveLength(2);
   });
   expect(scans()[1]).toEqual({
     scans: [{ position: "A1", code: LABEL }],
-    reviewed_lines: [{ line_id: a1.id, line_revision: 1 }],
+    reviewed_lines: [{ line_id: a1.id, revision: 1 }],
   });
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });

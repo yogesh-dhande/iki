@@ -19,7 +19,7 @@ import {
 import { lazy, Suspense, useId, useState } from "react";
 import { Button as AriaButton, Dialog, DialogTrigger, Popover } from "react-aria-components";
 
-import { iki, problemOf, useApiMutation } from "../api";
+import { iki, problemOf, useApiMutation, useOpenedRevision } from "../api";
 import { lineageOf } from "../components";
 import {
   apiRef,
@@ -294,15 +294,17 @@ function Superseded({ entity }: { entity: Entity }) {
   // Entities are refreshed once the page is the moved record's: refreshing this one first
   // would ask for the old ID in the project, which no longer has it.
   const move = useApiMutation(
-    async () =>
+    async (header: { "If-Match": string }) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/move", {
-          params: { path: { ref: entity.id } },
+          params: { path: { ref: entity.id }, header },
           body: { reason: reason.trim() },
         }),
       ),
     [],
   );
+  // The record as it was when the move was asked for: one changed meanwhile is refused (412).
+  const opened = useOpenedRevision(entity.revision, { open: asking, error: move.error });
   if (!entry || !by) return null;
   const project = entity.owner_project?.name ?? "this project";
   const close = () => {
@@ -377,7 +379,7 @@ function Superseded({ entity }: { entity: Entity }) {
             setMissing(true);
             return;
           }
-          move.mutate(undefined, {
+          move.mutate(opened.ifMatch, {
             onSuccess: (moved) => {
               close();
               void navigate({
