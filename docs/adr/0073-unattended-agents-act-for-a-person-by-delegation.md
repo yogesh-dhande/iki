@@ -62,6 +62,24 @@ person, and the credential as the agent, with the delegation as its grant
 **Approvals stay with people.** A delegated token is a token, so it can't
 approve an agent's runs (ADR 0050).
 
+## Amendment of 2026-11-27 — one rule in every decision
+
+"Only what both may" is applied in one place. A request's principals are a
+value, its person and, under a delegated token, its agent's service account.
+Each grant (an org role, a project role, team membership, a registry's
+registrars and its lists' curators, lab roles) is looked up for one user at a
+time, and every public permission predicate combines the two lookups with one
+combinator: both must allow an action; the request holds the org roles and lab
+roles both hold, and reaches the projects and teams both reach; its role in a
+project is the lower of the two. A grant only one side holds gives the request
+nothing, whichever side holds it. A test asks every public predicate with a
+grant on one side only, so a new predicate or a new kind of grant can't skip
+the rule.
+
+For a lab list, each side must curate that list, as a registrar or as its
+curator. A person who is a registrar, with an agent that curates one list, may
+curate that one list through the agent, not every list of the registry.
+
 ## Consequences
 
 - Positive: unattended work has a person responsible for it, chosen by

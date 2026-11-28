@@ -75,7 +75,7 @@ from iki_server.entities.values import (
     to_json,
 )
 from iki_server.org import permissions
-from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
+from iki_server.org.models import Project, ProjectRole, Registry
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_spec.model import LIST_LABEL, LIST_POSITION
@@ -1012,7 +1012,3 @@ def held_through(user: Any, entry: Entity) -> QuerySet[Project]:  # noqa: ANN401
     records = Entity.objects.filter(entry=entry, purged_at__isnull=True)
     links = ProjectLink.objects.filter(project=OuterRef("pk"), entity__in=records)
     return projects.filter(Exists(links))
-
-
-def is_member(user: Any, project: Project) -> bool:  # noqa: ANN401
-    return ProjectMembership.objects.filter(project=project, user=user).exists()
