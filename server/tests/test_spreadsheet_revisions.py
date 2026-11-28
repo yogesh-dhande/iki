@@ -244,60 +244,67 @@ def test_replacing_a_template_reviews_both_import_and_template_independently(wor
     source_a = started(world, b"Label,Purity (%)\nA,96\n", name="a.csv")
     source_b = started(world, b"Label\nB\n", name="b.csv", principal="via_team")
     path_a = f"/spreadsheet-imports/{source_a['id']}"
-    path_b = f"/spreadsheet-imports/{source_b['id']}"
     listing = f"/projects/{world.project.pk}/spreadsheet-mappings"
     audits = AuditEvent.objects.filter(action__startswith="spreadsheet_mapping.")
     saved = alice.post(f"{path_a}/mappings", {"name": "Layout A"}, headers=seen(source_a))
     assert saved.status_code == 201, saved.content
     (target,) = bob.get(listing).json()
     assert target == saved.json() and target["revision"] == 1
+    template = f"/spreadsheet-mappings/{target['id']}"
     reviewed_a = alice.get(path_a).json()
     assert reviewed_a["mappings"][0]["revision"] == target["revision"]
-    condition = {"replace": target["id"], "target_revision": target["revision"]}
-    replaced = bob.post(
-        f"{path_b}/mappings", {"name": "Layout B", **condition}, headers=seen(source_b)
-    )
-    assert replaced.status_code == 201, replaced.content
+
+    def from_import(name: str, imported: dict[str, Any]) -> dict[str, Any]:
+        return {"name": name, "import": imported["id"], "import_revision": imported["revision"]}
+
+    replaced = bob.put(template, from_import("Layout B", source_b), headers=seen(target))
+    assert replaced.status_code == 200, replaced.content
     latest = replaced.json()
     assert latest["revision"] == 2 and latest["headers"] == ["Label"]
+    assert replaced["ETag"] == '"2"' and latest["id"] == target["id"]
     assert latest["updated_by"]["id"] == str(world.users["via_team"].pk)
     before = SpreadsheetImport.objects.filter(pk=source_a["id"]).values().get()
     assert before["revision"] == reviewed_a["revision"]
 
-    # Bob changed the shared target using his own source; Alice's source ETag is still current.
-    obsolete = alice.post(
-        f"{path_a}/mappings", {"name": "Late A", **condition}, headers=seen(reviewed_a)
-    )
-    conflict = problem(obsolete, 409, "stale_template")
-    assert conflict["target"] == {"id": target["id"], "name": "Layout B", "revision": 2}
-    assert "ETag" not in obsolete.headers
+    # Bob changed the shared template using his own import; Alice's import is still current,
+    # but the template she agreed to replace isn't.
+    obsolete = alice.put(template, from_import("Late A", reviewed_a), headers=seen(target))
+    assert "Layout B" in problem(obsolete, 412, "stale")["detail"]
+    assert obsolete["ETag"] == seen(latest)["If-Match"]
     assert alice.get(listing).json() == [latest] and audits.count() == 2
     assert SpreadsheetImport.objects.filter(pk=source_a["id"]).values().get() == before
 
-    # Conversely, changing the source cannot be hidden by a current target precondition.
+    # Conversely, changing the import can't be hidden by a current template precondition.
     current_target = alice.get(listing).json()[0]
-    replace = {"replace": current_target["id"], "target_revision": current_target["revision"]}
     updated = alice.patch(
         path_a, {"columns": [{"index": 0, "field": "label"}]}, headers=seen(reviewed_a)
     )
     assert updated.status_code == 200, updated.content
     current_a = updated.json()
-    for attempt in ({"name": "Late create"}, {"name": "Late replace", **replace}):
-        refused = alice.post(f"{path_a}/mappings", attempt, headers=seen(reviewed_a))
-        problem(refused, 412, "stale")
-        assert refused["ETag"] == seen(current_a)["If-Match"]
+    late_create = alice.post(
+        f"{path_a}/mappings", {"name": "Late create"}, headers=seen(reviewed_a)
+    )
+    problem(late_create, 412, "stale")
+    assert late_create["ETag"] == seen(current_a)["If-Match"]
+    late_replace = alice.put(
+        template, from_import("Late replace", reviewed_a), headers=seen(current_target)
+    )
+    problem(late_replace, 412, "stale")
+    # The import is named in the body: the ETag answered is the template's, so none is.
+    assert "ETag" not in late_replace.headers
     assert alice.get(listing).json() == [latest] and audits.count() == 2
 
-    fresh = alice.post(
-        f"{path_a}/mappings", {"name": "Reviewed again", **replace}, headers=seen(current_a)
+    fresh = alice.put(
+        template, from_import("Reviewed again", current_a), headers=seen(current_target)
     )
-    assert fresh.status_code == 201, fresh.content
+    assert fresh.status_code == 200, fresh.content
     changed = fresh.json()
     assert changed["revision"] == 3 and changed["id"] == latest["id"]
+    assert changed["name"] == "Reviewed again"
     assert changed["updated_by"] == target["created_by"] and audits.count() == 3
 
 
-def test_a_template_replacement_requires_the_reviewed_target_and_creation_is_safe(
+def test_a_template_replacement_requires_the_reviewed_template_and_import(
     world: World,
 ) -> None:
     api = api_as(world)
@@ -306,18 +313,29 @@ def test_a_template_replacement_requires_the_reviewed_target_and_creation_is_saf
     before = api.post(f"{path}/mappings", {"name": "Saved"}, headers=seen(source))
     assert before.status_code == 201, before.content
     template = before.json()
+    url = f"/spreadsheet-mappings/{template['id']}"
     source = api.get(path).json()
+    body = {"name": "Overwrite", "import": source["id"], "import_revision": source["revision"]}
     for fields in (
-        {"replace": template["id"]},
-        {"target_revision": 1},
-        {"replace": template["id"], "target_revision": 0},
-        {"replace": template["id"], "target_revision": True},
-        {"replace": template["id"], "target_revision": "1"},
+        {"import_revision": None},
+        {"import_revision": 0},
+        {"import_revision": True},
+        {"import_revision": "1"},
+        {"import": None},
     ):
-        bad = api.post(f"{path}/mappings", {"name": "Overwrite", **fields}, headers=seen(source))
+        attempt = {k: v for k, v in {**body, **fields}.items() if v is not None}
+        bad = api.put(url, attempt, headers=seen(template))
         assert bad.status_code == 422, bad.content
+    for headers in (None, {"If-Match": "*"}, {"If-Match": 'W/"1"'}):
+        problem(api.put(url, body, headers=headers), 428, "precondition_required")
     duplicate = api.post(f"{path}/mappings", {"name": "Saved"}, headers=seen(source))
     assert problem(duplicate, 422, "validation_failed")["errors"][0]["pointer"] == "#/name"
+    # The way a mapping was once replaced is refused, not taken as a new mapping.
+    old_way = {"name": "Overwrite", "replace": template["id"], "target_revision": 1}
+    refused = problem(
+        api.post(f"{path}/mappings", old_way, headers=seen(source)), 422, "validation_failed"
+    )
+    assert {e["pointer"] for e in refused["errors"]} == {"#/replace", "#/target_revision"}
     assert api.get(f"/projects/{world.project.pk}/spreadsheet-mappings").json() == [template]
     assert AuditEvent.objects.filter(action__startswith="spreadsheet_mapping.").count() == 1
     assert api.get(path).json() == source
@@ -394,7 +412,7 @@ def test_applying_a_template_racing_its_deletion_keeps_only_the_snapshot_that_wa
 
     with ThreadPoolExecutor(max_workers=1) as pool:
         with transaction.atomic():
-            deleted = owner.delete(f"/spreadsheet-mappings/{target['id']}")
+            deleted = owner.delete(f"/spreadsheet-mappings/{target['id']}", headers=seen(target))
             assert deleted.status_code == 204, deleted.content
             call = pool.submit(apply)
             blocked_by_this_transaction(call)

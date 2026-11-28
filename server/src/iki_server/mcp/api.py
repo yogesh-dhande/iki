@@ -101,7 +101,7 @@ async def call(
     query: Query | None = None,
     body: Any = None,  # noqa: ANN401 - JSON
     if_match: str | None = None,
-    if_balance_revision: str | None = None,
+    if_none_match: str | None = None,
 ) -> Any:  # noqa: ANN401 - JSON
     """The API's answer, or a ``ToolError`` saying what was wrong, as its problem did."""
     agent = _agent.get()
@@ -110,8 +110,8 @@ async def call(
     headers += [(b"accept", b"application/json")]
     if if_match is not None:
         headers += [(b"if-match", if_match.encode())]
-    if if_balance_revision is not None:
-        headers += [(b"if-balance-revision", if_balance_revision.encode())]
+    if if_none_match is not None:
+        headers += [(b"if-none-match", if_none_match.encode())]
     payload = b""
     if body is not None:
         payload = json.dumps(body).encode()

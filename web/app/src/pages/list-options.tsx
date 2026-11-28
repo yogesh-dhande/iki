@@ -10,7 +10,7 @@
  * each option, in every project, never which. Everyone else reads it.
  */
 
-import { ApiError, unwrap } from "@ikisci/sdk";
+import { isStale, unwrap } from "@ikisci/sdk";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import {
@@ -37,7 +37,7 @@ import {
   Popover,
 } from "react-aria-components";
 
-import { iki, problemOf, useApiMutation } from "../api";
+import { iki, problemOf, useApiMutation, useOpenedRevision } from "../api";
 import {
   inSentence,
   personName,
@@ -721,11 +721,6 @@ function Curators({ list, registry }: { list: LabList; registry: Registry | unde
 
 // --- Changing it ----------------------------------------------------------------------------
 
-/** A list's change was refused because the option changed since it was read (412). */
-function isStale(error: unknown): boolean {
-  return error instanceof ApiError && error.problem.code === "stale";
-}
-
 function Shell({
   title,
   busy,
@@ -1027,20 +1022,22 @@ function ArchiveDialog({
   const { say } = useMessages();
   const [reason, setReason] = useState("");
   const run = useApiMutation(
-    async () =>
+    async (header: { "If-Match": string }) =>
       unwrap(
         archive
           ? await iki.POST("/api/v1/lists/{name}/options/{code}/archive", {
-              params: { path: { name: list.type, code: option.code }, query: scope },
+              params: { path: { name: list.type, code: option.code }, query: scope, header },
               body: { reason: reason.trim() },
             })
           : await iki.POST("/api/v1/lists/{name}/options/{code}/restore", {
-              params: { path: { name: list.type, code: option.code }, query: scope },
+              params: { path: { name: list.type, code: option.code }, query: scope, header },
               body: { reason: reason.trim() },
             }),
       ),
     [LAB_LISTS],
   );
+  // Made from the option as the dialog opened: one changed meanwhile is refused (412).
+  const opened = useOpenedRevision(option.revision, { error: run.error });
   const form = useForm(run.error, run.isPending);
   const uses = option.uses ?? 0;
   return (
@@ -1056,7 +1053,7 @@ function ArchiveDialog({
           if (!form.validate({ reason: required(reason, "Say why: every project sees it.") })) {
             return;
           }
-          run.mutate(undefined, {
+          run.mutate(opened.ifMatch, {
             onSuccess: () => {
               onChanged(option);
               onClose();
@@ -1122,15 +1119,16 @@ function SupersedeDialog({
   const [replacement, setReplacement] = useState("");
   const [reason, setReason] = useState("");
   const run = useApiMutation(
-    async () =>
+    async (header: { "If-Match": string }) =>
       unwrap(
         await iki.POST("/api/v1/lists/{name}/options/{code}/supersede", {
-          params: { path: { name: list.type, code: option.code }, query: scope },
+          params: { path: { name: list.type, code: option.code }, query: scope, header },
           body: { replacement, reason: reason.trim() },
         }),
       ),
     [LAB_LISTS],
   );
+  const opened = useOpenedRevision(option.revision, { error: run.error });
   const form = useForm(run.error, run.isPending);
   const chosen = others.find((o) => o.code === replacement);
   const uses = option.uses ?? 0;
@@ -1148,7 +1146,7 @@ function SupersedeDialog({
           ) {
             return;
           }
-          run.mutate(undefined, {
+          run.mutate(opened.ifMatch, {
             onSuccess: (saved) => {
               onChanged(option);
               onClose();
@@ -1216,6 +1214,11 @@ export function movedTo(order: readonly string[], from: number, to: number): str
   if (code === undefined) return next;
   next.splice(Math.max(0, Math.min(next.length, to)), 0, code);
   return next;
+}
+
+/** Each option's revision, by code: what a new order is made from. */
+function revisionsOf(options: readonly ListOption[]): Record<string, number> {
+  return Object.fromEntries(options.map((o) => [o.code, o.revision]));
 }
 
 /** A reordering: the new order, the option last moved, the page shown, and what's being
@@ -1298,6 +1301,9 @@ function ReorderOptions({
     over: null,
   }));
   const { order, page } = state;
+  // Each option's revision as the order was read: one changed, added or removed since, by
+  // someone else, refuses the save (412) rather than undo their change.
+  const [read, setRead] = useState(() => revisionsOf(options));
   const [reason, setReason] = useState("");
   const [placing, setPlacing] = useState<string | null>(null);
   const focusing = useRef<{ code: string; direction: Direction } | null>(null);
@@ -1308,7 +1314,7 @@ function ReorderOptions({
       unwrap(
         await iki.PUT("/api/v1/lists/{name}/order", {
           params: { path: { name: list.type }, query: scope },
-          body: { codes: order, reason: reason.trim() },
+          body: { codes: order, expected_revisions: read, reason: reason.trim() },
         }),
       ),
     [LAB_LISTS],
@@ -1325,6 +1331,7 @@ function ReorderOptions({
         staleTime: 0,
       });
       dispatch({ kind: "start", order: fresh.map((o) => o.code) });
+      setRead(revisionsOf(fresh));
       save.reset();
     } finally {
       setReloading(false);

@@ -11,8 +11,9 @@ description: >-
   CAS number, PubChem CID and the like) are kept, unless they're a salt's whose
   compound is its parent: then they're left off it. With batches, each record is also
   a batch of its compound, with its salt form and the batch fields its SD fields
-  give: purity, amount, supplier, catalogue number, lot and received date. Each
-  records which file and record it came from.
+  give: purity, amount, supplier, catalogue number, lot and received date. A supplier
+  is registered by its name, or found if the registry has it. Each records which file
+  and record it came from.
 params:
   file:
     type: file
@@ -54,6 +55,7 @@ effects:
   creates:
     - { type: Compound, cardinality: many }
     - { type: CompoundBatch, cardinality: many }
+    - { type: iki/inventory.Supplier, cardinality: many }
 software:
   - { name: RDKit, version: "2026.09.2", url: https://www.rdkit.org }
   - { name: InChI, version: "1.07.3", url: https://www.inchi-trust.org }

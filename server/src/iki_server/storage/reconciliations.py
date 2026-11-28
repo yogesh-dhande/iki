@@ -141,7 +141,11 @@ def _open(
             f"Reconciling {reconciliation.container.hrid} needs Editor in its project."
         )
     if plan_revision is not None and reconciliation.plan_revision != plan_revision:
-        raise Refused("The count changed. Reload it and review its current findings and decisions.")
+        raise LinesChanged(
+            [],
+            current=reconciliation.plan_revision,
+            message="The count changed. Reload it and review its current findings and decisions.",
+        )
     if reconciliation.status != ReceiptStatus.OPEN:
         raise Wrong(
             {"": [f"This reconciliation is {reconciliation.get_status_display().lower()}."]}
@@ -177,12 +181,21 @@ def _reason(value: str) -> str:
     return value
 
 
-class LinesChanged(Refused):
-    def __init__(self, lines: Sequence[ReconciliationLine]) -> None:
-        self.lines = [
-            {"line_id": str(line.pk), "line_revision": line.line_revision} for line in lines
-        ]
-        super().__init__("The count evidence changed. Review the affected lines before saving.")
+class LinesChanged(Exception):  # noqa: N818 - reads as "the lines changed"
+    """The count or its lines changed since the revisions a change named (ADR 0289):
+    ``lines`` are those that changed, each with its revision now, and ``current`` the
+    revision of what the change addressed, when it addressed one thing."""
+
+    def __init__(
+        self,
+        lines: Sequence[ReconciliationLine],
+        *,
+        current: int | None = None,
+        message: str = "The count evidence changed. Review the affected lines before saving.",
+    ) -> None:
+        self.lines = [{"line_id": str(line.pk), "revision": line.line_revision} for line in lines]
+        self.current = current
+        super().__init__(message)
 
 
 class UnregisteredChoiceRequired(Refused):
@@ -198,7 +211,7 @@ class UnregisteredChoiceRequired(Refused):
         self.observations = [
             {
                 "line_id": str(line.pk),
-                "line_revision": line.line_revision,
+                "revision": line.line_revision,
                 "position": shape.label(*at),
             }
             for at, line in sorted(others.items(), key=lambda pair: shape.index(*pair[0]))
@@ -512,7 +525,7 @@ def _slot_snapshot(line: ReconciliationLine, shape: Shape) -> dict[str, Any]:
     # An expected barcode may differ from what the scanner actually sent. In older counts
     # only an unexpected unknown code and an explicitly empty slot identify the input.
     state: dict[str, Any] = {
-        "line_revision": line.line_revision,
+        "revision": line.line_revision,
         "expected": storage.label(shape, line.expected_row, line.expected_column),
         "position": storage.label(shape, line.found_row, line.found_column),
         "observed": line.found_row is not None,
@@ -601,7 +614,7 @@ def resolution_stale(
 
 def _decision_snapshot(line: ReconciliationLine) -> dict[str, Any]:
     state: dict[str, Any] = {
-        "line_revision": line.line_revision,
+        "revision": line.line_revision,
         "finding": line.resolved_finding,
         "position": line.resolved_position,
         "resolution": line.resolution,
@@ -637,7 +650,7 @@ def resolve(
         if line is None:
             raise LinesChanged([])
         if line.line_revision != line_revision:
-            raise LinesChanged([line])
+            raise LinesChanged([line], current=line.line_revision)
         if note is None:
             note = line.note if resolution is not None else ""
         found = finding(line, scanned_positions(lines))
@@ -860,7 +873,7 @@ def complete(
             project=container.owner_project,
             data={
                 "reconciliation": str(reconciliation.pk),
-                "plan_revision": reconciliation.plan_revision,
+                "revision": reconciliation.plan_revision,
                 "findings": {k: counts.get(k, 0) for k in [*Finding.values, UNCHECKED]},
                 "resolutions": {choice: decisions[choice] for choice in Resolution.values},
                 "assumed_missing": len(assumed_missing),

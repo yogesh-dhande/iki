@@ -1,6 +1,7 @@
 # 0162. A lot is a project's record of an entry's material
 
 - Status: Accepted
+- Amended 2026-11-27: a lot's supplier refers to the registry's suppliers ([0211](0211-lots-inventory-samples-and-requests.md#amendment-of-2026-11-27-one-vocabulary-for-the-same-thing))
 - Date: 2026-11-19
 - Refines: [0115](0115-registries-keep-identities-projects-keep-records.md),
   [0161](0161-a-complex-is-its-parts-and-their-copies.md),
@@ -204,3 +205,10 @@ material plugin can also be installed on its own.
   which its preps' A260 assumes.
 - `iki/lots` can't be installed without the plugins of the kinds it has types
   for.
+
+## Amendment of 2026-11-27: the supplier is the registry's
+
+A lot's `supplier` refers to an `iki/inventory.Supplier`, the registry's record of who
+material comes from, rather than holding its name as text, and a generic lot's
+`purity_method` is an option of `iki/lots.PurityMethod`, as the other lots' are. See
+[ADR 0211's amendment](0211-lots-inventory-samples-and-requests.md#amendment-of-2026-11-27-one-vocabulary-for-the-same-thing).

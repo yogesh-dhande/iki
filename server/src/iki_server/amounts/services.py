@@ -27,7 +27,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
 from decimal import ROUND_HALF_EVEN, Context, Decimal, InvalidOperation
 from fractions import Fraction
 from typing import Any
@@ -35,7 +34,7 @@ from typing import Any
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.db.models import F
-from django.db.models.functions import Greatest, Now
+from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
 from iki_server.amounts import eligibility
@@ -68,10 +67,13 @@ class Wrong(Invalid):
 
 
 class StaleBalanceError(Exception):
-    """The balance changed after the caller observed it."""
+    """The balance changed after the caller observed it: ``current`` is its revision now,
+    None if none is recorded."""
 
+    def __init__(self, current: int | None) -> None:
+        super().__init__("The balance changed since it was read.")
+        self.current = current
 
-UNRECORDED_REVISION = "unrecorded"
 
 #: At most this many aliquots in one split.
 MAX_ALIQUOTS = 200
@@ -570,19 +572,20 @@ def transfer(
 
 
 def adjust(
-    user: User, entity: Entity, given: Given, *, reason: str, expected_revision: str
+    user: User, entity: Entity, given: Given, *, reason: str, expected_revision: int | None
 ) -> Movement:
-    """Sets ``entity``'s amount to what it was found to be: a recount, or a correction.
-    It always says why."""
+    """Sets ``entity``'s amount to what it was found to be: a recount, or a correction, from
+    the amount's revision the person read, or None if they read none recorded (ADR 0289).
+    It always says why. Raises :class:`StaleBalanceError`."""
     if not reason.strip():
         raise Wrong({"reason": ["is required: say why it's adjusted."]})
     with transaction.atomic():
         _lock_records([entity])
         # The entity lock also serializes creation of the first balance by adjust or transfer.
         amount = Amount.objects.select_for_update().filter(entity=entity).first()
-        revision = amount.updated_at.isoformat() if amount is not None else UNRECORDED_REVISION
+        revision = amount.revision if amount is not None else None
         if revision != expected_revision:
-            raise StaleBalanceError
+            raise StaleBalanceError(revision)
         if amount is None:
             return record(user, entity, given, reason=reason)
         value = _stocked_quantity(entity, given)
@@ -878,11 +881,9 @@ def _change(
     wanted = spec(entity.type)
     assert wanted is not None  # noqa: S101 - only records with an amount get here
     _whole_units(entity, wanted, amount.value)
-    # The timestamp is also the balance revision. Advance it even if two writes get the
-    # same clock reading, the clock moves backwards, or the numeric balance is unchanged.
+    # Every movement is a revision of the balance, even one that leaves it unchanged.
     Amount.objects.filter(pk=amount.pk).update(
-        value=amount.value,
-        updated_at=Greatest(Now(), F("updated_at") + timedelta(microseconds=1)),
+        value=amount.value, revision=F("revision") + 1, updated_at=Now()
     )
     return _movement(
         user,

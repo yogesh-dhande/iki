@@ -28,7 +28,6 @@ from iki_server.entities.models import Entity
 from iki_server.notifications import kinds
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
-from iki_server.org.services import Refused
 from iki_server.storage import observations, scan_identity
 from iki_server.storage import services as storage
 from iki_server.storage.models import Outcome, Place, Receipt, ReceiptLine, ReceiptStatus
@@ -157,12 +156,19 @@ def start(user: User, entity: Entity) -> Receipt:
         return receipt
 
 
-class LinesChanged(Refused):
-    def __init__(self, message: str, lines: Iterable[tuple[UUID, int]]) -> None:
+class LinesChanged(Exception):  # noqa: N818 - reads as "the lines changed"
+    """The receipt or a line changed since the revision a change named (ADR 0289):
+    ``current`` is the revision of what the change addressed, and ``lines`` the lines that
+    changed, each with its revision now."""
+
+    def __init__(self, message: str, lines: Iterable[tuple[UUID, int]], *, current: int) -> None:
         super().__init__(message)
-        self.extensions = {
-            "affected_lines": [{"line_id": str(pk), "line_revision": rev} for pk, rev in lines]
-        }
+        self.current = current
+        self.lines = [{"line_id": str(pk), "revision": rev} for pk, rev in lines]
+
+
+class RevisionRequired(Exception):  # noqa: N818 - reads as "a revision is required"
+    """A change replaces what someone recorded without naming the revision it replaces."""
 
 
 def _open(user: User, receipt: Receipt, plan_revision: int | None = None) -> Receipt:
@@ -183,7 +189,9 @@ def _open(user: User, receipt: Receipt, plan_revision: int | None = None) -> Rec
             .values_list("pk", "line_revision")
         )
         raise LinesChanged(
-            "The receipt changed. Reload it and review its current observations.", versions
+            "The receipt changed. Reload it and review its current observations.",
+            versions,
+            current=locked.plan_revision,
         )
     return locked
 
@@ -205,7 +213,7 @@ def _line_state(line: ReceiptLine) -> dict[str, Any]:
     return {
         **({"entity_id": str(line.entity_id)} if line.entity_id else {}),
         "code": line.code,
-        "line_revision": line.line_revision,
+        "revision": line.line_revision,
         "expected": line.expected,
         "outcome": line.outcome,
         "note": line.note,
@@ -361,11 +369,14 @@ def _line(receipt: Receipt, line_id: UUID | str) -> ReceiptLine:
 
 def _reviewed_line(line: ReceiptLine, line_revision: int | None) -> None:
     if line_revision is None:
-        raise Wrong({"line_revision": ["is required: review this line before correcting it."]})
+        raise RevisionRequired(
+            "Send the line's ETag as If-Match: review it before correcting what was recorded."
+        )
     if line_revision != line.line_revision:
         raise LinesChanged(
             "This receipt line changed. Reload it and review its current observation.",
             [(line.pk, line.line_revision)],
+            current=line.line_revision,
         )
 
 

@@ -1,7 +1,7 @@
 """The reconciliation audit and each saved movement explain the same count (ADR 0180)."""
 
 import pytest
-from api_client import Api
+from api_client import Api, seen
 from org_world import build_world
 from test_storage import box, contents, moved, tube
 
@@ -52,14 +52,14 @@ def test_reconciliation_preserves_the_evidence_for_each_decision() -> None:
             {
                 "resolution": decision,
                 "note": "Inventory check",
-                "line_revision": line["line_revision"],
             },
+            headers=seen(line["revision"]),
         )
         assert saved.status_code == 200, saved.content
     reviewed = api.get(path)
     assert reviewed.status_code == 200, reviewed.content
-    revision = reviewed.json()["plan_revision"]
-    done = api.post(f"{path}/complete", {"missing_rest": True, "plan_revision": revision})
+    revision = reviewed.json()["revision"]
+    done = api.post(f"{path}/complete", {"missing_rest": True}, headers=seen(revision))
     assert done.status_code == 200, done.content
     recorded = ObservationEvent.objects.filter(reconciliation_id=started.json()["id"])
     operator = str(world.users["editor"].pk)
@@ -78,7 +78,7 @@ def test_reconciliation_preserves_the_evidence_for_each_decision() -> None:
     }
 
     audit = AuditEvent.objects.get(action="storage.reconciled", target_id=container["id"])
-    assert audit.data["plan_revision"] == revision
+    assert audit.data["revision"] == revision
     assert audit.data["findings"] == {
         "matched": 0,
         "missing": 2,

@@ -50,6 +50,7 @@ import {
   parseRanges,
   plural,
   rangesText,
+  replaceMapping,
   rowsQuery,
   saveMapping,
   savedMappings,
@@ -62,7 +63,7 @@ import {
   type Choose,
   type ImportSaves,
   type Outcome,
-  type SaveMapping,
+  type SavedMapping,
   type SheetColumn,
   type SheetField,
   type SheetImport,
@@ -1099,8 +1100,10 @@ function SaveMappingDialog({ initial, close }: { initial: SheetImport; close: ()
     },
   });
   const save = useApiMutation(
-    (vars: { revision: number; body: SaveMapping }) =>
-      saveMapping(initial.id, vars.revision, vars.body),
+    (vars: { revision: number; name: string; replacing?: SavedMapping }) =>
+      vars.replacing
+        ? replaceMapping(vars.replacing, { id: initial.id, revision: vars.revision }, vars.name)
+        : saveMapping(initial.id, vars.revision, { name: vars.name }),
     [[SPREADSHEETS, initial.id]],
   );
   const targets = review.data?.targets ?? [];
@@ -1109,10 +1112,7 @@ function SaveMappingDialog({ initial, close }: { initial: SheetImport; close: ()
   const name = entered?.name ?? target?.name ?? "";
   const replacing = entered?.replace ?? targetId !== null;
   const missing = !!review.data && replacing && !target;
-  const stale =
-    save.error?.status === 412 ||
-    save.error?.problem.code === "stale_template" ||
-    save.error?.status === 404;
+  const stale = save.error?.status === 412 || save.error?.status === 404;
   const blocked =
     !source || !source.can["change"] || !name.trim() || missing || stale || review.isError;
   return (
@@ -1133,17 +1133,17 @@ function SaveMappingDialog({ initial, close }: { initial: SheetImport; close: ()
       }}
       onConfirm={() => {
         if (blocked) return;
-        const body: SaveMapping = { name: name.trim() };
-        if (replacing && target) {
-          body.replace = target.id;
-          body.target_revision = target.revision;
-        }
+        const saving = name.trim();
         save.mutate(
-          { revision: source.revision, body },
+          {
+            revision: source.revision,
+            name: saving,
+            ...(replacing && target ? { replacing: target } : {}),
+          },
           {
             onSuccess: () => {
               close();
-              say(`Saved the mapping “${body.name}”: sheets with these headers map by it.`);
+              say(`Saved the mapping “${saving}”: sheets with these headers map by it.`);
             },
           },
         );
@@ -1943,7 +1943,10 @@ export function SpreadsheetImportPage() {
   const [discarding, setDiscarding] = useState(false);
   const [mappingReview, setMappingReview] = useState<SheetImport | null>(null);
   const saves = useImportSaves(importId);
-  const discard = useApiMutation(() => discardImport(importId), [[SPREADSHEETS, importId]]);
+  const discard = useApiMutation(
+    (revision: number) => discardImport(importId, revision),
+    [[SPREADSHEETS, importId]],
+  );
   const saved = found.data;
   usePageTitle(saved ? `Import of ${saved.file.name} · ${project.name}` : project.name);
   if (found.isPending) return <Loading label="Loading the import…" />;
@@ -2123,7 +2126,8 @@ export function SpreadsheetImportPage() {
           setDiscarding(false);
         }}
         onConfirm={() => {
-          discard.mutate(undefined, {
+          // From the revision shown: one someone changed meanwhile is refused (412).
+          discard.mutate(saved.revision, {
             onSuccess: () => {
               setDiscarding(false);
               say(`Discarded the import. ${made.file.name} stays in the project.`);

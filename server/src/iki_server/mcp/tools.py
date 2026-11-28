@@ -1141,19 +1141,25 @@ def build() -> MCPServer:
         ref: Ref,
         amount: Annotated[AmountIn, Field(description="How much there is: what was found.")],
         reason: Reason,
-        balance_revision: Annotated[
-            str, Field(description="The observed amount's exact updated_at, or unrecorded.")
+        amount_revision: Annotated[
+            int | None,
+            Field(
+                ge=1,
+                description="The amount's revision you read (get_entity's amount.revision), "
+                "or null if it had none recorded.",
+            ),
         ],
     ) -> CallToolResult:
-        """Records an absolute count. Use the observed amount's revision from get_entity.
-        If the balance changed, ask the person to recount before recording a new count."""
+        """Records an absolute count, from the amount you read. If the balance changed since,
+        nothing is recorded: ask the person to recount before recording a new count."""
         body = {"amount": amount.model_dump(mode="json"), "reason": reason}
         return answer(
             await call(
                 "POST",
                 path("/entities/{ref}/amount/adjust", ref=ref),
                 body=body,
-                if_balance_revision=balance_revision,
+                if_match=f'"{amount_revision}"' if amount_revision is not None else None,
+                if_none_match="*" if amount_revision is None else None,
             )
         )
 
