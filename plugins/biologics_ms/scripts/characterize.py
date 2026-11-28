@@ -78,6 +78,11 @@ def glycan_mass(composition: dict[str, int], basis: str) -> float:
     )
 
 
+def is_a(record: dict[str, Any], type_name: str) -> bool:
+    """Whether a run input's record is of a type or of a lab's subtype of it."""
+    return type_name in record["types"]
+
+
 def identity(record: dict[str, Any]) -> str:
     return str(record.get("entry_id") or record["id"])
 
@@ -111,11 +116,11 @@ def check_material(
     if lot is None:
         return
     if adc:
-        if lot["type"] != "iki/lots.ConjugateLot" or lot["values"].get("conjugate") != identity(
+        if not is_a(lot, "iki/lots.ConjugateLot") or lot["values"].get("conjugate") != identity(
             adc
         ):
             raise ValueError("Select a lot of the chosen antibody–drug conjugate.")
-    elif lot["type"] != "iki/lots.ProteinLot" or lot["values"].get("protein") != identity(antibody):
+    elif not is_a(lot, "iki/lots.ProteinLot") or lot["values"].get("protein") != identity(antibody):
         raise ValueError("Select a protein lot of the chosen antibody.")
 
 

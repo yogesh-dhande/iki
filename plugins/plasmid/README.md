@@ -249,8 +249,8 @@ Each part comes from the location named in a public INSDC record's own feature t
 `data/build_features.py` regenerates both the plasmid library and the Routine
 cloning-vector features library.
 
-A part is looked for on both strands, and round the origin of a circular plasmid, in two
-steps, as BLAST-based annotators (pLannotate) do: the plasmid's 18-mers are indexed and
+A part is looked for on both strands, and round the origin of a circular plasmid, first
+in two steps, as BLAST-based annotators (pLannotate) do: the plasmid's 18-mers are indexed and
 every 18-mer of the part looked up, which places it; then round each placement the part is
 aligned locally to the plasmid (Biopython's `PairwiseAligner`, with BLASTN's scores —
 match 2, mismatch −3, a gap of n bases 7 + 2(n − 1), which is BLASTN's own existence 5
@@ -259,13 +259,20 @@ part's length. A part is annotated where at least 80% of it aligned with at leas
 `min_identity` identity (0.9 by default); a part under 40 bases long is annotated only
 where it matches exactly, since at that length a few mismatches say nothing.
 
-**What the seed can and can't promise.** Like BLAST's word hit, a seed is an exact
-stretch: a part is placed by the identity threshold only where it shares a whole exact
-18 bases with the plasmid, so a long part whose mismatches fall closer together than
-that — more than one in every 18 bases — is missed however well it would align. Where a
-part has no seed at all, because it is shorter than one or because every 18-mer of it
-carries a mismatch, it is looked for as a plain exact match instead. That is what the
-library's shortest parts need: cPPT is 16 bases and the T3 promoter 17.
+**A part without a seed is still found.** Like BLAST's word hit, a seed is an exact
+stretch, so a part whose mismatches fall closer together than one in every 18 bases has
+none however well it aligns: pUC19's origin with every 15th base changed is 93%
+identical to the library's, with no exact stretch longer than 14 bases. So each part
+of 40 bases or more is also aligned locally to the whole plasmid, on each strand,
+outside the places its seeds found: the best alignment is a hit if it passes the
+thresholds, and the part is looked for again outside it, until the best alignment
+doesn't pass. One that scores less than any alignment that could pass (its matches at
+the identity asked, each of its other bases costing at most a one-base gap's 7) isn't
+traced back, so at the default identity that is one scoring of the library over the
+plasmid, under a second for the test vectors. An alignment that would also need many
+of the plasmid's own bases inserted between the part's scores below that, and is found
+only where it has a seed. A part shorter than 40 bases is looked for as an exact
+match: cPPT is 16 bases and the T3 promoter 17.
 
 Vector parts drift between vectors — pUC19's β-lactamase differs from pBR322's at two
 bases — so each hit keeps the identity it had, which the map and the features show. Where

@@ -49,6 +49,13 @@ files:
     secretAccessKeyKey: secret-key
   # Tilt's storage-setup makes this versioned bucket, to try registering in place.
   registerLocations: [s3://lab-data/runs/]
+  # The dev cluster scans a few small files. CPU requests only place pods, and the
+  # whole cluster, with a run pod of container-alignments' one CPU, must place on
+  # CI's four-CPU runner.
+  scanner:
+    clamd:
+      resources:
+        requests: { cpu: 50m }
 database:
   # The app's least-privileged role (iki_app), created by up.sh and managed
   # by CloudNativePG.

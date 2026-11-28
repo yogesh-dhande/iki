@@ -5,6 +5,8 @@ version = 4
 [[package]]
 name = "iki-writer"
 version = "0.1.0-dev.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d9118754442b7def6b4a07fddd058b48518433fb7dd5bd7245361297280f2cf"
 dependencies = [
  "serde",
  "serde_json",

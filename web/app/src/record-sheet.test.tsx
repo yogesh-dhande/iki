@@ -1,7 +1,16 @@
 import type { Schemas } from "@ikisci/sdk";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Outlet,
+  RouterProvider,
+} from "@tanstack/react-router";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { queryClient } from "./api";
@@ -90,21 +99,77 @@ function checked(row: Schemas["SheetEditCheckRowIn"], over: Partial<Schemas["She
   };
 }
 
-function open(records: Schemas["EntityOut"][]) {
+/**
+ * The sheet, as a page of an app with somewhere else to go, over `records` as the table
+ * loaded them. `refetched` hands it the table's records as a refetch would: the same
+ * records, reordered or changed, some gone, some new.
+ */
+async function mount(type: Schemas["EntityTypeOut"], records: Schemas["EntityOut"][]) {
   const onClose = vi.fn();
   const user = userEvent.setup();
-  render(
-    <QueryClientProvider client={queryClient}>
+  let refetch: (next: Schemas["EntityOut"][]) => void = () => undefined;
+  function Sheet() {
+    const [loaded, setLoaded] = useState(records);
+    refetch = setLoaded;
+    return (
       <RecordSheet
-        type={SAMPLE}
+        type={type}
         project={KINASE}
-        records={records}
+        records={loaded}
         more={{ hasNextPage: false, isFetchingNextPage: false, fetchNextPage: () => undefined }}
         onClose={onClose}
       />
+    );
+  }
+  const root = createRootRoute({ component: () => <Outlet /> });
+  const router = createRouter({
+    routeTree: root.addChildren([
+      createRoute({ getParentRoute: () => root, path: "/", component: Sheet }),
+      createRoute({
+        getParentRoute: () => root,
+        path: "elsewhere",
+        component: () => <h1>Elsewhere</h1>,
+      }),
+    ]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  return { user, onClose, grid: screen.getByRole("grid", { name: "Editing samples as a sheet" }) };
+  const grid = await screen.findByRole("grid", { name: /^Editing .+ as a sheet$/ });
+  const refetched = (next: Schemas["EntityOut"][]) => {
+    act(() => {
+      refetch(next);
+    });
+  };
+  return { user, onClose, grid, router, refetched };
+}
+
+function open(records: Schemas["EntityOut"][]) {
+  return mount(SAMPLE, records);
+}
+
+/** The text of each of a row's cells, by the record's ID. */
+function rowOf(grid: HTMLElement, hrid: string): string[] {
+  const row = within(grid)
+    .getAllByRole("row")
+    .find((r) => within(r).queryAllByRole("gridcell")[0]?.textContent === hrid);
+  if (!row) throw new Error(`No row for ${hrid}`);
+  return within(row)
+    .getAllByRole("gridcell")
+    .map((c) => c.textContent);
+}
+
+/** The IDs of the sheet's rows, top to bottom. */
+function ids(grid: HTMLElement): string[] {
+  return within(grid)
+    .getAllByRole("row")
+    .flatMap((r) => {
+      const first = within(r).queryAllByRole("gridcell")[0];
+      return first ? [first.textContent] : [];
+    });
 }
 
 describe("a sheet of records", () => {
@@ -128,7 +193,7 @@ describe("a sheet of records", () => {
         }),
       ),
     }));
-    const { user, grid } = open([kd1, kd2]);
+    const { user, grid } = await open([kd1, kd2]);
     expect(
       within(grid)
         .getAllByRole("columnheader")
@@ -184,7 +249,7 @@ describe("a sheet of records", () => {
       rows: request.body.rows.map((r) => checked(r, {})),
     }));
     answer(`POST /api/v1/projects/${KINASE.id}/sheet-edits`, { rows: [], edited: 1, created: 0 });
-    const { user, grid, onClose } = open([kd1]);
+    const { user, grid, onClose } = await open([kd1]);
     await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
     await user.keyboard("98.5{Enter}");
     const save = screen.getByRole("button", { name: "Review and save" });
@@ -228,7 +293,7 @@ describe("a sheet of records", () => {
         rows: [{ key: kd1.id, entity: kd1.id, hrid: "SMP-000001", revision: 5 }],
       }),
     );
-    const { user, grid } = open([kd1]);
+    const { user, grid } = await open([kd1]);
     await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
     await user.keyboard("98.5{Enter}");
     const save = screen.getByRole("button", { name: "Review and save" });
@@ -243,6 +308,159 @@ describe("a sheet of records", () => {
       await within(dialog).findByText(/SMP-000001 changed since you opened the sheet/),
     ).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Bring in the latest" })).toBeVisible();
+  });
+
+  it("checks every row again when a well the check found was taken since", async () => {
+    const kd1 = sample(1, { label: "ABL1-KD-001", purity: 90 });
+    answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
+      rows: request.body.rows.map((r) => checked(r, {})),
+    }));
+    const said =
+      "Something else was put at BOX-000002 A2 since you checked: nothing was saved. Check " +
+      "the sheet again, and review where the new rows go now.";
+    answer(
+      `POST /api/v1/projects/${KINASE.id}/sheet-edits`,
+      problem(412, "stale", said, undefined, {
+        rows: [],
+        places: [{ key: "new-1", container: "box", hrid: "BOX-000002", position: "A2" }],
+      }),
+    );
+    const { user, grid } = await open([kd1]);
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
+    await user.keyboard("98.5{Enter}");
+    const save = screen.getByRole("button", { name: "Review and save" });
+    await waitFor(() => {
+      expect(save).not.toHaveAttribute("aria-disabled");
+    });
+    await user.click(save);
+    const dialog = screen.getByRole("alertdialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "QC");
+    const checks = calls("POST", PATH).length;
+    await user.click(within(dialog).getByRole("button", { name: "Save 1 row" }));
+    expect(await within(dialog).findByText(/BOX-000002 A2 since you checked/)).toBeVisible();
+    expect(within(dialog).queryByRole("button", { name: "Bring in the latest" })).toBeNull();
+    await waitFor(() => {
+      expect(calls("POST", PATH).length).toBeGreaterThan(checks);
+    });
+  });
+});
+
+describe("a sheet over records the table reads again", () => {
+  // The table reads its records again as the window gets focus, and sorted by when they
+  // changed, someone else's save moves a record to the top. The sheet's rows stay put.
+  const kd1 = sample(1, { label: "ABL1-KD-001", purity: 90 });
+  const kd2 = sample(2, { label: "ABL1-KD-002", purity: 80 });
+  const anyChecked = () => {
+    answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
+      rows: request.body.rows.map((r) => checked(r, {})),
+    }));
+  };
+
+  it("keeps its rows where they were, adding records it hadn't loaded at the end", async () => {
+    anyChecked();
+    const { grid, refetched } = await open([kd1, kd2]);
+    const kd2Changed = sample(2, { label: "ABL1-KD-002", purity: 82 }, { revision: 5 });
+    const kd3 = sample(3, { label: "ABL1-KD-003", purity: 70 });
+    refetched([kd3, kd2Changed, kd1]);
+    expect(ids(grid)).toEqual(["SMP-000001", "SMP-000002", "SMP-000003"]);
+    // A record no one's typed in shows what it is now.
+    expect(rowOf(grid, "SMP-000002")).toEqual(["SMP-000002", "ABL1-KD-002", "82", ""]);
+  });
+
+  it("types into the record selected, though the table's order changed", async () => {
+    anyChecked();
+    const { user, grid, refetched } = await open([kd1, kd2]);
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
+    refetched([sample(2, { label: "ABL1-KD-002", purity: 80 }, { revision: 5 }), kd1]);
+    await user.keyboard("77{Enter}");
+    expect(rowOf(grid, "SMP-000001")).toEqual(["SMP-000001", "ABL1-KD-001", "77", ""]);
+    expect(rowOf(grid, "SMP-000002")).toEqual(["SMP-000002", "ABL1-KD-002", "80", ""]);
+  });
+
+  it("pastes into the records selected, though the table's order changed", async () => {
+    anyChecked();
+    const { user, grid, refetched } = await open([kd1, kd2]);
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
+    refetched([sample(2, { label: "ABL1-KD-002", purity: 80 }, { revision: 5 }), kd1]);
+    await user.paste("77\n78");
+    expect(rowOf(grid, "SMP-000001")[2]).toBe("77");
+    expect(rowOf(grid, "SMP-000002")[2]).toBe("78");
+  });
+
+  it("keeps a changed record, and its change, when it's no longer in the table", async () => {
+    anyChecked();
+    const { user, grid, refetched } = await open([kd1, kd2]);
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 6));
+    await user.keyboard("91{Enter}");
+    expect(screen.getByRole("status")).toHaveTextContent("1 row changed");
+    // Archived, say, or someone else's change took it out of the table's filter.
+    refetched([kd1]);
+    expect(screen.getByRole("status")).toHaveTextContent("1 row changed");
+    expect(rowOf(grid, "SMP-000002")[2]).toBe("91");
+    const save = screen.getByRole("button", { name: "Review and save" });
+    await waitFor(() => {
+      expect(save).not.toHaveAttribute("aria-disabled");
+    });
+    await user.click(save);
+    expect(
+      within(screen.getByRole("alertdialog", { name: "Save 1 row?" })).getByRole("row", {
+        name: "SMP-000002 Purity 80 98.5",
+      }),
+    ).toBeVisible();
+  });
+
+  it("stays on the record selected when an added row is undone", async () => {
+    anyChecked();
+    const { user, grid } = await open([kd1, kd2]);
+    await user.click(screen.getByRole("button", { name: "Add row" }));
+    // The new row is at the top: the first record is now the second row.
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 6));
+    await user.keyboard("{Control>}z{/Control}");
+    expect(ids(grid)).toEqual(["SMP-000001", "SMP-000002"]);
+    await user.keyboard("77{Enter}");
+    expect(rowOf(grid, "SMP-000001")[2]).toBe("77");
+    expect(rowOf(grid, "SMP-000002")[2]).toBe("80");
+  });
+});
+
+describe("leaving a sheet with changes unsaved", () => {
+  const kd1 = sample(1, { label: "ABL1-KD-001", purity: 90 });
+
+  it("asks first, and stays with the changes kept, or goes and discards them", async () => {
+    answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
+      rows: request.body.rows.map((r) => checked(r, {})),
+    }));
+    const { user, grid, router, onClose } = await open([kd1]);
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
+    await user.keyboard("98.5{Enter}");
+    // A link elsewhere in the app, Back, or a notification's link.
+    act(() => {
+      router.history.push("/elsewhere");
+    });
+    let dialog = await screen.findByRole("alertdialog", { name: "Discard your changes?" });
+    expect(dialog).toHaveTextContent("1 row has changes that aren’t saved.");
+    await user.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    });
+    expect(router.state.location.pathname).toBe("/");
+    expect(nth(within(grid).getAllByRole("gridcell"), 2)).toHaveTextContent("98.5");
+
+    act(() => {
+      router.history.push("/elsewhere");
+    });
+    dialog = await screen.findByRole("alertdialog", { name: "Discard your changes?" });
+    await user.click(within(dialog).getByRole("button", { name: "Discard changes" }));
+    expect(await screen.findByRole("heading", { name: "Elsewhere" })).toBeVisible();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("goes without asking when nothing's changed", async () => {
+    const { router } = await open([kd1]);
+    act(() => {
+      router.history.push("/elsewhere");
+    });
+    expect(await screen.findByRole("heading", { name: "Elsewhere" })).toBeVisible();
   });
 });
 
@@ -286,20 +504,20 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
   const SEC = option(2, "sec", "Size exclusion");
   const DIALYSIS = option(3, "dialysis", "Dialysis", true);
 
-  function prep() {
+  function prep(method: ReturnType<typeof option> = DIALYSIS) {
     return entity({
       id: "00000000-0000-7000-8000-00000000b001",
       hrid: "PRP-000001",
       type: PREP.name,
       revision: 2,
-      values: { name: "Anti-HER2 prep 12", method: DIALYSIS.id, polishing: [] },
+      values: { name: "Anti-HER2 prep 12", method: method.id, polishing: [] },
       refs: {
-        [DIALYSIS.id]: {
-          hrid: DIALYSIS.hrid,
-          title: "Dialysis",
+        [method.id]: {
+          hrid: method.hrid,
+          title: method.label,
           type: METHOD,
-          archived: true,
-          code: "dialysis",
+          archived: method.archived,
+          code: method.code,
           superseded: false,
           purged: false,
         },
@@ -307,29 +525,17 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
     });
   }
 
-  function openPreps() {
+  function openPreps(options = [PROTEIN_A, SEC], record = prep()) {
     answer("GET /api/v1/entity-types", [PREP, LIST]);
-    answer(`GET /api/v1/lists/${METHOD}/options`, [PROTEIN_A, SEC]);
+    answer(`GET /api/v1/lists/${METHOD}/options`, options);
     answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
       rows: request.body.rows.map((r) => checked(r, { values: {}, shown: {} })),
     }));
-    const user = userEvent.setup();
-    render(
-      <QueryClientProvider client={queryClient}>
-        <RecordSheet
-          type={PREP}
-          project={KINASE}
-          records={[prep()]}
-          more={{ hasNextPage: false, isFetchingNextPage: false, fetchNextPage: () => undefined }}
-          onClose={vi.fn()}
-        />
-      </QueryClientProvider>,
-    );
-    return { user, grid: screen.getByRole("grid", { name: "Editing preps as a sheet" }) };
+    return mount(PREP, [record]);
   }
 
   it("reads an option by its label, marked when it's archived, and offers the list's options", async () => {
-    const { user, grid } = openPreps();
+    const { user, grid } = await openPreps();
     const method = () => nth(within(grid).getAllByRole("gridcell"), 2);
     await waitFor(() => {
       expect(method()).toHaveTextContent("Dialysis (archived)");
@@ -361,8 +567,56 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
     });
   });
 
+  it("keeps the highlighted option in view as the arrow keys move it", async () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      option(i + 10, `column_${String(i + 1)}`, `Column ${String(i + 1)}`),
+    );
+    const { user, grid } = await openPreps(many);
+    const scrolled = vi.spyOn(Element.prototype, "scrollIntoView");
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
+    const box = screen.getByRole("combobox", { name: "Method, PRP-000001" });
+    await screen.findAllByRole("option");
+    for (let i = 0; i < 12; i++) await user.keyboard("{ArrowDown}");
+    const active = document.getElementById(box.getAttribute("aria-activedescendant") ?? "");
+    expect(active).toHaveTextContent("Column 12");
+    expect(scrolled.mock.contexts.at(-1)).toBe(active);
+    expect(scrolled).toHaveBeenLastCalledWith({ block: "nearest" });
+    scrolled.mockRestore();
+  });
+
+  it("shows a long list's first matches, and the cell's own option, and how many there are", async () => {
+    const many = Array.from({ length: 5000 }, (_, i) =>
+      option(i + 10, `resin_${String(i + 1)}`, `Resin ${String(i + 1)}`),
+    );
+    const own = nth(many, 2999);
+    const { user, grid } = await openPreps(many, prep(own));
+    const method = () => nth(within(grid).getAllByRole("gridcell"), 2);
+    await waitFor(() => {
+      expect(method()).toHaveTextContent("Resin 3000");
+    });
+    await user.click(method());
+    await user.keyboard("{Alt>}{ArrowDown}{/Alt}");
+    const options = await screen.findByRole("listbox", { name: "Purification methods" });
+    await waitFor(() => {
+      expect(within(options).getAllByRole("option")).toHaveLength(50);
+    });
+    // Its own, first and highlighted; then the list's first.
+    const shown = within(options).getAllByRole("option");
+    expect(nth(shown, 0)).toHaveTextContent("Resin 3000");
+    expect(nth(shown, 0)).toHaveAttribute("aria-selected", "true");
+    expect(nth(shown, 1)).toHaveTextContent("Resin 1");
+    expect(screen.getByText("Showing 50 of 5,000. Type to narrow them.")).toBeVisible();
+    const box = screen.getByRole("combobox", { name: "Method, PRP-000001" });
+    await user.clear(box);
+    await user.keyboard("Resin 4999");
+    expect(within(options).getAllByRole("option")).toHaveLength(1);
+    await user.keyboard("{Enter}");
+    expect(method()).toHaveTextContent("Resin 4999");
+  });
+
   it("takes several options in a list's cell, apart by semicolons", async () => {
-    const { user, grid } = openPreps();
+    const { user, grid } = await openPreps();
     const polishing = () => nth(within(grid).getAllByRole("gridcell"), 3);
     await user.click(polishing());
     await user.keyboard("{Enter}");

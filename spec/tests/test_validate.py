@@ -25,6 +25,7 @@ from iki_spec.validate import (
     pattern_problems,
     satisfies,
 )
+from iki_spec.yamlsource import read_documents
 
 PLUGINS = Path(__file__).parent / "plugins"
 DNA, PROTEIN, PREDICTION = PLUGINS / "dna", PLUGINS / "protein", PLUGINS / "structure_prediction"
@@ -313,10 +314,12 @@ def test_bad_plugin_manifests(tmp_path: Path) -> None:
 
 
 def test_project_starters_pin_a_recipe_version_in_the_built_manifest(tmp_path: Path) -> None:
-    result = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "1.0.0"}\n')
+    # An Iki plugin's: a lab plugin's starters are warned of (below).
+    iki = PLUGIN.replace("acme/lab", "iki/oligo")
+    result = make(tmp_path, TYPE, plugin=iki + 'starters: {dose-response: "1.0.0"}\n')
     assert result.plugin is not None and not result.problems
     assert plugin_from_dict(plugin_to_dict(result.plugin)).starters == {"dose-response": "1.0.0"}
-    bad = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "latest"}\n')
+    bad = make(tmp_path, TYPE, plugin=iki + 'starters: {dose-response: "latest"}\n')
     assert codes(bad) == ["schema"]
 
 
@@ -405,7 +408,9 @@ def test_concrete_types_need_hrids_and_abstract_ones_cant_have_them(tmp_path: Pa
 
 def test_hrid_prefixes_are_unique(tmp_path: Path) -> None:
     result = make(tmp_path, TYPE + "---\n" + TYPE.replace("Assay", "Other"))
-    assert "already uses the HRID prefix `ASY`" in only(result, "duplicate-hrid-prefix")
+    assert only(result, "duplicate-hrid-prefix") == (
+        "`acme/lab.Assay` and `acme/lab.Other` both use the HRID prefix `ASY`."
+    )
     dna_clash = TYPE.replace("ASY", "DNA")
     result = make(
         tmp_path,
@@ -413,7 +418,9 @@ def test_hrid_prefixes_are_unique(tmp_path: Path) -> None:
         plugin=PLUGIN + "dependencies:\n  acme/dna: {}\n",
         with_=(DNA,),
     )
-    assert "`acme/dna.DNASequence` already uses" in only(result, "duplicate-hrid-prefix")
+    assert only(result, "duplicate-hrid-prefix") == (
+        "`acme/dna.DNASequence` and `acme/lab.Assay` both use the HRID prefix `DNA`."
+    )
 
 
 def test_reserved_field_names(tmp_path: Path) -> None:
@@ -438,7 +445,7 @@ def test_ref_columns_dont_collide(tmp_path: Path) -> None:
 
 def test_a_reference_can_name_several_types(tmp_path: Path) -> None:
     """ADR 0136: one of several types, each with its subtypes."""
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
     result = make(tmp_path, fields("part: { type: ref, to: [Assay, Batch] }\n") + "---\n" + batch)
     assert codes(result) == []
     assert result.plugin is not None
@@ -467,7 +474,7 @@ parts:
 
 def test_a_list_can_have_rows_of_typed_fields(tmp_path: Path) -> None:
     """ADR 0137: each row's fields, and per role its count and what it refers to."""
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
     result = make(tmp_path, fields(ROWS) + "---\n" + batch)
     assert codes(result) == []
     assert result.plugin is not None
@@ -486,7 +493,7 @@ def test_a_list_can_have_rows_of_typed_fields(tmp_path: Path) -> None:
 
 
 def test_rows_roles_name_the_rows_fields(tmp_path: Path) -> None:
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
 
     def problems(change: tuple[str, str]) -> list[str]:
         return codes(make(tmp_path, fields(ROWS.replace(*change)) + "---\n" + batch))
@@ -509,6 +516,40 @@ def test_rows_roles_name_the_rows_fields(tmp_path: Path) -> None:
     ]
 
 
+READINGS = """\
+readings:
+  type: list
+  items:
+    type: row
+    row_id: reading_id
+    fields:
+      read_at: { type: datetime, required: true }
+      value: { type: float, required: true }
+      reading_id: { type: string, max_length: 36 }
+"""
+
+
+def test_a_rows_id_is_an_optional_string_iki_fills_in(tmp_path: Path) -> None:
+    """A list's rows can each have a stable ID, as an experiment's observations do: the
+    server gives a new row one and keeps it through edits."""
+    result = make(tmp_path, fields(READINGS))
+    assert codes(result) == []
+    assert result.plugin is not None
+    row = result.plugin.types["acme/lab.Assay"].fields["readings"].items
+    assert row is not None
+    assert row.row_id == "reading_id"
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+
+    def problem(change: tuple[str, str]) -> str:
+        return only(make(tmp_path, fields(READINGS.replace(*change))), "row-id-field")
+
+    assert "isn't one of its fields" in problem(("row_id: reading_id", "row_id: reading"))
+    assert "is a float field" in problem(("row_id: reading_id", "row_id: value"))
+    assert "is required" in problem(("max_length: 36 }", "max_length: 36, required: true }"))
+    assert "has a default" in problem(("max_length: 36 }", "max_length: 36, default: r1 }"))
+    assert "at most 12 characters" in problem(("max_length: 36", "max_length: 12"))
+
+
 STRING_ROWS = """\
 parts:
   type: list
@@ -526,7 +567,7 @@ parts:
 def test_a_rows_role_can_be_a_string_and_then_its_roles_are_all_it_takes(tmp_path: Path) -> None:
     """ADR 0164: a role held by a string, whose roles, if it has any, are every role a row
     may have; without any, a row may have any role its pattern takes."""
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
     result = make(tmp_path, fields(STRING_ROWS) + "---\n" + batch)
     assert codes(result) == []
     assert result.plugin is not None
@@ -562,7 +603,7 @@ refines:
 def test_a_subtype_refines_its_parents_rows_roles(tmp_path: Path) -> None:
     """ADR 0164: a subtype says which roles its inherited rows take, and they're all its
     rows may have, each no wider than its parent's."""
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
     base = fields(STRING_ROWS.split("    roles:")[0]).replace(
         "hrid: { prefix: ASY }\n", "abstract: true\n"
     )
@@ -729,7 +770,7 @@ rules:
 def test_an_input_includes_a_rows_references(tmp_path: Path) -> None:
     """ADR 0161: `parts.part` includes each row's reference; a cell that isn't one, or a
     field that isn't rows, can't be."""
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
 
     def action(include: str) -> list[str]:
         text = f"""\
@@ -782,7 +823,7 @@ def test_settings_cant_be_rows(tmp_path: Path) -> None:
 
 def test_a_reference_to_several_types_names_each_once(tmp_path: Path) -> None:
     base = TYPE.replace("Assay", "Thing").replace("hrid: { prefix: ASY }\n", "abstract: true\n")
-    sub = TYPE.replace("Assay", "Batch").replace("ASY", "BAT") + "extends: Thing\n"
+    sub = TYPE.replace("Assay", "Batch").replace("ASY", "BTC") + "extends: Thing\n"
     result = make(
         tmp_path,
         fields("part: { type: ref, to: [Thing, Batch] }\n") + "---\n" + base + "---\n" + sub,
@@ -801,7 +842,7 @@ def test_a_reference_to_several_types_names_each_once(tmp_path: Path) -> None:
 
 
 def test_a_registry_field_refers_to_entries_whichever_type(tmp_path: Path) -> None:
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
     result = make(
         tmp_path,
         IDENTIFIED + "  made_of: { type: ref, to: [Assay, Batch], registry: fact }\n---\n" + batch,
@@ -1079,7 +1120,7 @@ def test_an_identity_can_be_a_set_of_parts(tmp_path: Path) -> None:
     """ADR 0138: a list of references, values or rows is a multiset, a row by its
     identity fields, each a value compared exactly."""
     # Its parts are entries too: an entry refers only to entries.
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT") + (
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC") + (
         "identity: [code]\nfields:\n  code: { type: string, required: true, immutable: true }\n"
     )
     rows = ROWS.replace("    by: role", "    identity: [part, role]\n    by: role").replace(
@@ -1112,7 +1153,7 @@ def test_an_identity_can_be_a_set_of_parts(tmp_path: Path) -> None:
             TYPE + "identity: [parts]\n" + fields(with_float)[len(TYPE) :] + "---\n" + batch,
         )
     ) == ["identity-type"]
-    record = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    record = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
     a_record = TYPE + "identity: [parts]\n" + fields(rows)[len(TYPE) :] + "---\n" + record
     assert codes(make(tmp_path, a_record)) == ["registry-refers-to-record"]
     files = "parts: { type: list, items: { type: file }, required: true, immutable: true }\n"
@@ -1231,7 +1272,7 @@ def test_registry_fields_need_an_identity(tmp_path: Path) -> None:
 
 
 def test_an_entry_refers_only_to_entries(tmp_path: Path) -> None:
-    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BAT")
+    batch = TYPE.replace("Assay", "Batch").replace("ASY", "BTC")
     result = make(
         tmp_path,
         IDENTIFIED + "  batch: { type: ref, to: Batch, registry: derived }\n---\n" + batch,
@@ -1474,7 +1515,7 @@ def test_other_plugins_types_are_named_in_full(tmp_path: Path) -> None:
     # The plugin's own types are named without it, or in full.
     own = {
         "types/assay.yaml": TYPE,
-        "types/run.yaml": TYPE.replace("Assay", "Run").replace("ASY", "RUN")
+        "types/run.yaml": TYPE.replace("Assay", "Run").replace("ASY", "RN")
         + "fields:\n  assay: { type: ref, to: Assay }\n"
         + "  again: { type: ref, to: acme/lab.Assay }\n",
     }
@@ -1835,8 +1876,24 @@ def test_the_manifest_schema_dispatches_on_kind() -> None:
     issues = schemas.check("manifest", {"apiVersion": "iki/v1", "kind": "Nope"})
     assert [i.message for i in issues] == [
         "`kind` can't be `Nope`. Choose one of: `Plugin`, `EntityType`, `EntityTypeExtension`, "
-        "`Action`, `Environment`, `Workflow`, `Trigger`, `Component`."
+        "`Action`, `Environment`, `Workflow`, `Trigger`, `Component`, `ActionTest`, "
+        "`ReviewProcedure`."
     ]
+
+
+def test_the_manifest_schema_reads_every_yaml_file_in_a_plugin() -> None:
+    """An editor pointed at it for a whole plugin finds each of its files valid, its
+    action tests' too."""
+    root = Path(__file__).resolve().parents[2] / "plugins"
+    files = sorted(root.glob("*/**/*.yaml"))
+    tests = [f for f in files if f.parent.name == "tests"]
+    assert tests
+    for path in files:
+        documents, problems = read_documents(path, path.name)
+        assert not problems, path
+        for document in documents:
+            if isinstance(document.data, dict) and document.data.get("apiVersion") == "iki/v1":
+                assert not schemas.check("manifest", document.data), path
 
 
 # --- Lab roles (ADR 0116) ----------------------------------------------------------------------
@@ -1876,6 +1933,17 @@ def test_a_plugin_declares_lab_roles(tmp_path: Path) -> None:
 )
 def test_lab_roles_need_a_name_and_a_label(tmp_path: Path, roles: str) -> None:
     assert codes(make(tmp_path, TYPE, PLUGIN + f"roles:\n  {roles}\n")) == ["schema"]
+
+
+def test_a_lab_plugins_starters_are_warned_of(tmp_path: Path) -> None:
+    """A starter is a recipe the server has (ADR 0198), and only Iki's own plugins have
+    any: a lab plugin's `starters` switch nothing on."""
+    result = make(tmp_path, TYPE, PLUGIN + "starters:\n  buffer-release: 1.0.0\n")
+    assert result.ok
+    message = only(result, "unknown-starter")
+    assert "`buffer-release`" in message
+    assert result.problems[0].severity.value == "warning"
+    assert "enum` setting" in (result.problems[0].hint or "")
 
 
 def test_lab_roles_have_labels_of_their_own(tmp_path: Path) -> None:

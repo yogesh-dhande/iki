@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -48,6 +49,7 @@ __all__ = [
     "hold",
     "lock_rule_deploy",
     "open_holds",
+    "open_of",
     "review",
     "review_version",
     "reviewers",
@@ -417,9 +419,23 @@ def review(
         return made
 
 
-def blocks_locking(entity: Entity) -> str | None:
-    """Why the record can't be set to a state that locks it now: the holds open on it."""
-    labels = list(open_holds(entity).values_list("label", flat=True)[:5])
+def open_of(ids: Iterable[UUID]) -> dict[UUID, list[RuleHold]]:
+    """The holds no one has reviewed yet on each of the records, oldest first: one query
+    for a page of them. A record without any isn't in it."""
+    found: dict[UUID, list[RuleHold]] = defaultdict(list)
+    for held in (
+        RuleHold.objects.filter(entity_id__in=set(ids), reviewed_at__isnull=True)
+        .order_by("held_at", "id")
+        .only("entity_id", "rule", "label", "held_at")
+    ):
+        found[held.entity_id].append(held)
+    return dict(found)
+
+
+def blocks_locking(entity: Entity, held: Sequence[RuleHold]) -> str | None:
+    """Why the record can't be set to a state that locks it now: ``held``, the holds open
+    on it (:func:`open_of`)."""
+    labels = [h.label for h in held[:5]]
     if not labels:
         return None
     named = ", ".join(f"“{label}”" for label in labels)

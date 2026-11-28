@@ -37,13 +37,20 @@
           <span class="row-title">{{ person.name|default:person.email }}</span>
           <span class="row-meta">{{ person.email }}</span>
         </div>
-        {% if manage %}
+        {% if manage and person.pk != me.pk %}
         <form method="post" data-busy-form>
           {% csrf_token %}
           <input type="hidden" name="action" value="unlock">
           <input type="hidden" name="user" value="{{ person.pk }}">
+          <div class="field">
+            <label for="unlock-reason-{{ person.pk }}">Why it’s safe to unlock</label>
+            <input type="text" id="unlock-reason-{{ person.pk }}" name="reason" required maxlength="2000" aria-describedby="unlock-reason-help-{{ person.pk }}">
+            <p class="field-help" id="unlock-reason-help-{{ person.pk }}">Who made the failed attempts, as you found out. The audit log keeps it.</p>
+          </div>
           <button class="button" type="submit" data-busy-text="Unlocking…" aria-label="Unlock {{ person.name|default:person.email }}’s signing">Unlock</button>
         </form>
+        {% elif manage %}
+        <span class="row-meta">Another Org Admin unlocks yours.</span>
         {% endif %}
       </li>
       {% endfor %}

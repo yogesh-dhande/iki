@@ -202,7 +202,9 @@ measured.
 | `compute_plasmid_prep`  | Concentration from A260                                                                        |
 | `compute_protein_lot`   | ε280 used, from a protein or a complex; concentration from A280                                |
 | `compute_conjugate_lot` | DAR and unconjugated share from the drug load distribution; ε280 used, concentration from A280 |
-| `compute_polymer_lot`   | Dispersity                                                                                     |
+
+A polymer lot's dispersity needs no action: its type works it out from its Mn
+and Mw at every save (ADR 0297).
 
 ### What's computed
 
@@ -218,9 +220,10 @@ measured.
   reads the measured mass and the oligonucleotide's at every save, not the
   difference the action writes, so an edit out of its tolerance is held as
   it's saved, triggers on or off; `mass_is_checked` holds a measured mass
-  the oligonucleotide has no mass to compare with. The difference is exact,
-  and compared to a micro-dalton: 5555.03254 against 5554.98250 is 0.05004
-  Da, outside a tolerance of ±0.05001. Inotersen's average mass is 7183.08 g/mol;
+  the oligonucleotide has no mass to compare with. The masses are compared in
+  whole nanodaltons, exactly as their decimals differ, by the rule and the
+  run's log alike: 5555.03254 against 5554.98250 is 0.05004 Da, outside a
+  tolerance of ±0.05001. Inotersen's average mass is 7183.08 g/mol;
   Prakash et al. (2014, Nucleic Acids Res 42:8796, Table 1) found 7182.2,
   0.88 Da light, within it. Volanesorsen's 7164.3 on a lot of inotersen is
   18.78 Da light, and held.
@@ -284,7 +287,9 @@ measured.
   UV/Vis or by intact LC-MS beside a HIC distribution, is kept as entered, and
   the distribution's DAR is kept beside it, so the two can be compared.
 - **A polymer's dispersity**: its molar-mass dispersity, Đ = Mw/Mn (IUPAC,
-  2009), never below 1: the rule `mw_is_at_least_mn` refuses an Mw below its
+  2009), to three places, worked out at every save of the lot by its type's
+  expression, `double(int(record.mw / record.mn * 1000.0 + 0.5)) / 1000.0`, and
+  empty without both or with an Mn of 0. It's never below 1: the rule `mw_is_at_least_mn` refuses an Mw below its
   Mn. It's 1 when every chain has the same molar mass, which chains of one
   length but different composition needn't. Mn and Mw each say how they were
   measured. PSS's polystyrene standard PSS120219 (Mw 241,000, Mn 236,000) is

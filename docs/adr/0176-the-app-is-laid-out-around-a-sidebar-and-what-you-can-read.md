@@ -82,11 +82,17 @@ each kind's own reading rules, so it finds nothing its reader couldn't open.
 
 The palette is a combobox (WAI-ARIA's pattern). Focus stays in its text box,
 and the arrow keys move through the results. Each group's link to its full
-list is its last option, so the arrows reach it. ⌘K (Ctrl+K) opens it, as
-does anything that dispatches an `iki:search` event on the window. The
-server-rendered pages load the palette on its own, as a second entry of the
-web app's build that shares the app's chunks, so ⌘K opens the same palette
-there.
+list is its last option, so the arrows reach it. What the last text found
+stays on show while the next is found, but ↵ opens only what was found for
+the text in the box, of the kind chosen: pressed sooner, it waits for that
+answer and opens its first result, or nothing if nothing matches, so pasting
+an HRID and pressing ↵ opens that record. Until that answer comes, none of
+what's shown is the active option, and the arrow keys wait for it too. A
+saved view opens from its own address, `/saved-searches/<id>/`, as the
+sidebar's do. ⌘K (Ctrl+K) opens the palette, as does anything that
+dispatches an `iki:search` event on the window. The server-rendered pages
+load the palette on its own, as a second entry of the web app's build that
+shares the app's chunks, so ⌘K opens the same palette there.
 
 **A project's page holds what belongs to the project alone.** Its tabs are
 Overview, Entities, Requests, Runs, Automation, Members and Settings.

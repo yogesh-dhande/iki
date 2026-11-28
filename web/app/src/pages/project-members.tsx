@@ -35,7 +35,7 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { useJoinAsAdmin, useProject } from "./project-overview";
+import { useJoinAsAdmin, useProject } from "../project";
 
 /** "a Viewer", "an Admin", as the server's messages say it. */
 function withArticle(label: string): string {

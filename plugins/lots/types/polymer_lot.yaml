@@ -51,14 +51,17 @@ fields:
   dispersity:
     type: float
     label: Đ
-    computed: true
-    min: 1
+    # Mw/Mn to three places, worked out at every save (ADR 0297): empty without both,
+    # or with an Mn of 0. Never below 1: `mw_is_at_least_mn` holds Mw to its Mn, saying
+    # why, where a minimum here would only say the dispersity is below 1.
+    computed:
+      cel: double(int(record.mw / record.mn * 1000.0 + 0.5)) / 1000.0
     indexed: true
     description: >-
       Its molar-mass dispersity, Mw/Mn (IUPAC's Đ_M, formerly the polydispersity
-      index): 1 when every chain has the same molar mass, more the more their molar
-      masses vary. Chains of one length but different composition, such as a
-      copolymer's, can have one above 1.
+      index), to three places: 1 when every chain has the same molar mass, more the
+      more their molar masses vary. Chains of one length but different composition,
+      such as a copolymer's, can have one above 1.
   mn_method:
     type: ref
     to: MolarMassMethod

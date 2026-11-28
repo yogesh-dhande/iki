@@ -21,7 +21,9 @@ works out what follows from what was measured of a lot, and what it's a lot of:
   has (two of each in an IgG, one in a Fab), which a complex of them says; its
   unconjugated share (DAR 0); and its concentration from its A280 with its own measured
   ε280, which its payload adds to.
-- ``polymer``: a polymer lot's molar-mass dispersity, Mw/Mn (IUPAC, 2009).
+
+A polymer lot's dispersity, Mw/Mn, needs none: its type works it out at every save
+(ADR 0297).
 
 A concentration is worked out from an A260 or an A280 only while the lot's concentration
 method, an option of the lab's list (ADR 0270), says it's that calculation's, or the lot
@@ -93,6 +95,14 @@ def _trimmed(text: str) -> str:
 def _shown(value: float, places: int = 2) -> str:
     """``value`` to at most ``places`` decimals, as a result is shown."""
     return _trimmed(f"{value:,.{places}f}")
+
+
+def _nanodaltons(value: float) -> int:
+    """A mass or tolerance in whole nanodaltons, rounded half up, by the same double
+    arithmetic as the lot's rule in CEL: ``int(x * 1000000000.0 + 0.5)``. That's exactly
+    its decimal for one given to nine places or fewer below 1,000,000 Da, as a measured
+    mass is. They're never negative, so truncating toward zero rounds."""
+    return int(value * 1000000000.0 + 0.5)
 
 
 def _given(value: float | Decimal) -> str:
@@ -211,7 +221,8 @@ def oligo(lot: Lot) -> None:
             f"({basis}), {sign}{_given(abs(error))} Da"
         )
         if tolerance is not None:
-            within = abs(error) <= Decimal(repr(tolerance))
+            # As the lot's rule decides it, so the two never disagree (oligo_lot.yaml).
+            within = abs(_nanodaltons(measured) - _nanodaltons(expected)) <= _nanodaltons(tolerance)
             said += f", {'within' if within else 'outside'} ±{_given(tolerance)} Da"
         print(said)
     od = lot.get("yield_od")
@@ -477,26 +488,11 @@ def conjugate(lot: Lot) -> None:
     by_a280(lot, None, None, "a conjugate")
 
 
-# --- Polymer lots -----------------------------------------------------------------------------
-
-
-def polymer(lot: Lot) -> None:
-    mn, mw = lot.get("mn"), lot.get("mw")
-    if not mn or mw is None:
-        lot.set("dispersity", None)
-        return
-    # IUPAC, Dispersity in polymer science (2009), doi:10.1351/PAC-REC-08-05-02.
-    dispersity = round(mw / mn, 3)
-    lot.set("dispersity", dispersity)
-    print(f"{lot.hrid}: Đ = Mw/Mn = {_shown(mw)} / {_shown(mn)} = {dispersity:.3f}")
-
-
 COMPUTE: dict[str, Callable[[Lot], None]] = {
     "oligo": oligo,
     "plasmid": plasmid,
     "protein": protein,
     "conjugate": conjugate,
-    "polymer": polymer,
 }
 
 

@@ -2,6 +2,7 @@
 
 - :mod:`iki_spec.writers.check` reads a module's bytes and refuses what can't be a writer.
 - :mod:`iki_spec.writers.runtime` runs one under Wasmtime with its limits.
+- :mod:`iki_spec.writers.abi` is the ABIs this Iki runs, and each one's requests.
 - :mod:`iki_spec.writers.protocol` is how the server talks to a writer's process.
 - :mod:`iki_spec.writers.child` is that process: one export, then it exits.
 - :mod:`iki_spec.writers.install` checks and precompiles the modules a plugin image built.
@@ -9,11 +10,13 @@
 
 Where things are:
 
-- In a plugin, a writer is a Rust crate at ``writers/<name>/`` with its ``Cargo.lock``,
-  and ``writers/<name>.wasm.sha256`` beside it: the SHA-256 of the module the Linux x86-64
-  builder makes. No ``.wasm`` is ever tracked in git.
+- In a plugin, a writer is a Rust crate at ``writers/<name>/`` with its ``Cargo.lock``
+  (which pins iki-writer from crates.io with its checksum), and
+  ``writers/<name>.wasm.sha256`` beside it: the SHA-256 of the module the Linux x86-64
+  writer builder makes, and what it was built with. No ``.wasm`` is ever tracked in git.
 - In a build (``iki deploy build``, ``iki plugin build``), ``iki_installed_plugins/writers/``
-  holds each crate at ``<plugin label>/<name>/``, the SDK at ``sdk/iki-writer/``,
+  holds each crate at ``<plugin label>/<name>/``; at ``sdk/iki-writer/``, the build script
+  and this Iki's iki-writer, which a crate pinned to it is built against;
   ``writers.txt`` (the crates, one per line, for the image's shell stage) and
   ``writers.json`` (each writer's digest, memory and, in a development build, the module
   built here).

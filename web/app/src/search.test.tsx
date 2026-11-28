@@ -5,24 +5,26 @@
  */
 
 import { QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { queryClient } from "./api";
+import { createAppRouter } from "./router";
 import { swatchOf } from "./project-color";
 import {
   bindSearchShortcut,
   isSearchShortcut,
+  isAppPath,
   openSearch,
-  resultHref,
   SEARCH_EVENT,
   type SearchAnswer,
   type SearchGroup,
   type SearchResult,
 } from "./search";
 import { SearchPalette } from "./search-palette";
-import { answer, calls } from "./test-server";
+import { answer, calls, page, project, signedIn } from "./test-server";
 import { typeSwatch } from "./type-color";
 
 const KINASE = {
@@ -91,7 +93,7 @@ const SAVED = result({
   title: "Lysozyme work",
   detail: "Shared with the project",
   type: null,
-  href: "/projects/kinase-atlas/entities/",
+  href: "/saved-searches/00000000-0000-7000-8000-00000000e004/",
   query: { type: "acme/protein.Protein", q: "lysozyme" },
 });
 
@@ -332,6 +334,130 @@ describe("search everything", () => {
   });
 });
 
+describe("↵ opens what was typed", () => {
+  /** Answers "lys" at once and anything else when `release` is called: a slow search. */
+  function answerSlowly() {
+    const held: { q: string; kind: string | null; release: (body: SearchAnswer) => void }[] = [];
+    answer("GET /api/v1/search", (sent: { query: URLSearchParams }) => {
+      const q = sent.query.get("q") ?? "";
+      const kind = sent.query.get("kind");
+      if (q === "") return RECENT;
+      if (q === "lys" && !kind) return LYS;
+      return new Promise<SearchAnswer>((resolve) => {
+        held.push({ q, kind, release: resolve });
+      });
+    });
+    return {
+      async release(q: string, body: SearchAnswer, kind: string | null = null) {
+        let found: (typeof held)[number] | undefined;
+        await waitFor(() => {
+          found = held.find((h) => h.q === q && h.kind === kind);
+          expect(found).toBeDefined();
+        });
+        act(() => {
+          found?.release(body);
+        });
+      },
+    };
+  }
+
+  async function searchedLys() {
+    const session = renderPalette();
+    act(openSearch);
+    const box = await opened();
+    await session.user.type(box, "lys");
+    await screen.findByRole("option", { name: /PRT-000014/ });
+    return { ...session, box };
+  }
+
+  it("waits for a pasted HRID's own answer, and opens its record", async () => {
+    const slow = answerSlowly();
+    const { user, navigate, box } = await searchedLys();
+    await user.clear(box);
+    await user.paste("PRT-000013");
+    // Pressed at once, while the old text's records still show.
+    await user.keyboard("{Enter}");
+    expect(navigate).not.toHaveBeenCalled();
+    await slow.release("PRT-000013", found("PRT-000013", [group("entities", [LYSOZYME])]));
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(LYSOZYME.href);
+    });
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens nothing when what was typed finds nothing", async () => {
+    const slow = answerSlowly();
+    const { user, navigate, box } = await searchedLys();
+    await user.clear(box);
+    await user.paste("nothing");
+    // The request for it is on its way, and the old records still show.
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/search").map((c) => c.query.get("q"))).toContain("nothing");
+    });
+    expect(screen.getByRole("option", { name: /PRT-000014/ })).toBeInTheDocument();
+    expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+    // None of them is active, nor becomes so: ↵ wouldn't open it.
+    expect(box).not.toHaveAttribute("aria-activedescendant");
+    await user.keyboard("{ArrowDown}");
+    expect(box).not.toHaveAttribute("aria-activedescendant");
+    expect(screen.getByRole("option", { name: /PRT-000014/ })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
+    await user.keyboard("{Enter}");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    const opening = vi.spyOn(window, "open").mockReturnValue(null);
+    await slow.release(
+      "nothing",
+      found(
+        "nothing",
+        LYS.groups.map((g) => ({ ...g, total: 0, items: [] })),
+      ),
+    );
+    expect(await screen.findByText("Nothing you can read matches “nothing”.")).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(opening).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("forgets a ↵ once the text changes again", async () => {
+    const slow = answerSlowly();
+    const { user, navigate, box } = await searchedLys();
+    await user.clear(box);
+    await user.paste("PRT-000013");
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(calls("GET", "/api/v1/search").map((c) => c.query.get("q"))).toContain("PRT-000013");
+    });
+    await user.type(box, "9");
+    await slow.release("PRT-000013", found("PRT-000013", [group("entities", [LYSOZYME])]));
+    await slow.release("PRT-0000139", found("PRT-0000139", [group("entities", [LYSOZYME])]));
+    const listbox = screen.getByRole("listbox", { name: "Results for PRT-0000139" });
+    await waitFor(() => {
+      expect(listbox).toHaveAttribute("aria-busy", "false");
+    });
+    expect(within(listbox).getByRole("option", { name: /PRT-000013/ })).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("waits for a kind's own answer after its pill is pressed", async () => {
+    const slow = answerSlowly();
+    const { user, navigate } = await searchedLys();
+    await user.click(screen.getByRole("button", { name: "Requests1" }));
+    await user.keyboard("{Enter}");
+    expect(navigate).not.toHaveBeenCalled();
+    await slow.release(
+      "lys",
+      found("lys", [group("requests", [REQUEST], { href: "/requests/?q=lys" })]),
+      "requests",
+    );
+    await waitFor(() => {
+      expect(navigate).toHaveBeenCalledWith(REQUEST.href);
+    });
+    expect(navigate).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("the shortcut", () => {
   it("is ⌘K or Ctrl+K, and only those", () => {
     const press = (init: KeyboardEventInit) => isSearchShortcut(new KeyboardEvent("keydown", init));
@@ -367,14 +493,71 @@ describe("the shortcut", () => {
 });
 
 describe("where results open", () => {
-  it("opens a saved view in its project's grid as it was saved", () => {
-    expect(resultHref(SAVED)).toBe(
-      "/projects/kinase-atlas/entities/?type=acme%2Fprotein.Protein&show=all&q=lysozyme",
+  /** The whole app on `path`, signed in, with a saved view the palette finds for "amp". */
+  async function renderApp(path: string, query: Record<string, unknown>) {
+    signedIn();
+    const atlas = project();
+    answer("GET /api/v1/projects", page([atlas]));
+    answer(`GET /api/v1/projects/${atlas.id}`, atlas);
+    answer("GET /api/v1/saved-searches", []);
+    answer("GET /api/v1/entity-types", []);
+    answer("POST /api/v1/entities/search", { items: [], next_cursor: null, total: 0 });
+    const view = { ...SAVED, title: "Ampicillin plasmids", projects: [atlas], query };
+    answer("GET /api/v1/search", (sent: { query: URLSearchParams }) => {
+      const q = sent.query.get("q") ?? "";
+      return q === "" ? RECENT : found(q, [group("saved_views", [view])]);
+    });
+    answer(`GET /api/v1/saved-searches/${SAVED.id}`, {
+      id: SAVED.id,
+      project: atlas.id,
+      name: view.title,
+      query,
+      shared: true,
+      created_by: { id: "00000000-0000-7000-8000-0000000000u1", name: "Ada Lovelace" },
+      created_at: "2026-11-15T09:00:00Z",
+      updated_at: "2026-11-15T09:00:00Z",
+      can: { change: false, delete: false },
+    });
+    const router = createAppRouter(createMemoryHistory({ initialEntries: [path] }));
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
     );
-    // One the grid can't show opens the grid.
+    await screen.findByRole("heading", { level: 1 });
+    const user = userEvent.setup();
+    act(openSearch);
+    await user.type(await opened(), "amp");
+    await screen.findByRole("option", { name: /Ampicillin plasmids/ });
+    return { router, user };
+  }
+
+  it("opens a saved view from its own address, as the sidebar's do", async () => {
+    const { router, user } = await renderApp("/projects/", { q: "ampicillin" });
+    expect(screen.getByRole("option", { name: /Ampicillin plasmids/ })).toHaveAttribute(
+      "href",
+      SAVED.href,
+    );
+    expect(isAppPath(SAVED.href)).toBe(true);
+    await user.keyboard("{Enter}");
+    // Its address puts it in its project's grid, searching as it was saved.
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/projects/kinase-atlas/entities/");
+    });
+    expect(router.state.location.search).toEqual({ q: "ampicillin", show: "all" });
+  });
+
+  it("opens one the grid can't show on its own page, which says so, not on the bare grid", async () => {
+    const { router, user } = await renderApp("/projects/", {
+      exact_type: true,
+      type: "acme/protein.Protein",
+    });
+    await user.keyboard("{Enter}");
     expect(
-      resultHref({ ...SAVED, query: { exact_type: true, type: "acme/protein.Protein" } }),
-    ).toBe("/projects/kinase-atlas/entities/");
-    expect(resultHref(LYSOZYME)).toBe(LYSOZYME.href);
+      await screen.findByText(/saved through Iki’s API, with conditions the grid can’t show/),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(`/saved-searches/${SAVED.id}/`);
+    // The grid never ran it without its conditions.
+    expect(calls("POST", "/api/v1/entities/search")).toEqual([]);
   });
 });

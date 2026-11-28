@@ -929,7 +929,7 @@ function Residues({
 }: {
   sequence: string;
   alphabet: Alphabet;
-  features: Feature[];
+  features: readonly Feature[];
   tracks: Drawn[];
   shown: Feature | null;
   /** Whether to draw the complementary strand under each row. */
@@ -1398,7 +1398,7 @@ function FeatureTable({
   onShow,
   library,
 }: {
-  features: Feature[];
+  features: readonly Feature[];
   length: number;
   shown: Feature | null;
   onShow: (feature: Feature | null) => void;

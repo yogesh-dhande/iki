@@ -262,7 +262,6 @@ A record's request is:
   "name": "Assay plate 42",
   "type": "acme/plates.Transfer",
   "revision": 3,
-  "latest": true,
   "revised_at": "2026-11-20T09:14:03Z",
   "roles": { "volume": { "value": 2.5, "unit": "nL" }, "source_plate": { "…": "…" } },
   "withheld": []
@@ -272,7 +271,10 @@ A record's request is:
 - **Values are given as the API gives them,** at the record's revision.
 - **A reference role holds the referenced record's fields, one step deep.**
   The referenced record is read as it was while this revision was the
-  record's latest, as ADR 0171 reads a plasmid's sequence.
+  record's latest, as ADR 0171 reads a plasmid's sequence. Its own
+  references are as the API gives them to the requester: each to a record
+  they can't read is `"unreadable"`, so the writer is never given an ID they
+  couldn't see.
 - **A reference the requester can't read is left out and named in
   `withheld`.** Iki adds its own note for it, so the file is never silently
   short. A writer that can't do without it refuses the record, as the Tecan
@@ -282,6 +284,12 @@ A record's request is:
 - **There is no clock, no randomness, no requester and no export time.**
   The file depends only on the records at their revisions, their order and
   the module. Within ABI 1, the request for a given revision never changes.
+- **Nor is there whether the revision is the record's latest** (2026-11-27).
+  That changes with every later edit, so a writer given it could write the
+  same revision as different bytes. The first ABI 1 request had `latest`;
+  it was removed before any writer outside Iki's examples read it. Whether a
+  download was of the latest revision is in its name and its audit event,
+  as for Iki's own formats (ADR 0171).
   A new field in the request is ABI 2, and a module says which ABI it reads.
 
 The engine runs with:
@@ -315,6 +323,11 @@ behind most of this year's advisories.
 | concurrent exports per pod | 4                                      | `busy`, then 503 with `Retry-After`    |
 
 A deployment may lower any of these, and may raise fuel and the wall clock.
+The chart's `sandbox.limits` sets them (2026-11-27): the server reads them as
+`IKI_EXPORT_*` settings and sends any that differ from Iki's in each
+export's header, the child refuses a header that raises a limit other than
+fuel, and the launcher's `--max-deadline` is the longest deadline the server
+gives.
 A plugin may ask only for less memory than the cap. Fuel is deterministic:
 the same call runs out at the same instruction on every host. The wall
 clock is a backstop for the host side, and it can only fail an export. It

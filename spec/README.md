@@ -32,6 +32,7 @@ environments/        # kind: Environment
 workflows/           # kind: Workflow
 triggers/            # kind: Trigger
 components/          # kind: Component, with each one's JavaScript module
+procedures/          # kind: ReviewProcedure
 migrations/          # made by `iki plugin makemigrations`, committed and reviewed
 ```
 
@@ -50,6 +51,7 @@ version: 3.0.0 # semantic version, for people (deployments pin the git commit)
 iki: ">=0.1,<0.3" # the Iki releases it works with: others refuse it
 title: Proteins
 license: Apache-2.0
+homepage: https://github.com/acme/iki-proteins # https only: where to read about it
 dependencies:
   iki/dna:
     types:
@@ -57,6 +59,20 @@ dependencies:
 settings:
   uniprot_mirror: { type: string, format: uri, default: "https://rest.uniprot.org" }
 ```
+
+`starters` names the project setup recipes a plugin ships, each at an exact
+version, such as `starters: { lot-release-testing: "1.0.0" }` (ADR 0198). A
+starter lets a project's Admin choose a review procedure, such as **Research**
+or **Regulated QC**, and grant the lab roles it needs. The recipes are Iki's
+own, so only Iki's plugins declare starters. A lab plugin's `starters` does
+nothing, and the validator warns of it (`unknown-starter`).
+
+A lab plugin that offers more than one review procedure lets each deployment
+choose one instead. Declare an `enum` setting of the procedures, copy its value
+onto each result when the action records it (an immutable, computed field),
+and have the result's state guards read that field. Each result then keeps
+the procedure it was recorded under. The lots plugin's `verification_flow`
+setting and its plasmid verification's `review_flow` field are an example.
 
 ### Names
 
@@ -199,17 +215,17 @@ display:
   title: "{{ name or hrid }}"
 ```
 
-| Key                     | Meaning                                                                                                  |
-| ----------------------- | -------------------------------------------------------------------------------------------------------- |
-| `name`                  | PascalCase. Elsewhere the type is `plugin.Name`; in the same plugin, `Name` is enough.                   |
-| `label`, `label_plural` | What people see. Default: the name split into words, and that plus "s".                                  |
-| `schema_version`        | A whole number from 1. Dependencies and actions name the versions they work with.                        |
-| `extends`               | A parent type. Entities of this type are also entities of the parent, with its fields.                   |
-| `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.           |
-| `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12).        |
-| `identity`              | Fields that make an entity the same as another. Each must be `immutable`, and one `required`. See below. |
-| `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                       |
-| `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.          |
+| Key                     | Meaning                                                                                                                                                                                |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                  | PascalCase. Elsewhere the type is `plugin.Name`; in the same plugin, `Name` is enough.                                                                                                 |
+| `label`, `label_plural` | What people see. Default: the name split into words, and that plus "s".                                                                                                                |
+| `schema_version`        | A whole number from 1. Dependencies and actions name the versions they work with.                                                                                                      |
+| `extends`               | A parent type. Entities of this type are also entities of the parent, with its fields.                                                                                                 |
+| `abstract`              | Only subtypes have entities. Abstract types have no `hrid`; every concrete type must have one.                                                                                         |
+| `hrid`                  | Human-readable IDs: a 2–8 character prefix (capitals and digits), zero-padded to `digits` (3–12). The prefix is a default a deployment can override ([HRID prefixes](#hrid-prefixes)). |
+| `identity`              | Fields that make an entity the same as another. Each must be `immutable`, and one `required`. See below.                                                                               |
+| `display.title`         | Text with `{{ a or b or "text" }}` parts, naming fields or `hrid`.                                                                                                                     |
+| `display.viewers`       | Iki's own viewers, each a tab on its entities' pages, configured by naming fields. See Viewers.                                                                                        |
 
 ### Identities and registries
 
@@ -539,6 +555,16 @@ rules:
   checked again: those that break one are listed on them, and org admins are
   told; a rule that holds holds them, by Iki. A bundle's records are checked
   as they're brought, as they were.
+- A check reads a reference at the revision the record pinned with
+  `reference_revisions`, which maps the reference to an `int` field holding
+  that revision: `reference_revisions: { alignment: alignment_revision }`
+  reads `record.alignment` as it was at `record.alignment_revision`, not as
+  it is now (`rule-reference-revision`). A verification checked against the
+  alignment it was recorded from stays checked against that alignment.
+- `recheck_before_signing: true` checks a rule again whenever someone signs
+  one of the record's states, even if the record was saved before the rule
+  changed or what it refers to has moved on. A signature can't then be given
+  on an answer that no longer holds (ADR 0235).
 - A rule names fields of its type (`rule-field`, `unknown-field`), and a
   subtype's can't share a name with its parent's (`rule-shadows-parent`). An
   extension's rules read the type's fields with its own; they're named
@@ -572,7 +598,8 @@ approved:
 ```
 
 - A guard reads what a rule does, with every state field in `record`, and:
-  `actor` (`person`, the person acting or an empty string for a service account;
+  `actor` (`person`, the ID of whoever is acting, a service account's own for a
+  service account, as `history`'s `by` names it;
   `agent`, the app or agent acting for them, with `name` and `client_id`, or
   null; `roles`, their lab roles in the record's project; and
   `service_account`), `state` (`field`, `from` and `to`), `history` (each
@@ -602,10 +629,215 @@ approved:
   `guard_refused`, with the guard's name.
 - A state has at most 20.
 
+#### Who signs, declared
+
+A signed state can say who may sign it instead of writing the guard
+([ADR 0301](../docs/adr/0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md)).
+`maker: {person: field}` says the signer is the person a field names.
+`independent_of` says whom the signer must not be:
+
+```yaml
+released:
+  set_by: [qa]
+  locks: true
+  signatures: [{ meaning: approval }]
+  independent_of:
+    - { creator: true, when: record.source == "made" }
+    - { editors: { in: [quarantined, retest_due] } }
+    - { people: [made_by] }
+```
+
+- `creator`: whoever created the record. `{editors: {in: [states]}}`:
+  whoever edited it since it last entered those states; add `fields:` to
+  count only those who changed some fields. `{signers: [states]}`: whoever
+  last signed into those states. `{people: [fields]}`: whom a person field,
+  a list of people, or one a reference away (`test.observed_by`) names.
+- Each mapping may take a `when`: it applies only while that's true.
+- Iki compiles them into the state's `maker` and `independent` guards, with
+  a message saying whom, and checks them as any guard. A hand-written guard
+  can't take either name.
+
+### Computed values
+
+A field worked out from the record's own values has `computed: {cel: …}`
+([ADR 0297](../docs/adr/0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md)):
+a CEL expression, type-checked as rules are, that Iki works out at every save,
+before the record's rules are checked, on every path that writes: forms, the
+API, agents, runs' results, bulk imports and bundles. Its value is stored and
+kept in the record's history like any other, and the revision names it among
+the fields it changed. No one sets it: a value given for it is refused, and so
+is an action that `updates` it (`updates-cel-computed`).
+
+```yaml
+fields:
+  mn: { type: quantity, unit: g/mol, min: 0 }
+  mw: { type: quantity, unit: g/mol, min: 0 }
+  dispersity:
+    type: float
+    computed:
+      cel: double(int(record.mw / record.mn * 1000.0 + 0.5)) / 1000.0
+```
+
+- It reads `record`, the record as it will be saved: its own fields, its
+  parent types' and its extensions'. Not what a reference refers to, a
+  reference itself, a registry field, a state field, `id`, `hrid`, `now` or
+  `today` (`computed-reads`): those change without the record being saved, so
+  its value would go stale. A value from another record is an action's. Each
+  field in `GET /entity-types` gives its `cel` and the fields it reads
+  (`cel_reads`).
+- It works out to one value of its field's type (`invalid-expression`
+  otherwise): a `string`, `text`, `int`, `float`, `quantity`, `bool`, `enum`,
+  `date` or `datetime` (`computed-kind`). An enum's must be one of its values
+  where it's written out. A quantity is a number in its field's `unit`, read
+  and given; a date is read as midnight UTC, and a time given to a date field is
+  the date it falls on in UTC. CEL has no rounding: three places are
+  `double(int(x * 1000.0 + 0.5)) / 1000.0`, for a number that isn't negative.
+- One that can't be worked out leaves the field empty, and the save goes on.
+  When a value it reads is empty, that's as a rule's check passes then. For any
+  other reason (a division by zero, text that isn't one of an enum's values),
+  Iki logs it, where a rule's check would refuse; a guard refuses whatever's
+  empty. A value its field's limits refuse (`min`, `max`, a length) refuses the
+  save, naming the field.
+- Computed values can read each other, and are worked out in the order their
+  reads give: none can read itself, however indirectly (`computed-cycle`).
+- One can't be `required` or have a `default` (`computed-required`,
+  `computed-with-default`), be `immutable` (`computed-immutable`), be `unique`
+  or one of a `unique` or `no_overlap` rule's fields (`computed-unique`: make
+  what it's worked out from unique), or be a `registry` field or part of an
+  identity (`computed-registry`).
+- When a deploy adds an expression or changes one, Iki works out each record
+  of the type again, before checking its rules again: one whose value differs
+  gets a revision by no one, via the system, naming the plugin version that
+  worked it out. A locked record keeps the value it was locked with, until it's
+  saved again once unlocked. A bundle's records are worked out again as
+  they're brought.
+
+`computed: true` is a value Iki or an action's runs set, such as one an RDKit
+script works out, or one read from another record.
+
 The [construct review example](../examples/plugins/construct_review/README.md)
 adds a state field to an Assembly subtype. Its guards check the current product
 comparison, who recorded the build and who edited it afterward. Its notifications
 tell the creator and watchers when a comparison fails or a reviewer verifies the record.
+
+### Review procedures
+
+Research, Regulated QC and Record only are review procedures. One is
+declared once, as `kind: ReviewProcedure` under `procedures/`, by Iki's core
+or by any plugin, a lab's own included
+([ADR 0301](../docs/adr/0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md)).
+A type says what it needs of a procedure, and a project chooses one that fits
+([ADR 0302](../docs/adr/0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md)).
+
+```yaml
+apiVersion: iki/v1
+kind: ReviewProcedure
+name: gmp_result_review
+version: 2
+label: GMP result review (SOP-QA-012)
+slots:
+  analyst: { label: Analyst }
+  reviewer: { label: Second-person reviewer }
+  qa: { label: QA }
+states:
+  recorded: { label: In progress, by: [analyst, reviewer], reason: required }
+  submitted:
+    label: Submitted
+    by: analyst
+    locks: true
+    signature: { meaning: authorship }
+    maker: true
+  first_review:
+    label: First review
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors, signers: [submitted]]
+  second_review:
+    label: Second review
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors, signers: [submitted, first_review]]
+  released:
+    label: Approved
+    by: qa
+    locks: true
+    signature: { meaning: approval }
+    independent_of: [creator, editors, signers: [submitted, first_review, second_review]]
+flows:
+  gmp:
+    label: GMP
+    summary: Submitted, reviewed by two people and approved by QA.
+    route: [recorded, submitted, first_review, second_review, released]
+    moves: { recorded: [submitted, first_review, second_review] }
+```
+
+- It's referred to as `plugin.name@version`: `acme/qms.gmp_result_review@2`,
+  or core's `iki/core.result_review@1`, whose flows are `record_only`,
+  `accepted` (Accept without sign-off), `research` and `regulated_qc`.
+  Records pin a version, so a published one never changes: change it in a
+  new version.
+- `slots` are the parts people play. A starter binds each to a lab role, by
+  default the `iki/lab_roles` role of its name
+  ([ADR 0304](../docs/adr/0304-lab-roles-are-shared-and-a-procedures-slots-are-bound-at-setup.md)).
+  A state's `by` names the slots whose holders set it.
+- A flow's `route` is its states in order. Records start in the first, where
+  the work is recorded and edited, which can't lock. Each later state is set
+  from the one before; `moves` adds others, such as a return for correction.
+  The last is the flow's final state.
+- A state has `label`, `description`, `by`, `locks`, `reason`, `on_edit`
+  and at most one `signature`. A signed state declares exactly one of
+  `maker: true` (whoever created the record or edited it since it entered
+  the flow's first state) and `independent_of` (`creator`, `editors`,
+  `{editors: {fields: [...]}}` and `{signers: [states]}`). An authorship
+  signature is the maker's. A procedure can't name a type's fields or read
+  its records: the type adds those.
+- Iki compiles each flow into the guards a state field has: `route`,
+  `maker` and `independent`. The setup page and the flow diagram read the
+  same declarations, so what they say is what the server enforces.
+
+#### A reviewed type
+
+```yaml
+review:
+  pinned: create
+  needs:
+    open: recorded
+    final: [signed_off, released]
+    states: [submitted]
+    locks: signed
+  independent_of: [people: [analysts]]
+  guards:
+    sealed:
+      on: [submitted, signed_off]
+      check: record.case.sealed == true
+      message: Seal the release case before signing its certificate.
+```
+
+- Iki adds the state field the procedure drives (`review`, or `field:`),
+  labelled `label:`, and two immutable fields the server stamps when a
+  record is created: `review_procedure` and `review_flow`. The type doesn't
+  declare them.
+- `pinned` is `create` (the project's choice, or the deployment's default)
+  or `{by: field}`: the procedure of the record a required, immutable
+  reference names. `review: {opens: true}` is a type with no review of its
+  own that pins one for the records that follow it.
+- `needs`: `open`, the state its actions write in (`recorded` unless said);
+  `final`, the states its readers take as complete; `states`, others it
+  names; `locks`, `signed` or `final`; and `slots`, those its fields and
+  guards name. Its notifications, assignments, guards and rules name only
+  these states.
+- `independent_of` adds people to every state that declares independence.
+  `guards` add conditions `on` named states, `signed` or `final`.
+- `derived: true` re-issues a record already reviewed under the same flow,
+  such as a certificate of analysis: its route is the flow's first and final
+  states.
+- A procedure fits when each flow chosen starts in `open`, ends in one of
+  `final`, has `states`, locks as `locks` says, declares `slots` and has the
+  states its guards are on. One that doesn't is refused, saying which need
+  it misses.
+- A type is reviewed once in its lineage: its subtypes follow its review.
 
 ### Notifications
 
@@ -898,6 +1130,35 @@ fields:
   `/entities/{ref}/aliquots` splits it. Each change is in the audit log,
   and the webhook event `entity.amount_moved` says so.
 
+A type says when material may be taken with `draw_guards`, and who may
+draw it for each purpose with `draw_purposes` (ADR 0139):
+
+```yaml
+draw_purposes:
+  qa_sampling: { by: [qa] } # QA sampling needs the QA lab role in the record's project
+draw_guards:
+  not_expired:
+    check: record.expires_on == null || record.expires_on > today
+    message: This lot has reached its expiry date. No material can be taken.
+  sampling_only_in_quarantine:
+    when: operation == "draw"
+    check: record.disposition != "quarantined" || purpose == "qa_sampling"
+    message: This lot is quarantined. Only a QA sampling draw is allowed.
+```
+
+- Each draw has a purpose: `routine`, the default, or `qa_sampling`. A
+  routine draw is open to whoever may draw from the record, unless
+  `draw_purposes` names roles for it. QA sampling is refused unless the type
+  or an ancestor names the roles for it. One of the roles is needed, in the
+  record's own project, as well as permission to draw. A subtype inherits
+  each purpose's roles and may narrow them.
+- A draw guard is like a state's guard: a `check`, a `message` and an
+  optional `when`. It reads the `record`, `now`, `today` (midnight UTC), the
+  `operation` (`draw`, `transfer` or `split`) and the `purpose`. A transfer
+  or split counts as routine use. The record's references are their IDs.
+  A guard that's false, or can't be worked out, refuses the draw before
+  anything moves. A subtype keeps its ancestors' guards.
+
 A catalogue type opts into the project's stock view and reorder list with
 `stock_catalogue` (ADR 0190). A lab declares its item, lot, order and
 recipient fields on its own types.
@@ -937,6 +1198,73 @@ threshold, including items without lots. An item's `threshold` is null
 when it has none. The periodic stock check notifies
 the declared project lab roles once per low-stock episode.
 
+### Lab lists
+
+A type marked `list` is a list the lab curates, such as purification
+methods or deviation categories (ADR 0270). Its entities are the list's
+options, and a field that refers to it is an ordinary reference, which forms
+show as a dropdown of its options:
+
+```yaml
+apiVersion: iki/v1
+kind: EntityType
+name: PurificationMethod
+label: Purification method
+schema_version: 1
+hrid: { prefix: PUM }
+list:
+  options: # each registry starts with these, in this order
+    - { code: protein_a, label: Protein A, description: Affinity capture on protein A. }
+    - { code: imac, label: IMAC, category: chromatography }
+fields:
+  category: { type: ref, to: MethodCategory } # another list
+  sop: { type: string, format: uri }
+---
+# Elsewhere, a record's field that picks one:
+method: { type: ref, to: PurificationMethod }
+```
+
+`list: true` makes a list with no starting options.
+
+- Every option has four fields of its own: `code`, its identity in the list,
+  which never changes (exports and the API give it); `label`, what people
+  see and pick, once in the list; `description`; and `position`, its place in
+  the list's order. A type can't declare fields with those names
+  (`list-field-reserved`). Its other fields are its options' facts too, such
+  as a method's SOP. A reference among them names another list, never a
+  record (`list-refers-to-entry`).
+- Options are registry entries (ADR 0115): every project in a registry picks
+  from the same options. The registry's registrars, and the curators Org
+  Admins appoint for a list, add options, relabel them, change their facts,
+  reorder, archive and restore them, and supersede a wrong code, each with
+  a reason. Each change is a revision of the option and an audit event.
+- A form offers the active options, in order. An archived or superseded
+  option isn't offered for a new value. A record that names one already
+  keeps it, and it stays in search, filters, exports and the API.
+- Starting options give a `code` and a `label`, and may give a `description`
+  and values for the type's other fields. A reference names the other
+  list's starting option by its code (`list-option-unknown`). Codes and
+  labels are each the list's once (`list-option-twice`, `list-label-twice`),
+  and a required field needs a value (`list-option-incomplete`). Installing
+  the plugin adds them to every registry, and to one made later. An upgrade
+  adds those a registry hasn't got, by code, at the end of its list. It never
+  changes, reorders or restores the options a registry has.
+- A list isn't a record type: it has no states, rules, identity, computed
+  fields, amounts, viewers or other record keys (`list-key`, `list-state`,
+  `list-computed`). An extension of a list adds facts only
+  (`list-extension-record-field`). A reference to a list names that list
+  alone (`list-among-types`).
+- Only descriptive vocabulary is a list. A value that a state, guard, rule,
+  signature or calculation reads stays an `enum`, because a curator's change
+  to a list mustn't change what a plugin's logic does. A rule or guard that
+  compares an option's `code` is warned of (`list-code-in-expression`): once
+  a curator supersedes the code, records name the replacement and the
+  comparison silently stops applying. A condition may read an option's other
+  facts only when they're fixed (`immutable: true`, ADR 0143): one a curator
+  can change, its label among them, is refused (`reads-curated-fact`), and so
+  is a run that includes an option whose enums, numbers or Booleans aren't
+  fixed (`include-curated-fact`). A message may show any of them.
+
 ### Extensions
 
 A plugin adds fields to another plugin's type with an extension. The fields
@@ -959,7 +1287,9 @@ plugin, wouldn't have them), can't reuse a name the type already has, and
 ## Fields
 
 Every field has a `type`, and may have `label`, `description`, `required`,
-`immutable` (set once, never changed), `computed` (set only by actions),
+`immutable` (set once, never changed), `computed` (set by actions' runs with
+`true`, or worked out from the record's own values with `{cel: …}`: see
+[Computed values](#computed-values)),
 `indexed` (a database index for fast filtering and sorting; indexed strings
 are also fast to search for text they contain), `default` and
 `removed`.
@@ -993,6 +1323,16 @@ lims_id:
 A field is never deleted, because its history is kept. To stop using one,
 mark it `removed: true`: its column is dropped, and its values stay in the
 type's history. Identity fields can't be removed.
+
+A `text` field is `searchable` unless it says `searchable: false`: a search
+finds its words (`matches`), from a full-text index of its first 100,000
+characters (ADR 0233). Turn it off for machine text whose words mean nothing
+to a reader, such as a Molfile or an instrument's export: it gets no
+full-text index, and a search finds text in it with `contains`.
+
+An editable `bool` field can say `reason_on_clear: true`: changing it from
+true to false, or unsetting it, then needs a reason in the edit, which the
+record's revision keeps, as a container's "in use" flag does.
 
 | Type       | Options                                                         | Notes                                                                                                         |
 | ---------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -1053,6 +1393,29 @@ refused when it's saved, each problem pointing at its row and field
 (`#/values/components/1/part`). Anything subtler than a role's count and
 types is a rule's. `identity` names the row fields that tell two rows
 apart when the list is part of its type's identity (see Identities).
+
+`row_id` names a row's optional string field that holds its stable ID, as an
+experiment's observations have:
+
+```yaml
+observations:
+  type: list
+  items:
+    type: row
+    row_id: observation_id
+    fields:
+      observed_at: { type: datetime, required: true }
+      note: { type: text, required: true }
+      observation_id: { type: string, max_length: 36 }
+```
+
+Iki gives a new row a UUID there, and keeps each row's ID through edits. An
+edit keeps a row by sending its ID, and adds one by leaving it out. An edit
+naming an ID the record's rows don't have, or one twice, is refused. A client
+that sends the list without IDs keeps them if the rows are unchanged, or if
+each matches one current row by its other fields. Rows it can't tell apart
+need their IDs. The field can't be required or have a default, and holds at
+least 36 characters (`row-id-field`).
 
 A list of rows is stored in its own table, a row per row and a column per
 row field, each with its foreign key and checks. Its value is a list of
@@ -1164,6 +1527,43 @@ read-only view per type in the `iki_views` schema, such as
 `iki_views.iki__protein_protein`. Each view joins the type's fields, its parents'
 and those other plugins add. Plugins installed together can't share an HRID
 prefix, a table, or a field they add to the same type.
+
+### HRID prefixes
+
+A type's `hrid.prefix` is a default. All the types in a deployment share one
+space of prefixes, so two plugins that don't know each other can choose the
+same one. When they do, the deployment's lockfile settles it by giving one of
+them another prefix (`hrids`, [below](#a-deployments-lockfile)). Neither
+plugin has to change. The build's refusal names both types and gives the
+override to add:
+
+```text
+error: iki/reagents.Buffer and acme/assays.Buffer both use the HRID prefix BUF.
+Give one of them its own prefix in the deployment's `plugins.lock.yaml`:
+`hrids: { acme/assays.Buffer: ABUF }`.
+```
+
+A type keeps one prefix for as long as it has records, because HRIDs are
+printed on labels and tubes. The deploy refuses to give a type another prefix
+while it has records under its old one, whether the change comes from the
+lockfile or from a new version of its plugin. The refusal names the type, the
+old prefix and one of its HRIDs.
+
+Iki lists the prefixes it uses in
+[`reserved_hrid_prefixes.json`](src/iki_spec/reserved_hrid_prefixes.json):
+
+- `core`: the prefixes of core's types and of the records the server numbers
+  itself (`RUN`, `BAT`, `WF`, `SETUP`). They are Iki's alone. A plugin that
+  takes one gets `duplicate-hrid-prefix`, and a deployment can't give a core
+  type another prefix.
+- `plugins`: the prefixes Iki's own plugins use.
+- `planned`: prefixes reserved for first-party types on the roadmap.
+
+A lab's plugin that takes a prefix from `plugins` or `planned` gets the
+warning `reserved-hrid-prefix`. Once a deployment installs both, one of them
+needs an override, so it's better to choose another prefix before the type
+has records. `make first-party` writes the file. A test fails while it is out
+of date.
 
 ## Units
 
@@ -1597,6 +1997,43 @@ On `entity.updated`, `fields` narrows it to changes of those fields. A
 change a triggered run makes never fires a trigger, so a trigger can't fire
 itself, or another that fires it back: chain actions in a workflow instead.
 
+`recheck` makes such a trigger re-verify what an edit changed (ADR 0080):
+
+```yaml
+on: entity.updated
+type: Assembly
+fields: [product, method, enzymes, backbone, inserts]
+recheck: verification_note # a computed text field the action updates
+run: check_assembly
+```
+
+An edit of one of the `fields` clears the action's computed outputs on the
+record in the same transaction. The record names its `recheck` field to say
+why it needs re-verifying, and the action runs again with the editor's own
+permissions. A project's Admin can turn the automatic run off, giving a
+reason; the edit still clears the outputs. The action must be a
+deterministic backend calculation that only updates optional, computed
+fields of the edited record, one of them the `recheck` text field
+(`trigger-recheck`).
+
+`watch_included` runs it again when a record its input includes changes, as
+a lot's computed values follow its oligonucleotide's weight:
+
+```yaml
+on: entity.updated
+type: OligoLot
+fields: [measured_mass, yield_od]
+watch_included:
+  oligonucleotide: [molecular_weight, extinction_260] # the input's included reference
+run: compute_oligo_lot
+```
+
+When one of those fields of the referenced record changes, each record that
+refers to it shows which calculation needs to run again. A project that
+turned the trigger on queues a run for each of its editable records. A
+change to a registry entry reaches every project's records. Each reference
+named must be one the action's input includes (`trigger-reference`).
+
 An `entity.created` trigger can import a file into the record that holds it,
 as an instrument's uploader makes one record for each export. Iki refuses a
 record whose file field holds a file that is still being scanned or is held,
@@ -1757,6 +2194,27 @@ exports:
   - { export: compound, structure: molfile } # SDF, Molfile
 ```
 
+A `sequence` or `protein` export can also name a `description` field, which
+goes in GenBank's DEFINITION and the FASTA header, and an `organism`, a
+reference to `iki/core.Organism` written as GenBank's source feature or
+NCBI's `[organism=…]` modifier. A `sequence` export can name its
+`accession`, such as L09137.2.
+
+A signed report exports with the signatures that issued it (ADR 0171), as a
+printable HTML report and as JSON with each signature's proof:
+
+```yaml
+exports:
+  - { export: signed_report, report: coa, review: review, issued: [issued, released] }
+```
+
+`report` is the JSON field holding the report, `review` the state field
+whose signed transitions issue it, and `issued` the signed states at which an
+issued revision may be exported. Each of those states locks the record and
+has no `on_edit` destination. Before writing either file, Iki checks the
+issuance and each signature, and refuses if the report differs from what
+was signed.
+
 ### A plugin's own format
 
 When no format Iki writes fits, a plugin writes its own (ADR 0230). It declares
@@ -1804,7 +2262,9 @@ A writer declares:
 - `module`: the crate's directory under `writers/`. It holds `Cargo.toml`, with
   `crate-type = ["cdylib"]`, and `Cargo.lock`, and no symbolic links. Beside it,
   `<module>.wasm.sha256` holds the SHA-256 of the module the Linux x86-64 builder
-  makes. `iki plugin writers --update` builds it and writes the file. Commit the
+  makes, and what it was built with: the crate's source, the `iki-writer` its
+  lock pins, the writer builder and the build script. Run
+  `iki plugin writers --update` to build it and write the file. Commit the
   digest with the Rust, and never the `.wasm`.
 - `many`: `file` when many records make one file, as a worklist's lines do (the
   default); `zip` when each record is a file of its own, so many make a ZIP of
@@ -1831,7 +2291,8 @@ it adds to the file and notes on what the file couldn't hold. Or it refuses
 the record, saying why, and the export fails, naming it.
 
 Write a writer with the `iki-writer` crate. It turns a `Writer` trait's `begin`,
-`record` and `end` into the module's exports (ABI 1):
+`record` and `end` into the module's exports, and says which ABI the module
+reads:
 
 ```rust
 use iki_writer::{Part, Record, Refusal, Writer};
@@ -1851,20 +2312,34 @@ impl Writer for SampleSheet {
 iki_writer::writer!(SampleSheet);
 ```
 
-Depend on `iki-writer = "=0.1.0-dev.0"`. Until the crate is published, the
-builder supplies it from the Iki that builds the plugin. The module must
-import nothing: no clock, no files, no randomness. A writer is a function of
-its records, so the same records always make the same file.
+Depend on `iki-writer = "=0.1.0-dev.0"`, and pin it in `Cargo.lock` with its
+checksum. Iki publishes `iki-writer` to crates.io with each release, at the
+release's version, so the module is built against the SDK it pins, not the
+one of the Iki that builds it: an Iki release doesn't change it. Until a
+version is on crates.io, the build takes it from the Iki whose version it is,
+the same crate with the same checksum; `build-writer.sh lock`, in the SDK,
+pins it. The module must import nothing: no clock, no files, no randomness. A
+writer is a function of its records, so the same records always make the same
+file.
+
+Iki runs a range of writer ABIs, each module's requests built for the ABI it
+reads, so a module keeps getting the requests it was built for. A new request
+field is a new ABI, which a module gets by being built against a newer
+`iki-writer`. A module of an ABI the Iki doesn't run, older or newer, is
+refused when the image is built, saying which.
 
 A deployment's image build rebuilds each writer from its source on
-`linux/amd64`, with Iki's pinned Rust and no network or credentials. Only
-fetching the crates uses the network, and Cargo checks each against
-`Cargo.lock`. A site without crates.io sets `IKI_CARGO_MIRROR` to a registry
-mirror, or the plugin vendors its crates (`cargo vendor --versioned-dirs`, with
-the crate's `.cargo/config.toml` replacing crates.io). Either way the module
-is the same. The build refuses a module whose digest isn't the tracked one,
-or one that imports anything, breaks the ABI, has more than one memory, or
-holds a function body over 1 MiB or a `br_table` over 65,536 targets.
+`linux/amd64`, in the writer builder (a Rust image Iki pins apart from its own
+toolchain, and moves only in a minor release), with no network or
+credentials. Only fetching the crates uses the network, and Cargo checks each
+against `Cargo.lock`. A site without crates.io sets `IKI_CARGO_MIRROR` to a
+registry mirror, or the plugin vendors its crates (`build-writer.sh vendor`,
+with the crate's `.cargo/config.toml` replacing crates.io). Either way the
+module is the same. The build refuses a module whose digest isn't the tracked
+one, saying which of its inputs differs from those the digest was written
+with, and one that imports anything, reads an ABI the Iki doesn't run, has
+more than one memory, or holds a function body over 1 MiB or a `br_table` over
+65,536 targets.
 
 The writer runs in the chart's export sandbox (`sandbox.enabled`), a
 Deployment with no Secrets, no service-account token, no cloud identity and
@@ -1887,10 +2362,12 @@ apiVersion: iki/v1
 kind: Component
 name: plate_map
 label: Plate map
-module: ./components/plate-map.js # one file, up to 10 MiB
+module: ./components/plate-map.js # one file, up to 10 MiB, built from web/src/plate-map.js
 element: acme-plate-map # the custom element it defines
 slots: [{ slot: entity.tab, type: Plate }] # a tab on each plate's page
-events: { select: { type: Well } } # it lets people pick wells
+events:
+  select: { type: Well } # it lets people pick wells
+  run: { actions: [commit_reader] } # and offers its plugin's reader import on the plate
 ```
 
 `entity.tab` is a tab on the pages of entities of `type` and its subtypes,
@@ -1900,6 +2377,24 @@ page it's on, as the person may read it, and listens for `iki-select`
 events, whose `detail.entities` lists the HRIDs of the entities picked, of
 the type `events.select` declares. The page shows what was picked, among
 what the person may read, and offers to run an action on them.
+
+A tab may also offer its own plugin's actions on its entity, under
+`events.run` (ADR 0170). Its `place.runs` lists those the person viewing it
+may run there now, and an `iki-run` event with `detail.action` opens Iki's
+run page with that action and the entity chosen, for the person to check and
+start. The validator refuses an action the plugin doesn't have
+(`component-unknown-action`), one with no input that takes the tab's entity
+(`component-action-takes-no-entity`), and offers from a component with no
+entity tab (`component-run-needs-a-tab`).
+
+What a component is given and may send is
+[`@ikisci/component`](../web/packages/component)'s frame protocol, published
+with each release (ADR 0286). A component sends its events with that
+package's helpers (`select`, `more`, `refine`, `open` and `run`), and Iki's
+page reads them with the package's own validators. Its source is
+`web/src/<name>.js`, and `iki-component-bundle`, from the same package,
+builds it with everything it imports into `components/<name>.js`. Iki's
+builds leave `web/` out of what they ship.
 
 ### Components that show many entities
 
@@ -1951,7 +2446,8 @@ slots:
 
 A search is the API's, of `entities.type`: `where` conditions on its fields
 and `hrid`, `created_by`, `created_at` and `updated_at`, at most 20, 4
-levels deep, and a field to `sort` by. `{{ entity }}` is the entity whose
+levels deep, and a field to `sort` by, with `descending: true` for the
+latest first. `{{ entity }}` is the entity whose
 page it is, for a reference to its type; `{{ me }}` is whoever reads it, for
 `created_by`, `assigned` or a field naming people; `{{ now }}` is now, for a date or datetime field. Iki's server runs it, as the person may read, and the element
 gets the results as its `entities` property: `items`, each with `id`,
@@ -2052,7 +2548,18 @@ plugins:
     git: https://github.com/acme/iki-assays.git
     sha: 9b2e4c1d0a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d
     state: active
+hrids: # HRID prefixes this deployment gives types, in place of their plugins'
+  acme/assays.Buffer: ABUF
 ```
+
+`hrids` maps a type, as `namespace/plugin.Type`, to the prefix its HRIDs
+take in this deployment ([HRID prefixes](#hrid-prefixes),
+ADR 0033). The build checks
+every plugin with these prefixes and compiles them into the manifests the
+server reads, so the HRIDs and sequences use them. An override must name a
+concrete type of a plugin the lockfile builds (`hrid-override-unlisted`). It
+can't name a core type (`hrid-override-core`), and it can't move a type that
+already has records.
 
 `sha` is a full commit, never a branch or tag, so the same lockfile always
 installs the same plugins. `git ls-remote <repository> <tag>` prints a
@@ -2371,6 +2878,7 @@ When a worker leases a job, it gets the run input and writes it to
         "id": "…",
         "hrid": "PRT-000042",
         "type": "iki/protein.Protein",
+        "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
         "schema_version": 1,
         "revision": 3,
         "values": { "sequence": "MKV…" }
@@ -2407,6 +2915,14 @@ registered records, `entry_id` identifies the registry entry held at that
 record revision and `entry_revision` gives the registry revision pinned at
 launch. Included records use the same fields. An action that seals evidence
 should keep both pairs, since registry facts can change independently.
+
+An input record's `type` is its own type, and `types` is that type and each
+type it extends, nearest first, ending with `iki/core.Entity`. An input that
+takes a type also offers the lab's subtypes of it, so a command that asks
+what a record is, such as whether a complex's part is a protein, looks in
+`types`: `"iki/protein.Protein" in part["types"]` holds for a lab's
+`acme/enzymes.Enzyme` that extends it, where `part["type"] ==
+"iki/protein.Protein"` doesn't.
 
 Each input is a list, even when the input takes one entity. Values are the
 ones at the revision the run was launched on, as the REST API shows them,
@@ -2829,6 +3345,9 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `schema`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Anything the JSON Schemas catch |
 | `unqualified-name`, `reserved-namespace`, `unqualified-dependency`, `unqualified-reference`, `reserved-name`, `name-too-long`, `duplicate-table`, `column-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Names                           |
 | `unknown-role`; `duplicate-role-label` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Lab roles                       |
+| `unknown-starter` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | Starters                        |
+| `list-key`, `list-state`, `list-computed`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                         | Lab lists                       |
+| `row-role-not-enum`, `row-role-optional`, `unknown-row-role`, `unknown-row-field`, `row-role-not-reference`, `row-role-type-not-allowed`, `row-id-field`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Lists of rows                   |
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
 | `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
@@ -2836,9 +3355,9 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |
 | `amount-unit`, `amount-concentration`, `amount-aliquots`, `amount-twice`, `amount-on-identity`, `holds-without-amount`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Amounts                         |
 | `duplicate-type`, `unknown-type`, `extends-cycle`, `field-shadows-parent`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Types                           |
-| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | HRIDs                           |
+| `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`; `reserved-hrid-prefix` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                                                                                              | Identities                      |
-| `computed-with-default`, `computed-required`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Field options                   |
+| `computed-with-default`, `computed-required`, `computed-immutable`, `computed-unique`, `computed-registry`, `computed-kind`, `computed-reads`, `computed-cycle`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                | Field options                   |
 | `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
 | `unknown-format`, `format-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | File formats                    |
@@ -2847,9 +3366,9 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `extends-builtin`, `extension-of-own-type`, `duplicate-extension`, `extension-field-conflict`, `extension-field-required`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Extensions                      |
 | `undeclared-dependency`, `dependency-not-available`, `dependency-invalid`, `dependency-is-self`, `dependency-cycle`, `dependency-version`, `dependency-unpinned` (warning), `iki-version`                                                                                                                                                                                                                                                                                                                                                                                                                                                             | Dependencies                    |
 | `setting-policy`, `required-with-default`, `setting-looks-secret` (warning), `unknown-setting`, `missing-setting`, `invalid-setting`, `settings-file`, `setting-needed` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Settings                        |
-| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`                                                                                                                                                                                                                                                                                                                                     | Lockfiles                       |
+| `missing-lockfile`, `not-a-lockfile`, `lockfile-documents`, `duplicate-plugin`, `unqualified-name`, `reserved-namespace`, `first-party-source`, `test-only-source`, `core-is-builtin`, `missing-source`, `mixed-source`, `purged-source`, `missing-sha`, `path-outside`, `absolute-path`, `missing-settings-file`, `hrid-override-core`, `hrid-override-unlisted`                                                                                                                                                                                                                                                                                     | Lockfiles                       |
 | `duplicate-action`, `duplicate-name`, `param-looks-secret` (warning), `max-needs-many`, `input-schema-unsatisfied`, `batch-needs-one-input`, `batch-keeps-artifacts`, `batch-checkpoints`, `timeout-too-long`, `duplicate-software`, `from-project-one`                                                                                                                                                                                                                                                                                                                                                                                               | Actions                         |
-| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | What actions write              |
+| `creates-abstract`, `match-on-unknown-field`, `match-on-not-unique`, `unknown-input`, `duplicate-updates`, `updates-cel-computed`, `updates-immutable`, `updates-state`, `action-does-nothing`                                                                                                                                                                                                                                                                                                                                                                                                                                                        | What actions write              |
 | `unknown-environment`, `tier-not-supported`, `lifecycle-wrong-tier`, `gpu-wrong-tier`, `self-hosted-secrets`, `self-hosted-network`, `reserved-secret`, `absolute-path-on-backend`, `missing-file`                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Where actions run               |
 | `network-unknown-setting`, `network-setting-not-hostname`, `requires-unknown-setting`, `requires-setting-always-set` (warning), `deterministic-with-network`, `retries-deterministic-failure` (warnings)                                                                                                                                                                                                                                                                                                                                                                                                                                              | Reuse and retries               |
 | `self-hosted-apis`, `api-in-network`, `api-credential-is-secret`, `api-credential-header`, `webhook-needs-header`, `webhook-header`, `webhook-secret-is-credential`, `api-status-twice`, `api-polls-too-often`, `api-job-timeout`, `unknown-api`, `batch-parks`, `deterministic-with-api`; `unused-api` (warning)                                                                                                                                                                                                                                                                                                                                     | Outside APIs                    |

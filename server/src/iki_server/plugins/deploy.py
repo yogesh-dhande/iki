@@ -11,6 +11,9 @@ code doesn't know. So before migrating, this:
    - a plugin missing from the build, unless the lockfile purges it
    - a migration that changed after it was applied
    - a plugin migration that isn't atomic
+   - a type given another HRID prefix while it has records under its old one,
+     by the lockfile's ``hrids`` or by its plugin (ADR 0033); checked again in the
+     transaction, before the sync
    - a proposed schema with blocking preflight findings that the operator
      hasn't acknowledged for this candidate (ADR 0181)
 2. Runs Iki's own migrations, and Django's, each in a transaction of its own as
@@ -47,7 +50,7 @@ from __future__ import annotations
 import hashlib
 import sys
 import types
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -58,6 +61,7 @@ from django.core.management.base import OutputWrapper
 from django.core.management.commands import migrate as django_migrate
 from django.core.management.sql import emit_pre_migrate_signal
 from django.db import DatabaseError, connection, migrations, transaction
+from django.db.migrations.exceptions import NodeNotFoundError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.migration import Migration
@@ -86,6 +90,7 @@ from iki_server.plugins.operations import (
 )
 from iki_server.plugins.preflight_types import Report as PreflightReport
 from iki_spec import naming, releases
+from iki_spec.model import Plugin
 
 Key = tuple[str, str]
 
@@ -158,7 +163,7 @@ def migrate_deployment(
     privileges (none if it's None). ``analyst_role`` is ``sync_plugins``'s."""
     report = Report()
     _check_iki()
-    executor = MigrationExecutor(connection)
+    executor = _executor()
     applied = set(executor.recorder.applied_migrations())
     code = executor.loader.disk_migrations
     installed = set(plugin_apps())
@@ -241,6 +246,9 @@ def migrate_deployment(
                     "Migrated records disagree with their history.\n" + "\n".join(problems)
                 )
             report.archived = _keep_copies(installed)
+            # Again, under the deploy's lock: a record may have been made since preflight.
+            if (saved := baseline.current()) is not None and (moved := moved_prefixes(saved[1])):
+                raise DeployError("\n".join(moved))
             report.synced = sync.sync(analyst_role)
             if app_role:
                 report.granted = db_roles.grant(app_role)
@@ -264,6 +272,8 @@ def _check_preflight(applied: set[Key], acknowledged: set[str]) -> None:
                 "from the currently deployed build with the baseline migration applied."
             )
         revision, current = saved
+        if moved := moved_prefixes(current):
+            raise DeployError("\n".join(moved))
         proposed = registry.plugins()
         if shadowed := list(integrity.shadowed_history(current, proposed)):
             raise DeployError("\n".join(shadowed))
@@ -278,6 +288,34 @@ def _check_preflight(applied: set[Key], acknowledged: set[str]) -> None:
                 "Plugin preflight requires review before deploying. Correct the records or "
                 "acknowledge the reviewed candidate:\n" + "\n".join(refusals)
             )
+
+
+def moved_prefixes(deployed: Mapping[str, Plugin]) -> list[str]:
+    """Each type this build gives another HRID prefix while it has records under the one
+    it had (ADR 0033), whether a lockfile's ``hrids`` or its plugin moved it. HRIDs are
+    printed on labels and tubes, so a type's records keep one prefix."""
+    before = {
+        name: t.hrid_prefix
+        for plugin in deployed.values()
+        for name, t in plugin.types.items()
+        if t.hrid_prefix and not t.abstract
+    }
+    refusals = []
+    for name, entity_type in sorted(registry.types().items()):
+        old, new = before.get(name), entity_type.hrid_prefix
+        if old is None or new is None or entity_type.abstract or new == old:
+            continue
+        held = Entity.objects.filter(type=name, hrid__startswith=f"{old}-")
+        example = held.order_by("hrid").values_list("hrid", flat=True).first()
+        if example is None:
+            continue
+        refusals.append(
+            f"{name} has records under the HRID prefix {old}, such as {example}, and this "
+            f"build gives it {new}. HRIDs are printed on labels, so a type's records keep one "
+            f"prefix: keep {old} with `hrids: {{ {name}: {old} }}` in plugins.lock.yaml, or "
+            "take out the override that moves it."
+        )
+    return refusals
 
 
 def _preflight_refusal(report: PreflightReport) -> list[str]:
@@ -913,6 +951,27 @@ def _check_iki() -> None:
             f"This is Iki {this}, and {'; '.join(unfit)}. Deploy a release of Iki they work "
             "with, or releases of them made for this one: nothing was migrated."
         )
+
+
+def _executor() -> MigrationExecutor:
+    """The build's migrations, before anything changes. A plugin migration that needs one of
+    Iki's this Iki hasn't was made with a newer Iki, whatever its ``iki:`` range says:
+    refused, naming both, rather than as Django's missing node."""
+    try:
+        return MigrationExecutor(connection)
+    except NodeNotFoundError as missing:
+        app, name = missing.node
+        origin = missing.origin
+        if not isinstance(origin, Migration) or not _could_be_plugin(origin.app_label):
+            raise
+        if _could_be_plugin(app):
+            raise
+        needing = (origin.app_label, origin.name)
+        raise DeployError(
+            f"{_names([needing])} needs Iki's migration {app} {name}, which this Iki "
+            f"({_version()}) doesn't have: the plugin was made with a newer Iki. Deploy an Iki "
+            "that has it, or a release of the plugin made for this one: nothing was migrated."
+        ) from None
 
 
 def _version() -> str:

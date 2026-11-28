@@ -92,10 +92,11 @@ def test_alignment_is_bound_to_its_physical_prep(sample: str | None) -> None:
 
 
 @pytest.mark.parametrize("mode", [None, "", "unknown"])
-def test_review_flow_comes_from_deployment(mode: str | None) -> None:
+def test_without_a_review_flow_the_project_is_told_where_to_choose_one(mode: str | None) -> None:
+    # The run's setting is the project's starter choice, or the deployment's default.
     run = verification_input()
     run["settings"] = {"verification_flow": mode}
-    with pytest.raises(ValueError, match="deployment must select"):
+    with pytest.raises(ValueError, match="Choose this project's plasmid verification review"):
         runpy.run_path(str(SCRIPT))["archive"](run)
 
 

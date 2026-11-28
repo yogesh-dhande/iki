@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 from api_client import problem
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as
@@ -15,10 +17,14 @@ from test_runs import world
 from test_signatures import begin, evidence, ready, signed
 from test_states import ANALYST, QA, REVIEWER, put, roles, set_
 
+from iki_server.accounts import service_accounts
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
 from iki_server.entities import guards, states
 from iki_server.entities.models import Entity
+from iki_server.org import permissions
+from iki_server.org import services as org_services
+from iki_server.org.models import ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.plugins.models import HistoryChange
 from iki_server.signatures import services as signing
@@ -70,6 +76,29 @@ def test_whoever_submitted_it_doesnt_approve_it(world: World) -> None:
     roles(world, admin=(REVIEWER, ANALYST))
     set_(world, "admin", batch["id"], "status", "in_review")
     assert set_(world, "editor", batch["id"], "status", "approved")["locked"]
+
+
+def test_a_service_account_doesnt_approve_its_own_submission(world: World) -> None:
+    """Four eyes holds for a service account as for a person: the actor is whoever the
+    change is recorded as made by."""
+    admin = world.users["org_admin"]
+    bridge = service_accounts.create("LIMS bridge", "Posts instrument results.", by=admin)
+    membership = ProjectMembership.objects.create(
+        project=world.project, user=bridge, role=ProjectRole.EDITOR
+    )
+    org_services.set_lab_roles(membership, {ANALYST, REVIEWER}, by=admin)
+    permissions.forget(bridge)
+    batch = Entity.objects.get(pk=made(world, {"name": "L-9"})["id"])
+    states.set_state(bridge, batch, "status", "in_review", expected_revision=batch.revision)
+    batch.refresh_from_db()
+    with pytest.raises(states.GuardRefused, match="You submitted L-9 for review") as refused:
+        states.set_state(bridge, batch, "status", "approved", expected_revision=batch.revision)
+    assert refused.value.guard == "four_eyes"
+    batch.refresh_from_db()
+    assert states.values_of(batch)["status"] == "in_review" and not batch.locked_by
+    # Someone else approves it.
+    roles(world, admin=(REVIEWER,))
+    assert set_(world, "admin", str(batch.pk), "status", "approved")["locked"]
 
 
 def test_a_guard_reads_another_state_field(world: World) -> None:
@@ -273,3 +302,63 @@ def test_the_last_signature_checks_the_guards_again(world: World) -> None:
     assert done.status == Status.FAILED
     assert done.message == "You gave one of its signatures, so someone else gives the other."
     assert status(world, batch["id"]) == "in_testing"
+
+
+# --- A page of records ----------------------------------------------------------------------------
+
+
+def _batches(world: World, start: int, stop: int) -> list[str]:
+    """Batches as a lab has them: some held for review, some in review (sent by either of
+    two people), some edited since, some half certified, some quarantined."""
+    made_ = []
+    for i in range(start, stop):
+        purity, result = ((80.0, "fail"), (95.0, "pass"), (None, None))[i % 3]
+        # Out of its specification, it's saved with why, and held for review.
+        why = {"hold_reason": "As measured on the SEC; retest booked."} if purity == 80.0 else {}
+        ref = made(world, {"name": f"L-{i}", "purity": purity, "result": result}, **why)["id"]
+        if i % 2:
+            set_(world, ("editor", "admin")[i % 4 == 1], ref, "status", "in_review")
+        if i % 5 == 0:
+            assert change(world, ref, {"plate": f"P-{i}"}, **why).status_code == 200
+        if i % 6 == 1:
+            # Half certified: its review signature given, its QA approval to come.
+            signed(world, "editor", ref, "certified", index=0)
+        if i % 7 == 0:
+            set_(world, "admin", ref, "custody", "quarantined")
+        made_.append(ref)
+    return made_
+
+
+def _page_queries(world: World, refs: list[str]) -> int:
+    """Counts the queries a reviewer's page of the batches takes, and checks each row says
+    what the reviewer can do as its own page does, and as a search's page does."""
+    api = api_as(world, "admin")
+    with CaptureQueriesContext(connection) as queries:
+        page = api.get("/entities", type=BATCH, limit=100)
+    # Counted now: a later request clears the connection's log of them.
+    count = len(queries)
+    assert page.status_code == 200, page.content
+    rows = {row["id"]: row for row in page.json()["items"]}
+    assert set(rows) == set(refs)
+    found = api.post("/entities/search", {"type": BATCH}, limit=100)
+    assert found.status_code == 200, found.content
+    for row in found.json()["items"]:
+        assert row["can"] == rows[row["id"]]["can"], row["hrid"]
+    for ref in refs:
+        alone = api.get(f"/entities/{ref}").json()
+        assert rows[ref]["can"] == alone["can"], alone["hrid"]
+    return count
+
+
+def test_a_page_of_guarded_records_takes_as_many_queries_however_long_it_is(
+    world: World,
+) -> None:
+    """Each row's states, holds and guards are worked out for the whole page at once, and
+    each row says what its own page does: which states it may be set to and signed for,
+    and why not."""
+    ready(world)
+    roles(world, editor=(ANALYST, REVIEWER), admin=(ANALYST, REVIEWER, QA))
+    refs = _batches(world, 0, 2)
+    few = _page_queries(world, refs)
+    refs += _batches(world, 2, 50)
+    assert _page_queries(world, refs) == few

@@ -16,6 +16,8 @@
  * - Its plugins' rules (ADR 0127) are checked as it's typed, each field saying
  *   which it breaks. A rule that holds records for review, such as a result's
  *   specification, asks why to save it anyway: it's saved, and held.
+ * - Leaving an edit with changes unsaved (a link, Back, closing the tab) asks
+ *   first; the save goes to the record without asking.
  */
 
 import { ApiError, unwrap } from "@ikisci/sdk";
@@ -49,7 +51,16 @@ import {
 } from "../entity-values";
 import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
-import { Button, buttonClass, PageHeader, SelectField, TextField, useMessages } from "../ui";
+import {
+  Button,
+  buttonClass,
+  ConfirmDialog,
+  PageHeader,
+  SelectField,
+  TextField,
+  useLeaveGuard,
+  useMessages,
+} from "../ui";
 import { APP_TYPE } from "../apps";
 import { createdMessage } from "../registries";
 import { fieldLabels, isServiceField, listed, writableFields } from "../requests";
@@ -57,7 +68,7 @@ import { fieldLabels, isServiceField, listed, writableFields } from "../requests
 import { breakErrors, useRuleBreaks, type RuleBreak } from "../rules";
 
 import { AppPreview } from "./app-preview";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 type Drafts = Record<string, Draft>;
 
@@ -141,6 +152,9 @@ function Fields({
   creating?: boolean;
 }) {
   const computed = type.fields.filter((f) => f.computed && !f.detached);
+  // Worked out by an expression as it's saved (ADR 0297), or set by its plugin's actions.
+  const worked = computed.filter((f) => f.cel);
+  const byActions = computed.filter((f) => !f.cel);
   const kept = type.fields.filter((f) => f.detached);
   // State fields (ADR 0125) start where their type says, and are set on the record's page.
   const stateful = type.fields.filter((f) => f.type === "state" && !f.detached);
@@ -169,9 +183,15 @@ function Fields({
           projectId={typeof projectId === "string" ? projectId : projectId(field)}
         />
       ))}
-      {computed.length ? (
+      {worked.length ? (
         <p className="muted">
-          Actions set {computed.map((f) => inSentence(f.label)).join(", ")}: they aren’t typed in.
+          {worked.map((f) => f.label).join(", ")}: worked out from its other values as it’s saved,
+          so {worked.length === 1 ? "it isn’t" : "they aren’t"} typed in.
+        </p>
+      ) : null}
+      {byActions.length ? (
+        <p className="muted">
+          Actions set {byActions.map((f) => inSentence(f.label)).join(", ")}: they aren’t typed in.
         </p>
       ) : null}
       {states.length ? (
@@ -632,6 +652,8 @@ function EditEntityForm({
     changedNames.add(r.field);
   }
   const found = useRuleBreaks(type, proposed, changedNames);
+  // Leaving with changes unsaved asks first; the save's own navigation doesn't.
+  const leave = useLeaveGuard(changed.length > 0);
 
   const save = useApiMutation(
     async (values: Record<string, unknown>) =>
@@ -695,7 +717,12 @@ function EditEntityForm({
       onSuccess: (saved) => {
         const search = recordSearch(saved);
         client.setQueryData(entityQuery(saved.hrid, search.project).queryKey, saved);
-        void navigate({ to: "/entities/$ref/", params: { ref: saved.hrid }, search }).then(() => {
+        void navigate({
+          to: "/entities/$ref/",
+          params: { ref: saved.hrid },
+          search,
+          ignoreBlocker: true,
+        }).then(() => {
           say(`Saved revision ${String(saved.revision)} of ${saved.hrid}.`);
         });
       },
@@ -819,6 +846,20 @@ function EditEntityForm({
           </div>
         </form>
       </section>
+      <ConfirmDialog
+        isOpen={leave.asking}
+        title="Discard your changes?"
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        busy={false}
+        onCancel={leave.stay}
+        onConfirm={leave.leave}
+      >
+        <p>
+          {listed(changed.map((f) => f.label))} {changed.length === 1 ? "has" : "have"} changes that
+          aren’t saved. Discarding them leaves {opened.hrid} as it is.
+        </p>
+      </ConfirmDialog>
       {type.name === APP_TYPE && opened.owner_project ? (
         <AppPreview type={type} types={types} drafts={drafts} project={opened.owner_project} />
       ) : null}

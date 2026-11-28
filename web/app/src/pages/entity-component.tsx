@@ -7,6 +7,7 @@
  * chosen, where they check and start it.
  */
 
+import type { Place } from "@ikisci/component";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
@@ -18,13 +19,12 @@ import {
   entityTabs,
   lineageOf,
   type EntityTab,
-  type PlaceInfo,
   type PluginComponent,
 } from "../components";
 import type { Entity, EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import { actionsQuery } from "../runs";
-import { useEntity } from "./entity";
+import { useEntity } from "./entity-header";
 import { NoSuchTab } from "./errors";
 import { PluginPlace } from "./plugin-place";
 
@@ -76,7 +76,7 @@ function Tab({ tab, entity, types }: { tab: EntityTab; entity: Entity; types: En
   const data = usePlaceEntities(tab.component, many ? { entity: entity.id } : null);
   const offered = useOffered(tab.component, entity, types);
   const offers = tab.component.runs.length > 0;
-  const place = useMemo<PlaceInfo>(
+  const place = useMemo<Place>(
     () => ({ slot: "entity.tab", label: tab.label, ...(offers ? { runs: offered } : {}) }),
     [tab.label, offers, offered],
   );

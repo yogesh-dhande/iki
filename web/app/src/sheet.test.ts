@@ -14,18 +14,21 @@ import {
   ID,
   LOCATION,
   moved,
+  NONE_LOADED,
   parseHtmlTable,
   parseTsv,
   placePaste,
   problemsAt,
   rangeOf,
   redo,
+  reloaded,
   saveRow,
   sheetColumns,
   textAt,
   toTsv,
   undo,
   whyLocked,
+  whyNotInACell,
   withNewRows,
   withoutNewRows,
   written,
@@ -140,6 +143,20 @@ describe("a sheet's columns", () => {
     expect(column("status").readOnly).toMatch(/a state/);
     expect(column("mass").readOnly).toMatch(/computed/);
     expect(column(LOCATION).newOnly).toBe(true);
+  });
+
+  it("say a field worked out by an expression is, not that an action sets it", () => {
+    const worked = field({
+      name: "fraction",
+      label: "Fraction",
+      type: "float",
+      computed: true,
+      cel: "record.purity / 100.0",
+      cel_reads: ["purity"],
+    });
+    expect(whyNotInACell(worked)).toBe(
+      "It’s worked out from the record’s other values as it’s saved.",
+    );
   });
 
   it("leave out a place for a type whose records are scanned to be put away", () => {
@@ -391,6 +408,31 @@ describe("changes, and undoing them", () => {
     const between = withNewRows(two, 1, 1);
     expect(between.added).toEqual(["new-1", "new-3", "new-2"]);
     expect(withoutNewRows(between, new Set(["new-3"])).added).toEqual(["new-1", "new-2"]);
+  });
+});
+
+describe("the records a sheet has, as the table reads them again", () => {
+  const kd1 = sample("SMP-000001", { purity: 90 });
+  const kd2 = sample("SMP-000002", { purity: 91 });
+  const kd3 = sample("SMP-000003", { purity: 92 });
+
+  it("keeps each where it was, as it is now, with records it hadn't at the end", () => {
+    const first = reloaded(NONE_LOADED, [kd1, kd2]);
+    expect(first.order).toEqual([kd1.id, kd2.id]);
+    // Someone saved SMP-000002: sorted by when they changed, it's first in the table now.
+    const kd2Now = { ...kd2, revision: kd2.revision + 1, values: { purity: 95 } };
+    const next = reloaded(first, [kd3, kd2Now, kd1]);
+    expect(next.order).toEqual([kd1.id, kd2.id, kd3.id]);
+    expect(next.byId[kd2.id]).toBe(kd2Now);
+    // A record that's gone from the table stays.
+    expect(reloaded(next, [kd1]).order).toEqual([kd1.id, kd2.id, kd3.id]);
+    expect(reloaded(next, [kd1]).byId[kd2.id]).toBe(kd2Now);
+  });
+
+  it("is the same when nothing's new, so reading again redraws nothing", () => {
+    const first = reloaded(NONE_LOADED, [kd1, kd2]);
+    expect(reloaded(first, [kd2, kd1])).toBe(first);
+    expect(reloaded(first, [])).toBe(first);
   });
 });
 

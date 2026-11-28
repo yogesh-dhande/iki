@@ -4,7 +4,8 @@ A state says who may set its field to it (``set_by``, ADR 0125); its ``guards`` 
 when. Each is a CEL condition, type-checked when its plugin is validated and evaluated by
 iki-wasm here and in browsers alike, over:
 
-- ``actor``: who's setting it: the person (their ID), the agent acting for them (ADR
+- ``actor``: who's setting it: the person (their ID, a service account's own for a service
+  account, as ``history`` names whoever made each change), the agent acting for them (ADR
   0072), their lab roles in the record's project, and whether it's a service account;
 - ``record``: the record's values, every state field among them, with what its
   references refer to;
@@ -25,10 +26,13 @@ worked out, whatever the reason: a guard fails closed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+import json
+from collections import defaultdict
+from collections.abc import Hashable, Iterable, Iterator, Mapping, Sequence
+from dataclasses import dataclass, field
 from functools import cache
 from typing import TYPE_CHECKING, Any
+from uuid import UUID
 
 import structlog
 
@@ -42,7 +46,7 @@ from iki_spec.model import Field, Guard, State
 if TYPE_CHECKING:
     from iki_server.accounts.models import User
 
-__all__ = ["Refusal", "evaluate", "refusals", "variables_of"]
+__all__ = ["Ask", "Refusal", "evaluate", "refusals", "refusals_of", "variables_of"]
 
 log = structlog.get_logger(__name__)
 
@@ -84,20 +88,47 @@ def _change(revision: Revision, frm: str, to: str) -> dict[str, Any]:
     }
 
 
+def _revisions(ids: Iterable[UUID], *, with_edits: bool) -> dict[UUID, list[Revision]]:
+    """The revisions guards read of each of the records, in order: one query for a page."""
+    kinds = [RevisionKind.CREATED, RevisionKind.STATE_CHANGED]
+    if with_edits:
+        kinds.extend([RevisionKind.EDITED, RevisionKind.MIGRATED])
+    found: dict[UUID, list[Revision]] = defaultdict(list)
+    for revision in (
+        Revision.objects.filter(entity_id__in=set(ids), kind__in=kinds)
+        .select_related("agent")
+        .defer("submitted")
+        .order_by("entity_id", "number")
+    ):
+        found[revision.entity_id].append(revision)
+    return found
+
+
+_EDITS = frozenset({RevisionKind.EDITED, RevisionKind.MIGRATED})
+
+
 def _history(
-    entity: Entity, states: Mapping[str, Field], values: Mapping[str, Any], *, with_edits: bool
+    entity: Entity,
+    states: Mapping[str, Field],
+    values: Mapping[str, Any],
+    *,
+    with_edits: bool,
+    revisions: Sequence[Revision] | None = None,
+    names: FieldNames | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], dict[str, dict[str, list[dict[str, Any]]]]]:
-    names = FieldNames.for_type(entity.type)
+    """``revisions``: the record's (:func:`_revisions`), read if not given; ``names``:
+    its type's (:meth:`FieldNames.for_type`)."""
+    names = FieldNames.for_type(entity.type) if names is None else names
+    if revisions is None:
+        revisions = _revisions([entity.pk], with_edits=with_edits).get(entity.pk, [])
     history: dict[str, list[dict[str, Any]]] = {name: [] for name in states}
     edits: list[dict[str, Any]] = []
     # An entry points into the one chronological edit list. Re-entry replaces its offset.
     starts: dict[tuple[str, str], int] = {}
-    kinds = [RevisionKind.CREATED, RevisionKind.STATE_CHANGED]
-    if with_edits:
-        kinds.extend([RevisionKind.EDITED, RevisionKind.MIGRATED])
-    revisions = Revision.objects.filter(entity_id=entity.pk, kind__in=kinds).select_related("agent")
     created = None
-    for revision in revisions.order_by("number"):
+    for revision in revisions:
+        if not with_edits and revision.kind in _EDITS:
+            continue
         if revision.kind == RevisionKind.CREATED:
             created = revision
         elif (name := names.current(revision.state_field, revision.history_seen)) in states:
@@ -122,27 +153,46 @@ def _history(
 
 
 def _actor(user: User, roles: frozenset[str], plugin: str) -> dict[str, Any]:
+    """Who's acting, as a guard reads them. ``person`` is whoever the change will be
+    recorded as made by, a service account too, so four eyes compares like with like:
+    ``history`` names a service account's changes by its ID as well."""
     from iki_server.audit import log as audit
 
     agent = audit.current_agent_info()
     service = bool(getattr(user, "is_service_account", False))
     return {
-        "person": "" if service else str(user.pk),
+        "person": str(user.pk),
         "agent": {"name": agent.client_name, "client_id": agent.client_id} if agent else None,
         "roles": spec_rules.role_names(roles, plugin),
         "service_account": service,
     }
 
 
-def _draws(entity: Entity) -> list[dict[str, str]]:
+def _draws(ids: Iterable[UUID]) -> dict[UUID, list[dict[str, str]]]:
+    """When each of the records was drawn from, in order: one query for a page."""
     from iki_server.amounts.models import Movement, MovementKind
 
-    return [
-        {"on": checking.now_values(draw)["today"]}
-        for draw in Movement.objects.filter(used_in_id=entity.pk, kind=MovementKind.DRAWN)
+    found: dict[UUID, list[dict[str, str]]] = defaultdict(list)
+    for used_in, at in (
+        Movement.objects.filter(used_in_id__in=set(ids), kind=MovementKind.DRAWN)
         .order_by("created_at", "id")
-        .values_list("created_at", flat=True)
-    ]
+        .values_list("used_in_id", "created_at")
+    ):
+        found[used_in].append({"on": checking.now_values(at)["today"]})
+    return found
+
+
+@dataclass(frozen=True)
+class Ask:
+    """A record's state field, and states it could be set to: their guards to check.
+    ``values``: the record's, as the database stores them; ``signatures``: those given
+    for the change so far, for a signed state (``{index, meaning, by, at}``, ADR 0126)."""
+
+    entity: Entity
+    field: str
+    states: Sequence[State]
+    values: Mapping[str, Any]
+    signatures: Sequence[Mapping[str, Any]] = ()
 
 
 def refusals(
@@ -157,82 +207,172 @@ def refusals(
     guards that refuses ``user`` setting it, by state. ``values``: the record's, as the
     database stores them; ``signatures``: those given for the change so far, for a
     signed state (``{index, meaning, by, at}``, ADR 0126)."""
+    return refusals_of(user, [Ask(entity, field, states, values, signatures)])[0]
+
+
+def refusals_of(
+    user: User,
+    asks: Sequence[Ask],
+    held: Mapping[UUID, Sequence[RuleHold]] | None = None,
+) -> list[dict[str, Refusal]]:
+    """:func:`refusals` for each of ``asks``, a page of records' at once: what their guards
+    read is read once for all of them, and they're evaluated together. ``held``: the
+    records' open holds (:func:`holds.open_of`), read if not given."""
+    from iki_server.entities import holds
     from iki_server.org import permissions
 
-    guarded = [s for s in states if s.guards]
-    if not guarded or entity.owner_project is None:
-        return {}
-    type_name = entity.type
-    form = shape(type_name)
-    fields = form.fields()
-    state_fields = {n: f for n, f in fields.items() if f.type == "state" and not f.removed}
-    reads = sorted(
-        {n for s in guarded for g in s.guards.values() for n in g.reads} | set(state_fields)
-    )
-    referenced = checking.referenced_by(fields, reads, [values.get])
-    record = checking.record_json(
-        form, values.get, reads, referenced, entity_id=entity.pk, hrid=entity.hrid
-    )
-    missing = checking.unread(form, values.get, reads, referenced)
+    out: list[dict[str, Refusal]] = [{} for _ in asks]
+    work: list[tuple[int, Ask, list[State], _Reading]] = []
+    for i, ask in enumerate(asks):
+        guarded = [s for s in ask.states if s.guards]
+        if guarded and ask.entity.owner_project is not None:
+            work.append((i, ask, guarded, _reading(ask.entity.type, guarded)))
+    if not work:
+        return out
+    ids = {ask.entity.pk for _, ask, _, _ in work}
+    held = holds.open_of(ids) if held is None else held
+    revisions = _revisions(ids, with_edits=any(r.edits for *_, r in work))
+    names = {t: FieldNames.for_type(t) for t in {ask.entity.type for _, ask, _, _ in work}}
+    drawn = _draws({ask.entity.pk for _, ask, _, r in work if r.draws})
+    # What their references refer to, one read per type for all of its records.
+    referenced: dict[str, dict[Any, dict[str, Any]]] = {}
+    for type_name in names:
+        of_type = [(ask, r) for _, ask, _, r in work if ask.entity.type == type_name]
+        referenced[type_name] = checking.referenced_by(
+            shape(type_name).fields(),
+            sorted({n for _, r in of_type for n in r.reads}),
+            [ask.values.get for ask, _ in of_type],
+        )
+    now = checking.now_values()
+    # Evaluated together, a call for each type and field: their guards read the same.
+    groups: dict[tuple[str, str], _Group] = defaultdict(_Group)
+    for i, ask, guarded, reading in work:
+        entity, values = ask.entity, ask.values
+        type_name = entity.type
+        form = shape(type_name)
+        refs = referenced[type_name]
+        record = checking.record_json(
+            form, values.get, reading.reads, refs, entity_id=entity.pk, hrid=entity.hrid
+        )
+        history, edits = _history(
+            entity,
+            reading.states,
+            values,
+            with_edits=reading.edits,
+            revisions=revisions.get(entity.pk, []),
+            names=names[type_name],
+        )
+        last = {
+            name: {
+                s: next((c for c in reversed(changes) if c["to"] == s), None)
+                for s in reading.states[name].states
+            }
+            for name, changes in history.items()
+        }
+        project = entity.owner_project
+        assert project is not None  # noqa: S101 - only a project's records are asked
+        roles = permissions.lab_roles(user, project)
+        actor = _actor(user, roles, _plugin_of(type_name, ask.field))
+        if not actor["person"]:
+            # No one to tell apart from whoever made the earlier changes: no guard can say yes.
+            out[i] = {
+                s.name: Refusal(g, "It couldn’t be checked: no one is acting.")
+                for s in guarded
+                for g in list(s.guards.values())[:1]
+            }
+            continue
+        base = {
+            "record": record,
+            **now,
+            "actor": actor,
+            "history": history,
+            "last": last,
+            "edits": edits,
+            "holds": [h.rule for h in held.get(entity.pk, ())],
+            "draws": drawn.get(entity.pk, []),
+            "covered_subjects": requests.covered_subjects(entity, values)
+            if reading.covered
+            else [],
+            "signatures": list(ask.signatures),
+        }
+        current = values.get(ask.field) or ""
+        group = groups[type_name, ask.field]
+        lost = checking.unread(form, values.get, reading.reads, refs)
+        for state in guarded:
+            key = (i, state.name)
+            group.guards[key] = tuple(state.guards.values())
+            group.contexts[key] = {
+                **base,
+                "state": {"field": ask.field, "from": current, "to": state.name},
+            }
+            group.missing[key] = lost
+    for (type_name, name), group in groups.items():
+        found = evaluate(
+            type_name, variables_of(type_name, name), group.guards, group.contexts, group.missing
+        )
+        for (i, to), refusal in found.items():
+            out[i][to] = refusal
+    return out
+
+
+@dataclass(frozen=True)
+class _Reading:
+    """What a record's guarded states' guards read."""
+
+    #: Its state fields.
+    states: Mapping[str, Field]
+    #: The fields its guards read, and its state fields.
+    reads: tuple[str, ...]
+    edits: bool
+    draws: bool
+    covered: bool
+
+
+def _reading(type_name: str, guarded: Sequence[State]) -> _Reading:
+    fields = shape(type_name).fields()
+    states = {n: f for n, f in fields.items() if f.type == "state" and not f.removed}
     sources = [
         source
         for s in guarded
         for g in s.guards.values()
         for source in (g.check, g.when or "", g.message)
     ]
-    history, edits = _history(
-        entity, state_fields, values, with_edits=any("edits" in s for s in sources)
-    )
-    last = {
-        name: {
-            s: next((c for c in reversed(changes) if c["to"] == s), None)
-            for s in state_fields[name].states
-        }
-        for name, changes in history.items()
-    }
-    held = list(
-        RuleHold.objects.filter(entity_id=entity.pk, reviewed_at__isnull=True).values_list(
-            "rule", flat=True
-        )
-    )
-    roles = permissions.lab_roles(user, entity.owner_project)
-    plugin = _plugin_of(type_name, field)
-    base = {
-        "record": record,
-        **checking.now_values(),
-        "actor": _actor(user, roles, plugin),
-        "history": history,
-        "last": last,
-        "edits": edits,
-        "holds": held,
-        "draws": _draws(entity) if any("draws" in s for s in sources) else [],
-        "covered_subjects": requests.covered_subjects(entity, values)
-        if any("covered_subjects" in s for s in sources)
-        else [],
-        "signatures": list(signatures),
-    }
-    current = values.get(field) or ""
-    contexts = {
-        state.name: {**base, "state": {"field": field, "from": current, "to": state.name}}
-        for state in guarded
-    }
-    return evaluate(
-        type_name,
-        variables_of(type_name, field),
-        {state.name: tuple(state.guards.values()) for state in guarded},
-        contexts,
-        missing,
+    return _Reading(
+        states,
+        tuple(
+            sorted({n for s in guarded for g in s.guards.values() for n in g.reads} | set(states))
+        ),
+        any("edits" in s for s in sources),
+        any("draws" in s for s in sources),
+        any("covered_subjects" in s for s in sources),
     )
 
 
-def evaluate(
+@dataclass
+class _Group:
+    """The guards of one type's state field, for each record and state: one evaluation."""
+
+    guards: dict[tuple[int, str], Sequence[Guard]] = field(default_factory=dict)
+    contexts: dict[tuple[int, str], Mapping[str, Any]] = field(default_factory=dict)
+    missing: dict[tuple[int, str], Mapping[str, int]] = field(default_factory=dict)
+
+
+#: About how much of the guards' contexts one evaluation takes, in bytes of JSON: a page
+#: of records whose guards read long lists is evaluated in parts, well inside the
+#: module's input limit (:func:`iki_spec.wasm.call`).
+EVALUATION_BYTES = 8 * 1024 * 1024
+
+
+def evaluate[K: Hashable](
     type_name: str,
     variables: Mapping[str, Any],
-    guards: Mapping[str, Sequence[Guard]],
-    contexts: Mapping[str, Mapping[str, Any]],
-    missing: Mapping[str, int],
-) -> dict[str, Refusal]:
-    """Evaluate the guards for each proposed operation and return its first refusal."""
+    guards: Mapping[K, Sequence[Guard]],
+    contexts: Mapping[K, Mapping[str, Any]],
+    missing: Mapping[K, Mapping[str, int]],
+) -> dict[K, Refusal]:
+    """Evaluate the guards for each proposed operation and return its first refusal.
+    ``missing``: by operation, the fields its record refers to records it couldn't read
+    (:func:`checking.unread`); an operation not in it has none."""
     expressions: list[tuple[str, str]] = []
     at: dict[Guard, tuple[int, int | None, int]] = {}
     for guard in dict.fromkeys(g for group in guards.values() for g in group):
@@ -246,13 +386,16 @@ def evaluate(
         expressions.append((guard.message, spec_rules.MESSAGE))
         at[guard] = check, when, message
 
-    results = spec_rules.evaluate(variables, expressions, list(contexts.values()))
-    out: dict[str, Refusal] = {}
+    results: list[list[spec_rules.Outcome]] = []
+    for part in _parts(list(contexts.values())):
+        results.extend(spec_rules.evaluate(variables, expressions, part))
+    out: dict[K, Refusal] = {}
     for key, outcomes in zip(contexts, results, strict=True):
+        unread = missing.get(key, {})
         for guard in guards[key]:
             check, when, message = at[guard]
             text = outcomes[message].text or guard.message
-            if lost := {n: k for n, k in missing.items() if n in guard.reads}:
+            if lost := {n: k for n, k in unread.items() if n in guard.reads}:
                 # Worked out on part of a list, it could let the change through wrongly.
                 log.warning(
                     "entities.guard_unworkable", type=type_name, guard=guard.name, unread=lost
@@ -281,3 +424,18 @@ def evaluate(
             out[key] = Refusal(guard, text)
             break
     return out
+
+
+def _parts(contexts: list[Mapping[str, Any]]) -> Iterator[list[Mapping[str, Any]]]:
+    """The contexts in order, in parts of about :data:`EVALUATION_BYTES` each."""
+    part: list[Mapping[str, Any]] = []
+    size = 0
+    for context in contexts:
+        length = len(json.dumps(context))
+        if part and size + length > EVALUATION_BYTES:
+            yield part
+            part, size = [], 0
+        part.append(context)
+        size += length
+    if part:
+        yield part

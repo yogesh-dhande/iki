@@ -105,7 +105,7 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
         )
         primer = make("iki/dna.Primer", bases="ACG", target=str(puc.pk))
         assert Ext_iki_dna_DNASequence.objects.get(entity_id=puc.pk).construct_id == "PUC-19"
-        assert make("acme/example.Sample", name="Reference vial").hrid.startswith("SMP-")
+        assert make("acme/example.Sample", name="Reference vial").hrid.startswith("ASMP-")
         sample = make(
             "acme/storage_labels.Sample", name="S1", kind="dna", construct=str(puc.pk),
         )
@@ -182,6 +182,10 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             refusal(components=parts(other, light), format="igg"),
             refusal(components=[*parts(other), {"part": str(light.pk), "role": "linker"}],
                     format="other"),
+            # A J chain joins an IgM pentamer's or an IgA polymer's subunits, not one's.
+            refusal(components=[*parts(other, light, 2),
+                                {"part": str(bla.pk), "copies": 1, "role": "j_chain"}],
+                    format="other", isotype="igm"),
         ]
         whole_igm = refusal(components=parts(other, light, 2), format="other", isotype="igm")
         # Every complex type is a complex (ADR 0161): one molecule is one entry whichever
@@ -321,7 +325,15 @@ def test_they_migrate_forwards_and_back_and_store_entities(tmp_path: Path, datab
             ]
         },
         # An antibody's roles are all its parts may have (ADR 0164).
-        {"components/1/role": ["isn't one of its roles: heavy, light."]},
+        {"components/1/role": ["isn't one of its roles: heavy, light, j_chain."]},
+        {
+            field: [
+                "A J chain joins an IgM pentamer's or an IgA polymer's subunits, not an IgM "
+                "hexamer's, which has none: give one copy of it, with format other, an IgM or "
+                "IgA isotype, and two copies of each other chain for each subunit."
+            ]
+            for field in ("components", "format", "isotype")
+        },
     ]
     # A whole IgM is `other`, which may take any class.
     assert result["whole_igm"] is None
