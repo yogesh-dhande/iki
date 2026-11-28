@@ -98,6 +98,7 @@ def read_component(plugin: str, body: dict[str, Any], document: Document) -> Com
     return Component(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=label,
         description=body.get("description"),
         module=body["module"],

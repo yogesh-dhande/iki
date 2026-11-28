@@ -1,22 +1,20 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: PlasmidPrepMethod
 label: Plasmid prep method
 schema_version: 1
 description: How a plasmid prep is purified from its host. A lab list (ADR 0270).
-hrid: { prefix: PPM }
-list:
-  options:
-    - code: silica_column
-      label: Silica spin column
-      description: Alkaline lysis, then a silica spin column.
-    - code: anion_exchange
-      label: Anion exchange column
-      description: Alkaline lysis, then an anion exchange column.
-    - code: endotoxin_free
-      label: Endotoxin-free anion exchange
-      description: Anion exchange with an endotoxin removal step.
-    - code: cesium_chloride
-      label: Caesium chloride gradient
-      description: Ultracentrifugation in a caesium chloride–ethidium bromide gradient.
+options:
+  - code: silica_column
+    label: Silica spin column
+    description: Alkaline lysis, then a silica spin column.
+  - code: anion_exchange
+    label: Anion exchange column
+    description: Alkaline lysis, then an anion exchange column.
+  - code: endotoxin_free
+    label: Endotoxin-free anion exchange
+    description: Anion exchange with an endotoxin removal step.
+  - code: cesium_chloride
+    label: Caesium chloride gradient
+    description: Ultracentrifugation in a caesium chloride–ethidium bromide gradient.

@@ -5,7 +5,13 @@
   "description": "Something a plugin does to entities: compute properties, create new entities from them, or import them. Each run records what it read, what it wrote and where it ran.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "runs_on", "command"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
     "kind": { "description": "What the manifest declares: `Action`.", "const": "Action" },
     "name": {

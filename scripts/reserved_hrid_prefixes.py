@@ -26,6 +26,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from iki_spec import first_party, hrid_prefixes, naming
+from iki_spec.model import LIST_HRID_PREFIX
 from iki_spec.yamlsource import read_documents
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,6 +99,8 @@ def current() -> dict[str, dict[str, str]]:
     plugins: dict[str, str] = {}
     _add(core, _types(naming.CORE, CORE_TYPES), taken)
     _add(core, _server_records(), taken)
+    # Every lab list's options share one sequence (ADR 0295).
+    _add(core, [(LIST_HRID_PREFIX, "Iki's lab list options")], taken)
     for name, directory in first_party.catalog(ROOT / "plugins").items():
         _add(plugins, _types(name, directory / "types"), taken)
     landed = set(plugins.values())

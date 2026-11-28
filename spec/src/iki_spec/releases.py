@@ -47,3 +47,25 @@ def fits(requirement: str, version: str | None = None) -> bool:
         if not ok:
             return False
     return True
+
+
+def admits_before(requirement: str, version: str) -> bool:
+    """Whether ``requirement`` admits a release earlier than ``version``.
+
+    A plugin whose ``iki:`` does can't use a manifest key ``version`` added (ADR 0293):
+    it says it loads on a release that doesn't know the key. Only the lower bounds
+    matter: ``>=0.3`` and ``==0.3`` admit nothing before 0.3, ``>0.2`` admits 0.2.1, and
+    a range with no lower bound admits 0.0.0.
+    """
+    want = release(version)
+    earliest = (0, 0, 0)
+    for part in requirement.split(","):
+        match = _PART.fullmatch(part)
+        if match is None:
+            raise ValueError(f"{requirement!r} isn't a list of comparisons with releases")
+        op, bound = match.group(1), release(match.group(2))
+        if op in (">=", "=="):
+            earliest = max(earliest, bound)
+        elif op == ">":
+            earliest = max(earliest, (bound[0], bound[1], bound[2] + 1))
+    return earliest < want

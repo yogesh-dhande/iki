@@ -25,9 +25,10 @@ function disclosure(section, title, contents, open = false) {
 	});
 	return details;
 }
-// web/packages/science/src/composition-mass.ts
-const AVERAGE_H = 1.00794;
+// web/packages/science/src/molecular-data.ts
+const AVERAGE_H = 1.008;
 const MASS_1H = 1.00782503223;
+// web/packages/science/src/composition-mass.ts
 const CYSTINE_EXTINCTION = 125;
 /** Oxidizing two thiols to a disulfide removes two H per bond. Keeps isotope labels intact. */
 function withDisulfides(reduced, count) {

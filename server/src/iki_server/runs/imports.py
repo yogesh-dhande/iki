@@ -70,7 +70,6 @@ from iki_server.entities.values import (
     Invalid,
     Part,
     Refs,
-    is_list_table,
     problems_of,
     row_columns,
     shape,
@@ -97,7 +96,7 @@ from iki_server.runs.services import is_a
 from iki_server.setup import starter_flows
 from iki_spec import outputs, schemas
 from iki_spec.model import Action as SpecAction
-from iki_spec.model import Field, Software
+from iki_spec.model import Field, Software, stored_in_list_table
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -1472,7 +1471,7 @@ def _insert(imported: RunImport, run: ActionRun) -> tuple[int, int, int]:
         new = f"FROM {table} s JOIN iki_import_resolved r USING (line) WHERE r.new"
         for type_name in types:
             entity_type = registry.types()[type_name]
-            prefix, digits = entity_type.hrid_prefix, entity_type.hrid_digits
+            prefix, digits = entity_type.numbering_prefix, entity_type.hrid_digits
             if type_name in identified:
                 # A record of an entry has the entry's HRID.
                 cursor.execute(
@@ -1731,7 +1730,7 @@ def _find_spelled(cursor: Any, table: str, type_name: str) -> None:  # noqa: ANN
         )
         for name in names:
             column = columns.get(name)
-            if is_list_table(part.fields[name]) or column is None:
+            if stored_in_list_table(part.fields[name]) or column is None:
                 differs.append("true")
             else:
                 differs.append(f"(g{n}.p).{_q(column)} IS DISTINCT FROM t{n}.{_q(column)}")
@@ -1751,7 +1750,7 @@ def _insert_entries(cursor: Any, table: str, type_name: str, params: dict[str, A
     """The new registry entries of one type: each identity's first line makes it, with its
     identity, derived and fact values. Returns how many."""
     entity_type = registry.types()[type_name]
-    prefix, digits = entity_type.hrid_prefix, entity_type.hrid_digits
+    prefix, digits = entity_type.numbering_prefix, entity_type.hrid_digits
     making = f"FROM {table} s JOIN iki_import_resolved r USING (line) WHERE r.makes_entry"
     cursor.execute(
         "INSERT INTO iki_entity (id, type, hrid, registry_id, created_by_id,"  # noqa: S608 - ours; values are parameters
@@ -1862,7 +1861,7 @@ def _find_fills(cursor: Any, table: str, type_name: str) -> None:  # noqa: ANN40
             given = f"s.parts->{_literal(key)}->{_literal(name)}"
             some = f"{given} IS NOT NULL AND {given} NOT IN ('null'::jsonb, '[]'::jsonb)"
             column = columns.get(name)
-            if is_list_table(f) or column is None:
+            if stored_in_list_table(f) or column is None:
                 # Compared item by item, with the entry's, in Python.
                 differs.append(f"({some})")
             else:
@@ -1880,6 +1879,16 @@ def _find_fills(cursor: Any, table: str, type_name: str) -> None:  # noqa: ANN40
         f" AND ({' OR '.join(differs)})",
         [type_name],
     )
+
+
+def _made_of(entry_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """The records of an entry the import makes, whose lines were checked as they were
+    staged."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT entity_id FROM iki_import_resolved WHERE entry_id = %s AND new", [entry_id]
+        )
+        return frozenset(found for (found,) in cursor.fetchall())
 
 
 class _Filling:
@@ -1944,6 +1953,8 @@ class _Filling:
                         project=self.run.project,
                         reason=self.run.change_reason,
                         by_run=True,
+                        # Its own new records' rules are checked with their lines.
+                        besides=_made_of(entry_id),
                     )
                 except Invalid as error:
                     # Another entry's unique value, say: on the line that filled it.
@@ -2046,7 +2057,7 @@ def _insert_part(
         [type_name],
     )
     for name, f in part.fields.items():
-        if not is_list_table(f) or f.removed:
+        if not stored_in_list_table(f) or f.removed:
             continue
         items = part.list_model(name)._meta
         if f.is_rows:

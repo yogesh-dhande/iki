@@ -97,6 +97,7 @@ def read_procedure(plugin: str, data: Mapping[str, Any], file: str | None) -> Re
             if isinstance(f, dict)
         },
         file=file,
+        annotations=dict(data.get("annotations") or {}),
     )
 
 

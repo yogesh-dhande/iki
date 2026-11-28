@@ -22,6 +22,8 @@ __all__ = [
     "FIELD_TYPES",
     "FORMATS",
     "LIST_FIELDS",
+    "LIST_HRID_PREFIX",
+    "LIST_TABLE_ITEMS",
     "NUMERIC_OPERATORS",
     "SIGNATURE_MEANINGS",
     "TIERS",
@@ -67,6 +69,7 @@ __all__ = [
     "person_role",
     "plugin_from_dict",
     "plugin_to_dict",
+    "stored_in_list_table",
     "workflow_from_dict",
 ]
 
@@ -329,6 +332,17 @@ class Field:
             if data.get("type") == "row"
             else {},
         )
+
+
+#: The items a list keeps in a table of its own, an item per row: references, files and
+#: people, each with its foreign key; and rows (ADR 0137), a column per row's field. Other
+#: lists are arrays in their owner's row.
+LIST_TABLE_ITEMS = ("ref", "file", "person", "row")
+
+
+def stored_in_list_table(f: Field) -> bool:
+    """Whether a list field is kept in a table of its own (:data:`LIST_TABLE_ITEMS`)."""
+    return f.type == "list" and f.items is not None and f.items.type in LIST_TABLE_ITEMS
 
 
 def names_people(f: Field) -> bool:
@@ -716,6 +730,8 @@ class ReviewProcedure:
     states: dict[str, ReviewState] = field(default_factory=dict)
     flows: dict[str, ReviewFlow] = field(default_factory=dict)
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1223,7 +1239,7 @@ class DrawTarget:
     unit: str | None = None
 
 
-#: The fields every lab list's options have (ADR 0270), which the list marker gives its type:
+#: The fields every lab list's options have (ADR 0270), which a list's type has before its own:
 #: its code, which is its identity, and its label, description and place in the list, which
 #: are registry facts its curators change.
 LIST_CODE = "code"
@@ -1237,10 +1253,13 @@ LIST_CODE_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_.+-]*$"
 LIST_LABEL_PATTERN = r"^\S(?:.*\S)?$"
 #: The most options a list may have, as a dropdown or its search can offer them.
 LIST_MAX_OPTIONS = 10000
+#: The HRID prefix of every list's options (ADR 0295): one sequence numbers them all, as
+#: they're named by their code and shown by their label. Iki reserves it: no type declares it.
+LIST_HRID_PREFIX = "OPTION"
 
 
 def list_fields() -> dict[str, Field]:
-    """The fields the list marker gives a type (ADR 0270), before the type's own."""
+    """The fields a lab list's options have (ADR 0270), before the list's own."""
     return {
         LIST_CODE: Field(
             name=LIST_CODE,
@@ -1377,15 +1396,26 @@ class EntityType:
     #: these unless they name their own.
     refines_to: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: Its entities are a lab list's options (ADR 0270): registry entries every project in
-    #: their registry may pick, curated by its registrars and list curators.
+    #: their registry may pick, curated by its registrars and list curators. A ``kind: List``
+    #: manifest declares it (ADR 0295).
     list_spec: ListSpec | None = None
     #: How its records are reviewed (ADR 0301): its own, or an ancestor's.
     review: ReviewSpec | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
-    def is_list(self) -> bool:
+    def is_lab_list(self) -> bool:
         """Whether its entities are a lab list's options (ADR 0270)."""
         return self.list_spec is not None
+
+    @property
+    def numbering_prefix(self) -> str | None:
+        """The prefix its entities' HRIDs have: its own, or for a lab list, which has none,
+        the one every list's options share (ADR 0295). None for an abstract type."""
+        if self.is_lab_list:
+            return LIST_HRID_PREFIX
+        return None if self.abstract else self.hrid_prefix
 
     @property
     def qualified_name(self) -> str:
@@ -1573,6 +1603,8 @@ class Extension:
     file: str | None = None
     #: Rules every save of the extended type's records keeps (ADR 0127), by name.
     rules: dict[str, Rule] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def table(self) -> str:
@@ -1804,6 +1836,8 @@ class Action:
     retry_max: int = 0
     retry_on: tuple[str, ...] = ()
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1842,6 +1876,8 @@ class Environment:
     file: str | None = None
     #: Provisioned runs need an image supplied by this deployment.
     customer_image_required: bool = False
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 #: A condition's operators: how its value compares with its operand.
@@ -1945,6 +1981,8 @@ class Workflow:
     params: dict[str, Field] = field(default_factory=dict)
     steps: dict[str, WorkflowStep] = field(default_factory=dict)
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2043,6 +2081,8 @@ class Trigger:
     related: dict[str, Related] = field(default_factory=dict)
     recheck: str = ""
     watch_included: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2115,6 +2155,8 @@ class Component:
     #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
     sha256: str = ""
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2171,7 +2213,7 @@ class Plugin:
     description: str | None = None
     license: str | None = None
     homepage: str | None = None
-    #: The Iki releases it works with, such as `>=0.1,<0.3`, or None to say nothing.
+    #: The Iki releases it works with, such as `>=0.1,<0.3`; plugin.yaml must say (ADR 0293).
     iki: str | None = None
     #: plugin name → {type name → schema-version constraint}
     dependencies: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -2195,6 +2237,8 @@ class Plugin:
     writers: dict[str, Writer] = field(default_factory=dict)
     #: The review procedures it declares, by qualified name and version (ADR 0301).
     procedures: dict[str, ReviewProcedure] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -2364,6 +2408,7 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 isinstance(value, EntityType) and f.name == "service" and value.service == Service()
             )
             and not (isinstance(value, Service) and getattr(value, f.name) is None)
+            and not (f.name == "annotations" and not getattr(value, f.name))
             and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
             and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (

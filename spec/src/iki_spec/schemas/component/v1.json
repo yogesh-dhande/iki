@@ -5,7 +5,13 @@
   "description": "A piece of UI the plugin adds to Iki's pages: a Web Component, in one JavaScript module, that Iki runs in a sandboxed frame with no network and no access to the person's session. Iki gives it the data it shows, with the viewer's permissions, and does anything it asks for itself (ADR 0084, ADR 0117).",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "module", "element", "slots"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "description": "The spec version this manifest follows.",
       "const": "iki/v1"

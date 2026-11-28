@@ -13,7 +13,7 @@ from django.utils import timezone
 from org_world import World
 from test_api_entities import api_as, create, patch
 from test_runs import protein, world
-from test_states import ANALYST, QA, REVIEWER, roles, set_
+from test_states import ANALYST, QA, REVIEWER, put, roles, set_
 
 from iki_server.audit import log as audit
 from iki_server.audit.models import AuditEvent
@@ -642,6 +642,58 @@ def test_a_held_record_cant_be_set_to_a_state_that_locks_it(world: World) -> Non
     assert set_(world, "admin", saved["id"], "status", "approved")["locked"]
 
 
+def _purity_rule(*, hold: bool = False, states: tuple[str, ...] = ("in_review",)) -> Rule:
+    return Rule(
+        name="reviewed_with_a_purity",
+        label="Reviewed with a purity",
+        plugin="acme/protein",
+        check="record.purity != null",
+        when=f"record.status in {list(states)!r}".replace("'", '"'),
+        message="Measure its purity before review.",
+        hold=(QA,) if hold else (),
+        fields=("purity",),
+        reads=("purity", "status"),
+    )
+
+
+def test_a_state_change_is_checked_against_the_rules_reading_its_field(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A state is a value the record saves (ADR 0125): the rules reading it are checked
+    as an edit of it checks them, and its controls say why not."""
+    roles(world, editor=(ANALYST,))
+    _with_rule(monkeypatch, BATCH, _purity_rule())
+    saved = made(world, {})
+    answer = api_as(world).get(f"/entities/{saved['id']}").json()
+    why = {s["name"]: s["why_not"] for s in answer["can"]["states"]["status"]}
+    assert why["in_review"] == "Measure its purity before review."
+    body = problem(
+        put(world, "editor", saved["id"], "status", "in_review"), 422, "validation_failed"
+    )
+    assert errors(body) == [("#/values/purity", "reviewed_with_a_purity", False)]
+    assert Entity.objects.get(pk=saved["id"]).revision == saved["revision"]
+    # Kept, it's set.
+    assert change(world, saved["id"], {"purity": 95.0}).status_code == 200
+    set_(world, "editor", saved["id"], "status", "in_review")
+
+
+def test_a_state_change_that_breaks_a_rule_that_holds_is_held_for_its_reason(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    roles(world, editor=(ANALYST,), admin=(REVIEWER,))
+    _with_rule(monkeypatch, BATCH, _purity_rule(hold=True, states=("in_review", "approved")))
+    saved = made(world, {})
+    body = problem(
+        put(world, "editor", saved["id"], "status", "in_review"), 422, "hold_reason_required"
+    )
+    assert errors(body) == [("#/values/purity", "reviewed_with_a_purity", True)]
+    done = set_(world, "editor", saved["id"], "status", "in_review", "Sent for a purity check.")
+    [hold] = done["holds"]
+    assert hold["rule"] == "reviewed_with_a_purity" and hold["reason"] == "Sent for a purity check."
+    # A state that locks it isn't set while it's held, nor so that it would be.
+    problem(put(world, "admin", saved["id"], "status", "approved", "Approved."), 409, "refused")
+
+
 def test_a_runs_results_are_held_with_a_reason_naming_the_run() -> None:
     class Run:
         hrid = "RUN-000042"
@@ -726,6 +778,244 @@ def test_projects_are_kept_apart(world: World) -> None:
     entity_services.create(
         world.users["org_admin"], BATCH, other, {"name": "L-2", "plate": "P1", "well": "A1"}
     )
+
+
+# --- A registry entry's changes -----------------------------------------------------------------
+
+PROTEIN = "acme/protein.Protein"
+
+
+def _with_rule(monkeypatch: pytest.MonkeyPatch, type_name: str, rule: Rule) -> None:
+    """``type_name``'s records keep ``rule`` too, as if its plugin declared it."""
+    checks, every = checking.checks_of, checking.rules_of
+    monkeypatch.setattr(
+        checking, "checks_of", lambda t: (*checks(t), rule) if t == type_name else checks(t)
+    )
+    monkeypatch.setattr(
+        checking, "rules_of", lambda t: (*every(t), rule) if t == type_name else every(t)
+    )
+
+
+def _hazard_rule(*, hold: bool = False, needs_host: bool = False) -> Rule:
+    return Rule(
+        name="bsl3_needs_a_host" if needs_host else "not_bsl3",
+        label="A BSL-3 protein names its host" if needs_host else "Not BSL-3",
+        plugin="acme/protein",
+        check='record.hazard != "bsl3"',
+        when="record.host == null" if needs_host else None,
+        message="It's BSL-3.",
+        hold=(QA,) if hold else (),
+        reads=("hazard", "host") if needs_host else ("hazard",),
+    )
+
+
+def _rival(world: World) -> Project:
+    """Another project in the registry, the outsider's alone."""
+    from iki_server.org.models import ProjectMembership, ProjectRole
+
+    rival = Project.objects.create(team=world.team, name="Rival Screens")
+    ProjectMembership.objects.create(
+        project=rival, user=world.users["outsider"], role=ProjectRole.ADMIN
+    )
+    return rival
+
+
+def _curate(world: World, hrid: str, values: dict[str, Any]) -> Any:
+    from test_registries import registrar
+
+    curator = registrar(world)
+    return curator.patch(
+        f"/entries/{hrid}",
+        {"values": values, "reason": "Biosafety committee, 2026-11-17"},
+        headers={"If-Match": curator.get(f"/entries/{hrid}")["ETag"]},
+    )
+
+
+def test_a_registrars_change_that_breaks_a_rule_on_the_entry_alone_is_refused(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every record of the entry would break it alike."""
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule())
+    values = {"sequence": "MKVLLLA", "hazard": "bsl1"}
+    saved = create(api_as(world), world.project, values, PROTEIN)
+    assert saved.status_code == 201, saved.content
+    answer = _curate(world, saved.json()["hrid"], {"hazard": "bsl3"})
+    body = problem(answer, 422, "validation_failed")
+    assert errors(body) == [("#/values/hazard", "not_bsl3", False)]
+    record = api_as(world).get(f"/entities/{saved.json()['id']}").json()
+    assert record["values"]["hazard"] == "bsl1"
+
+
+def test_a_registrars_change_holds_every_record_a_rule_that_holds_reads(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rival = _rival(world)
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(hold=True))
+    values = {"sequence": "MKVLLLA", "hazard": "bsl1"}
+    mine = create(api_as(world), world.project, values, PROTEIN).json()
+    theirs = create(api_as(world, "outsider"), rival, {"sequence": "MKVLLLA"}, PROTEIN).json()
+    done = _curate(world, mine["hrid"], {"hazard": "bsl3"})
+    assert done.status_code == 200, done.content
+    entry_revision = done.json()["revision"]
+    for record in (mine, theirs):
+        [hold] = RuleHold.objects.filter(entity_id=record["id"])
+        assert (hold.rule, hold.reason) == ("not_bsl3", "Biosafety committee, 2026-11-17")
+        assert hold.held_by == world.users["auditor"]
+        [seen] = hold.occurrences.all()
+        assert (seen.entry_revision, seen.revision) == (entry_revision, record["revision"])
+    assert not RuleBreach.objects.exists()
+
+
+def test_a_registrars_change_is_reported_on_each_record_that_breaks_its_own_rule(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A rule that also reads a record's own values isn't the registrar's to know of: the
+    change stands, and each record that breaks it says so."""
+    rival = _rival(world)
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(needs_host=True))
+    hostless = create(api_as(world), world.project, {"sequence": "MKVLLLA"}, PROTEIN).json()
+    hosted = create(
+        api_as(world, "outsider"), rival, {"sequence": "MKVLLLA", "host": "E. coli"}, PROTEIN
+    ).json()
+    done = _curate(world, hostless["hrid"], {"hazard": "bsl3"})
+    assert done.status_code == 200, done.content
+    assert "Kinase Atlas" not in done.content.decode()
+    [breach] = RuleBreach.objects.filter(entity_id=hostless["id"])
+    assert breach.rule == "bsl3_needs_a_host"
+    assert not RuleBreach.objects.filter(entity_id=hosted["id"]).exists()
+    shown = api_as(world).get(f"/entities/{hostless['id']}").json()
+    assert [b["rule"] for b in shown["breaches"]] == ["bsl3_needs_a_host"]
+    # Keeping the rule again clears it.
+    kept = change(world, hostless["id"], {"host": "E. coli"})
+    assert kept.status_code == 200, kept.content
+    assert not RuleBreach.objects.filter(entity_id=hostless["id"]).exists()
+
+
+@pytest.mark.parametrize("by", ["registering", "editing"])
+@pytest.mark.parametrize("hold", [False, True])
+def test_a_holders_new_fact_is_checked_against_the_other_records_of_the_entry(
+    world: World, monkeypatch: pytest.MonkeyPatch, hold: bool, by: str
+) -> None:
+    """Their own save is checked against their record, as any save is; the entry's other
+    records are held or reported. Who gave the fact isn't told to the other holders (ADR
+    0115): the hold names no one, and no project."""
+    rival = _rival(world)
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(hold=hold, needs_host=True))
+    mine = create(api_as(world), world.project, {"sequence": "MKVLLLA"}, PROTEIN).json()
+    hosted = {"sequence": "MKVLLLA", "host": "E. coli"}
+    outsider = api_as(world, "outsider")
+    if by == "registering":
+        theirs = create(outsider, rival, {**hosted, "hazard": "bsl3"}, PROTEIN)
+        assert theirs.status_code == 201, theirs.content
+    else:
+        theirs = create(outsider, rival, hosted, PROTEIN)
+        filled = change(world, theirs.json()["id"], {"hazard": "bsl3"}, "outsider")
+        assert filled.status_code == 200, filled.content
+    assert api_as(world).get(f"/entities/{mine['id']}").json()["values"]["hazard"] == "bsl3"
+    assert not RuleBreach.objects.filter(entity_id=theirs.json()["id"]).exists()
+    assert not RuleHold.objects.filter(entity_id=theirs.json()["id"]).exists()
+    if hold:
+        [held] = RuleHold.objects.filter(entity_id=mine["id"])
+        assert held.held_by is None and held.held_agent is None
+        assert held.reason == (
+            f"Its registry entry {mine['hrid']} was given Hazard, which its rules read."
+        )
+        assert not RuleBreach.objects.filter(entity_id=mine["id"]).exists()
+    else:
+        [breach] = RuleBreach.objects.filter(entity_id=mine["id"])
+        assert breach.rule == "bsl3_needs_a_host"
+        assert not RuleHold.objects.filter(entity_id=mine["id"]).exists()
+
+
+def _superseded(world: World, values: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The editor's record of a mistaken entry, which a registrar supersedes by another
+    project's, registered with ``values``."""
+    from test_registries import registrar
+
+    wrong = create(api_as(world), world.project, {"sequence": "MKVLLLAK"}, PROTEIN).json()
+    right = create(
+        api_as(world, "outsider"), _rival(world), {"sequence": "MKVLLLA", **values}, PROTEIN
+    )
+    assert right.status_code == 201, right.content
+    done = registrar(world).post(
+        f"/entries/{wrong['hrid']}/supersede",
+        {"replacement": right.json()["hrid"], "reason": "Mistyped residue"},
+    )
+    assert done.status_code == 200, done.content
+    return wrong, right.json()
+
+
+def _move(world: World, record: dict[str, Any]) -> Any:
+    return api_as(world).post(f"/entities/{record['id']}/move", {"reason": "Superseded"})
+
+
+def test_a_move_that_breaks_a_rule_by_its_new_entrys_values_is_refused(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The record's values are its new entry's: it's checked by those that differ."""
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(needs_host=True))
+    wrong, right = _superseded(world, {"hazard": "bsl3", "host": "E. coli"})
+    body = problem(_move(world, wrong), 422, "validation_failed")
+    assert errors(body) == [
+        ("#/values/hazard", "bsl3_needs_a_host", False),
+        ("#/values/host", "bsl3_needs_a_host", False),
+    ]
+    assert Entity.objects.get(pk=wrong["id"]).entry_id != uuid.UUID(right["entry"]["id"])
+
+
+def test_a_move_that_breaks_a_rule_that_holds_holds_the_record_for_its_reason(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _with_rule(monkeypatch, PROTEIN, _hazard_rule(hold=True, needs_host=True))
+    wrong, right = _superseded(world, {"hazard": "bsl3", "host": "E. coli"})
+    moved = _move(world, wrong)
+    assert moved.status_code == 200, moved.content
+    [hold] = RuleHold.objects.filter(entity_id=wrong["id"])
+    assert (hold.reason, hold.held_by) == ("Superseded", world.users["editor"])
+    [seen] = hold.occurrences.all()
+    assert seen.entry_id == uuid.UUID(right["entry"]["id"])
+    # The revision that moved it.
+    assert seen.revision == wrong["revision"] + 1 == moved.json()["revision"]
+
+
+def test_a_move_clears_what_a_check_read_of_the_entry(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As an edit of what a check reads clears its result (ADR 0080), so does a move to an
+    entry that gives it another value: it's run again, never kept from the old one."""
+    from types import SimpleNamespace
+
+    from iki_server.runs import triggers
+
+    spec = SimpleNamespace(recheck="", qualified_name="acme/protein.check_hazard")
+    asked: list[set[str]] = []
+    fired: list[Any] = []
+
+    def rechecks(type_name: str, changed: set[str]) -> list[Any]:
+        asked.append(set(changed))
+        return [(spec, ("molecular_weight",))] if "hazard" in changed else []
+
+    def recheck_edit(user: Any, entity: Any, revision: Any, s: Any) -> str:
+        fired.append(revision)
+        return ""
+
+    monkeypatch.setattr(triggers, "rechecks", rechecks)
+    monkeypatch.setattr(triggers, "recheck_edit", recheck_edit)
+    wrong, _ = _superseded(world, {"hazard": "bsl3"})
+    record = Entity.objects.get(pk=wrong["id"])
+    entity_services.update(
+        world.users["editor"],
+        record,
+        {"molecular_weight": 30123.4},
+        expected_revision=record.revision,
+        by_run=True,
+    )
+    moved = _move(world, wrong)
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["values"]["molecular_weight"] is None
+    [revision] = fired
+    assert revision.changed_fields == ["molecular_weight"] and revision.reason == "Superseded"
+    assert "hazard" in asked[-1]
 
 
 # --- Records saved before a rule ----------------------------------------------------------------
