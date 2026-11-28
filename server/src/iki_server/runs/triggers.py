@@ -24,6 +24,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import structlog
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -33,6 +34,7 @@ from iki_server.accounts.models import Kind as UserKind
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
+from iki_server.core import sweeps
 from iki_server.entities import registry, search
 from iki_server.entities.models import Entity, Revision, RevisionKind
 from iki_server.entities.values import Invalid, subtypes
@@ -85,6 +87,10 @@ MAX_RELATED = 1000
 RECOVER_AFTER = timedelta(minutes=1)
 #: The most firings one housekeeping pass fires.
 RECOVER_AT_MOST = 500
+#: Tries at launching a firing's run that may fail unexpectedly before it fails.
+MAX_FAILURES = 5
+
+logger = structlog.get_logger("iki.runs")
 
 _EVENTS = {
     RevisionKind.CREATED: "entity.created",
@@ -310,8 +316,29 @@ def fire(firing_id: str) -> str:
         )
         if firing is None:
             return "already fired"
-        _fire(firing)
+        try:
+            with transaction.atomic():
+                _fire(firing)
+        except Exception:
+            # What it doesn't end with why (a bug, a constraint the launch breaks) is
+            # undone and counted: the sweep tries it again, and past a few, it fails.
+            _failed(firing)
         return firing.state
+
+
+def _failed(firing: TriggerFiring) -> None:
+    firing.refresh_from_db(fields=["state", "run", "related", "error", "fired_at", "failures"])
+    firing.failures += 1
+    logger.exception("trigger_fire_failed", firing=str(firing.pk), failures=firing.failures)
+    firing.save(update_fields=["failures"])
+    if firing.failures >= MAX_FAILURES:
+        _end(
+            firing,
+            FiringState.FAILED,
+            "launch_failed",
+            f"Its run couldn't start: launching it failed {firing.failures} times with an "
+            "unexpected error, which the server's log records.",
+        )
 
 
 def _fire(firing: TriggerFiring, *, editor: User | None = None) -> None:
@@ -603,14 +630,21 @@ def _schedule(row: ProjectTrigger, at: datetime, now: datetime) -> None:
 
 
 def recover() -> int:
-    """Fires firings whose task was lost. Returns how many it fired."""
+    """Fires firings whose task was lost. Returns how many it fired or ended. One whose
+    launch fails unexpectedly stays pending for the next pass, and fails after
+    ``MAX_FAILURES``, behind none of the others."""
     due = timezone.now() - RECOVER_AFTER
     ids = list(
         TriggerFiring.objects.filter(state=FiringState.PENDING, created_at__lte=due)
         .order_by("id")
         .values_list("pk", flat=True)[:RECOVER_AT_MOST]
     )
-    return sum(fire(str(pk)) != "already fired" for pk in ids)
+    return sweeps.each(
+        ids,
+        lambda pk: fire(str(pk)) not in ("already fired", FiringState.PENDING),
+        failed="trigger_recovery_failed",
+        key="firing",
+    )
 
 
 # --- Turning on and off ------------------------------------------------------------------------

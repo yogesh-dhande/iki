@@ -16,6 +16,7 @@ import requests
 from api_client import Api, problem
 from django.db import transaction
 from django.db.utils import ProgrammingError
+from django.test import override_settings
 from org_world import World, build_world
 from scan_fixtures import clean_blob
 
@@ -39,11 +40,14 @@ from iki_server.tasks.runner import Runner
 pytestmark = pytest.mark.django_db
 
 PUBLIC = "ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4"
+#: Another deployment, whose bundles this one trusts: signatures made there are signed by
+#: its keys, never this deployment's (ADR 0126).
+SOURCE = "Lab A"
 
 
 @pytest.fixture
 def world(s3: Any, settings: Any) -> World:
-    settings.IKI_BUNDLE_TRUSTED_KEYS = {"test": (PUBLIC,)}
+    settings.IKI_BUNDLE_TRUSTED_KEYS = {"test": (PUBLIC,), SOURCE: (PUBLIC,)}
     made = build_world()
     OrgRoleAssignment.objects.create(user=made.users["admin"], role=OrgRole.ORG_ADMIN)
     return made
@@ -53,10 +57,14 @@ class _UndoError(Exception):
     pass
 
 
-def bundle_of(world: World, tmp_path: Path, make: Callable[[], list[Any]]) -> Path:
-    """A bundle of what ``make`` makes, which is then undone, as if made elsewhere."""
+def bundle_of(
+    world: World, tmp_path: Path, make: Callable[[], list[Any]], *, source: str | None = None
+) -> Path:
+    """A bundle of what ``make`` makes, which is then undone, as if made elsewhere: at the
+    deployment named ``source``, made and signed there, if it's given."""
     out = tmp_path / f"bundle-{len(list(tmp_path.iterdir()))}.tar.gz"
-    with contextlib.suppress(_UndoError), transaction.atomic():
+    named = override_settings(IKI_ENVIRONMENT=source) if source else contextlib.nullcontext()
+    with named, contextlib.suppress(_UndoError), transaction.atomic():
         export.write(world.project, make(), out, by=world.users["admin"], reason="r", selection="s")
         raise _UndoError
     return out

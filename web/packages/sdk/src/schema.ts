@@ -1492,6 +1492,11 @@ export interface paths {
          * @description An Editor of its project. It keeps its data, history and runs; the project's own
          *     records that refer to the superseded entry are changed to refer to the new one, each a
          *     revision with the reason. Refused if the project has a record of the new one already.
+         *
+         *     A record can't change its type, so to a replacement of another type (ADR 0165) it's the
+         *     project's new record of the replacement that's returned: with this one's values for the
+         *     fields the two types share and ``values``, while this one is archived, keeping its
+         *     history, signatures and runs.
          */
         post: operations["iki_server_api_registries_move_entity"];
         delete?: never;
@@ -1897,9 +1902,11 @@ export interface paths {
          *     those picked, in order, or every one a search finds, up to 10,000. Each is written at
          *     the revision it has now, read in one snapshot, so editing one afterwards doesn't change
          *     the file. Up to 100 are written at once (201, ready to download); more in the
-         *     background (202): read the export until it's ready. A record the format can't be
-         *     written for fails it, naming each such record, so no file holds fewer than asked for.
-         *     Asking and each download are in the audit log.
+         *     background (202): read the export until it's ready. You may have three waiting in
+         *     the background at once, and a project's records ten: past that, it's refused (429)
+         *     until one is written. A record the format can't be written for fails it, naming each
+         *     such record, so no file holds fewer than asked for. Asking and each download are in
+         *     the audit log.
          */
         post: operations["iki_server_api_record_exports_start_record_export"];
         delete?: never;
@@ -2152,9 +2159,10 @@ export interface paths {
         put?: never;
         /**
          * Supersede a registry entry
-         * @description Its registry's registrars replace a mistaken entry with another of its type in the
-         *     registry, for good. Each holding project's Admins, and whoever added its record, are
-         *     told, to move their records to the replacement.
+         * @description Its registry's registrars replace a mistaken entry with another in the registry, for
+         *     good: one of its type, or of another type under its identity; or with a new entry of its
+         *     identity as another type (``type``, ADR 0165). Each holding project's Admins, and
+         *     whoever added its record, are told, to move their records to the replacement.
          */
         post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;
@@ -3892,6 +3900,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/receipts/{receipt_id}/put-away/placeable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Which of a receipt's accepted lines can go in a box
+         * @description Each matched or damaged line, and why it can't be put in the box if it can't, whatever
+         *     the well: archived, a type the box doesn't hold, or a project the box's readers don't
+         *     read. Completing checks the same again.
+         */
+        post: operations["iki_server_api_storage_receipt_placeable"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/receipts/{receipt_id}/put-away/preview": {
         parameters: {
             query?: never;
@@ -5013,7 +5043,8 @@ export interface paths {
         };
         /**
          * Received material awaiting a storage location
-         * @description Matched and damaged records you can read that are still in custody without a location.
+         * @description Matched and damaged records you can read that are still in custody without a location,
+         *     longest held first, a page at a time.
          */
         get: operations["iki_server_api_storage_list_awaiting_put_away"];
         put?: never;
@@ -5535,8 +5566,9 @@ export interface paths {
         put?: never;
         /**
          * Unlock signing
-         * @description Unlocks someone's signing after failed attempts to sign as them locked it. Org
-         *     Admins only.
+         * @description Unlocks someone's signing after failed attempts to sign as them locked it, saying
+         *     why; the audit log keeps it. Another Org Admin unlocks theirs, signed in to Iki's web
+         *     app: no token, app or AI agent can.
          */
         post: operations["iki_server_api_signatures_unlock_signing"];
         delete?: never;
@@ -9029,6 +9061,11 @@ export interface components {
              * @description Change its facts and supersede it: its registrars.
              */
             curate: boolean;
+            /**
+             * Supersede As
+             * @description For its registrars: the other types its identity can be registered as (ADR 0165), as POST /entries/{ref}/supersede with `type` does, by a new entry of one that it hands its identity to. Types under one identity share entries: a protein complex's chains registered as an antibody are that antibody.
+             */
+            supersede_as?: components["schemas"]["SupersedeAsOut"][];
         };
         /** EntryOut */
         EntryOut: {
@@ -11277,6 +11314,11 @@ export interface components {
              * @description What keeps it from being applied.
              */
             problems: string[];
+            /**
+             * Signing Keys
+             * @description The signing keys it brings that this deployment doesn't trust yet: importing trusts each for the signatures it brings, and records it in the audit log. None can sign for this deployment.
+             */
+            signing_keys: components["schemas"]["ImportSigningKey"][];
             /** Types */
             types: components["schemas"]["ImportType"][];
         };
@@ -11295,6 +11337,24 @@ export interface components {
             progress: number | null;
             /** Status */
             status: string;
+        };
+        /** ImportSigningKey */
+        ImportSigningKey: {
+            /**
+             * Deployment
+             * @description The deployment it signs for, as the bundle says.
+             */
+            deployment: string;
+            /**
+             * Key
+             * @description The Ed25519 public key, as signatures name it.
+             */
+            key: string;
+            /**
+             * Source
+             * @description Whether that's the deployment the bundle is from; otherwise one it vouches for.
+             */
+            source: boolean;
         };
         /** ImportSource */
         ImportSource: {
@@ -11863,7 +11923,7 @@ export interface components {
             appointed_by: components["schemas"]["UserOut"] | null;
             /**
              * List
-             * @description The list's type, such as iki/lots.LotMethod.
+             * @description The list's type, such as iki/lots.PurityMethod.
              */
             list: string;
             user: components["schemas"]["UserOut"];
@@ -11892,7 +11952,7 @@ export interface components {
             registry: components["schemas"]["RegistryRef"];
             /**
              * Type
-             * @description The list's type, such as iki/lots.LotMethod.
+             * @description The list's type, such as iki/lots.PurityMethod.
              */
             type: string;
         };
@@ -12177,6 +12237,13 @@ export interface components {
              * @description Why the holder is moving it.
              */
             reason: string;
+            /**
+             * Values
+             * @description For a replacement of another type (ADR 0165): the new record's own values, beside those it carries from this one (`entry.superseded.carries`).
+             */
+            values?: {
+                [key: string]: unknown;
+            };
         };
         /** MoveItemIn */
         MoveItemIn: {
@@ -13170,6 +13237,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[AwaitingPutAwayOut] */
+        Page_AwaitingPutAwayOut_: {
+            /** Items */
+            items: components["schemas"]["AwaitingPutAwayOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[BatchOut] */
         Page_BatchOut_: {
             /** Items */
@@ -13924,6 +14001,19 @@ export interface components {
             type: string;
             where?: components["schemas"]["Condition"] | null;
         };
+        /** PlaceableLineOut */
+        PlaceableLineOut: {
+            /**
+             * Line
+             * Format: uuid
+             */
+            line: string;
+            /**
+             * Problem
+             * @description Why its record can't be put in the box at all; null if it can.
+             */
+            problem: string | null;
+        };
         /** PlannedOut */
         PlannedOut: {
             /** @description Where it is now: null if nowhere. */
@@ -14108,6 +14198,36 @@ export interface components {
              * @description Only rows with these outcomes.
              */
             outcome?: ("create" | "register" | "add" | "reuse" | "same" | "problem")[] | null;
+        };
+        /** @description An RFC 9457 problem: how every error is described (ADR 0027). `code` is stable, for programs; `detail` is for people. Some codes carry more members, which each operation's description names. */
+        Problem: {
+            /** @description Stable, for programs: `validation_failed`, `refused`, `insufficient_scope`, … */
+            code: string;
+            /** @description What went wrong, for people. */
+            detail: string;
+            /** @description For `validation_failed` and `hold_reason_required`: what's wrong, and where. */
+            errors?: components["schemas"]["ProblemError"][];
+            /** @description The request's ID, which helps an administrator find it. */
+            request_id?: string;
+            /** @description The HTTP status. */
+            status: number;
+            /** @description The HTTP status's phrase. */
+            title: string;
+            /** @description `about:blank`. */
+            type: string;
+        };
+        /** @description One thing wrong with the request: a body field, by its JSON Pointer, or a query or path parameter, by its name. Each has one of the two. */
+        ProblemError: {
+            /** @description What's wrong there, for people. */
+            detail: string;
+            /** @description The rule holds the record for review rather than refusing it: saving with a `hold_reason` keeps it. */
+            hold?: boolean;
+            /** @description The query or path parameter: `cursor`, `project`. */
+            parameter?: string;
+            /** @description Where in the body, as a JSON Pointer: `#/values/sequence`. */
+            pointer?: string;
+            /** @description The plugin's rule it breaks, if it's a rule's (ADR 0127). */
+            rule?: string;
         };
         /** ProjectCan */
         ProjectCan: {
@@ -14958,6 +15078,22 @@ export interface components {
              * @description Why: deactivated, no longer in the project, or the role.
              */
             why: string;
+        };
+        /** ReceiptBoxIn */
+        ReceiptBoxIn: {
+            /**
+             * Box
+             * @description The box's ID, HRID or label.
+             */
+            box: string;
+            /** Box Choice */
+            box_choice?: string | null;
+            box_mode?: components["schemas"]["ScanMode"];
+            /**
+             * Plan Revision
+             * @description The receipt revision you reviewed.
+             */
+            plan_revision: number;
         };
         /** ReceiptIn */
         ReceiptIn: {
@@ -19866,6 +20002,16 @@ export interface components {
             /** Unread */
             unread: number;
         };
+        /** SupersedeAsOut */
+        SupersedeAsOut: {
+            /**
+             * Fields
+             * @description The registry fields a registrar gives its new entry, as `values`: those this entry's values don't fill as they are, outside what the two types share or refined by the new type (its parts' roles). The rest come from this entry.
+             */
+            fields: string[];
+            /** Type */
+            type: string;
+        };
         /** SupersedeIn */
         SupersedeIn: {
             /**
@@ -19875,9 +20021,21 @@ export interface components {
             reason: string;
             /**
              * Replacement
-             * @description The entry that replaces it, by ID or HRID.
+             * @description The entry that replaces it, by ID or HRID: one of its type, or of another type under its identity (ADR 0165). Give this or `type`.
              */
-            replacement: string;
+            replacement?: string | null;
+            /**
+             * Type
+             * @description Register its identity as this type instead (ADR 0165), one of `can.supersede_as`: a new entry, which it's superseded by and hands its identity to. Give this or `replacement`.
+             */
+            type?: string | null;
+            /**
+             * Values
+             * @description With `type`: the new entry's values, in place of the superseded entry's, which it has for the fields the two types share: the new type's facts, say, or its parts' roles as the new type names them. Its identity stays the same.
+             */
+            values?: {
+                [key: string]: unknown;
+            };
         };
         /** SupersededOut */
         SupersededOut: {
@@ -19893,6 +20051,17 @@ export interface components {
              * Format: uuid
              */
             by_id: string;
+            /**
+             * Carries
+             * @description For a replacement of another type (ADR 0165), which a record can't become: the fields whose values a move gives the project's new record of it, those the two types' records share. The rest stay with this record, which the move archives. None for one of its own type, which the record moves to whole.
+             */
+            carries?: string[] | null;
+            /**
+             * Held
+             * @description The record's project has a record of the replacement, which a move can't go onto: the one a move to an entry of another type made, say.
+             * @default false
+             */
+            held: boolean;
             /** Reason */
             reason: string;
         };
@@ -20393,6 +20562,14 @@ export interface components {
              * @description As people write it.
              */
             symbol: string;
+        };
+        /** UnlockIn */
+        UnlockIn: {
+            /**
+             * Reason
+             * @description Why it's safe to unlock: who made the failed attempts.
+             */
+            reason: string;
         };
         /** UnusedImageBindingOut */
         UnusedImageBindingOut: {
@@ -21757,7 +21934,17 @@ export interface components {
             step: string;
         };
     };
-    responses: never;
+    responses: {
+        /** @description An error, as a problem (ADR 0027). */
+        Problem: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/problem+json": components["schemas"]["Problem"];
+            };
+        };
+    };
     parameters: never;
     requestBodies: never;
     headers: never;
@@ -21786,6 +21973,7 @@ export interface operations {
                     "application/json": components["schemas"]["ActionOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_get_action: {
@@ -21808,6 +21996,7 @@ export interface operations {
                     "application/json": components["schemas"]["ActionOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_launch_run: {
@@ -21834,6 +22023,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_launch_runs: {
@@ -21860,6 +22050,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunBatchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_check_app: {
@@ -21884,6 +22075,7 @@ export interface operations {
                     "application/json": components["schemas"]["AppCheckOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_create_app_draft: {
@@ -21908,6 +22100,7 @@ export interface operations {
                     "application/json": components["schemas"]["AppDraftOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_get_app_draft: {
@@ -21930,6 +22123,7 @@ export interface operations {
                     "application/json": components["schemas"]["AppDraftOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_app_guide: {
@@ -21950,6 +22144,7 @@ export interface operations {
                     "application/json": components["schemas"]["AppGuideOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_list_batches: {
@@ -21979,6 +22174,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_BatchOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_get_batch: {
@@ -22001,6 +22197,7 @@ export interface operations {
                     "application/json": components["schemas"]["BatchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_cancel_batch: {
@@ -22027,6 +22224,7 @@ export interface operations {
                     "application/json": components["schemas"]["BatchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_get_export: {
@@ -22049,6 +22247,7 @@ export interface operations {
                     "application/json": components["schemas"]["ExportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_download_export: {
@@ -22069,6 +22268,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_collections_create_collection: {
@@ -22093,6 +22293,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_collections_freeze_collection: {
@@ -22121,6 +22322,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_components_list_components: {
@@ -22141,6 +22343,7 @@ export interface operations {
                     "application/json": components["schemas"]["ComponentOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_components_component_entities: {
@@ -22167,6 +22370,7 @@ export interface operations {
                     "application/json": components["schemas"]["ComponentEntitiesOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_costs_list_budgets: {
@@ -22187,6 +22391,7 @@ export interface operations {
                     "application/json": components["schemas"]["BudgetOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_costs_create_budget: {
@@ -22211,6 +22416,7 @@ export interface operations {
                     "application/json": components["schemas"]["BudgetOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_costs_delete_budget: {
@@ -22231,6 +22437,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_costs_update_budget: {
@@ -22257,6 +22464,7 @@ export interface operations {
                     "application/json": components["schemas"]["BudgetOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_costs_org_costs: {
@@ -22283,6 +22491,7 @@ export interface operations {
                     "application/json": components["schemas"]["CostSummaryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_costs_org_cost_records: {
@@ -22308,6 +22517,7 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_list_image_bindings: {
@@ -22328,6 +22538,7 @@ export interface operations {
                     "application/json": components["schemas"]["ImageBindingsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_compute_overview: {
@@ -22348,6 +22559,7 @@ export interface operations {
                     "application/json": components["schemas"]["OverviewOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_quota_scopes: {
@@ -22375,6 +22587,7 @@ export interface operations {
                     "application/json": components["schemas"]["QuotaScopeOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_list_quotas: {
@@ -22395,6 +22608,7 @@ export interface operations {
                     "application/json": components["schemas"]["QuotaOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_create_quota: {
@@ -22419,6 +22633,7 @@ export interface operations {
                     "application/json": components["schemas"]["QuotaOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_delete_quota: {
@@ -22439,6 +22654,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_update_quota: {
@@ -22465,6 +22681,7 @@ export interface operations {
                     "application/json": components["schemas"]["QuotaOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_list_registrations: {
@@ -22490,6 +22707,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkerRegistrationOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_create_registration: {
@@ -22514,6 +22732,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkerRegistrationCreatedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_revoke_registration: {
@@ -22540,6 +22759,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkerRegistrationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_list_setups: {
@@ -22568,6 +22788,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SetupBuildOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_create_setup: {
@@ -22592,6 +22813,7 @@ export interface operations {
                     "application/json": components["schemas"]["SetupBuildOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_get_setup: {
@@ -22614,6 +22836,7 @@ export interface operations {
                     "application/json": components["schemas"]["SetupBuildOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_approve_setup: {
@@ -22636,6 +22859,7 @@ export interface operations {
                     "application/json": components["schemas"]["SetupBuildOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_cancel_setup: {
@@ -22658,6 +22882,7 @@ export interface operations {
                     "application/json": components["schemas"]["SetupBuildOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_setup_log: {
@@ -22682,6 +22907,7 @@ export interface operations {
                     "application/json": components["schemas"]["SetupLogOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_retire_setup: {
@@ -22704,6 +22930,7 @@ export interface operations {
                     "application/json": components["schemas"]["SetupBuildOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_list_slurm_clusters: {
@@ -22724,6 +22951,7 @@ export interface operations {
                     "application/json": components["schemas"]["SlurmClusterOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_list_slurm_accounts: {
@@ -22751,6 +22979,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SlurmAccountOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_set_slurm_account: {
@@ -22778,6 +23007,7 @@ export interface operations {
                     "application/json": components["schemas"]["SlurmAccountOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_clear_slurm_account: {
@@ -22799,6 +23029,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_setups_list_volumes: {
@@ -22819,6 +23050,7 @@ export interface operations {
                     "application/json": components["schemas"]["EnvironmentVolumesOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_list_workers: {
@@ -22847,6 +23079,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkerOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_change_worker: {
@@ -22873,6 +23106,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkerOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_compute_revoke_worker: {
@@ -22895,6 +23129,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkerOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_list_entities: {
@@ -22935,6 +23170,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EntityOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_create_entity: {
@@ -22968,6 +23204,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_work_assign: {
@@ -22992,6 +23229,7 @@ export interface operations {
                     "application/json": components["schemas"]["AssignOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_count_entities: {
@@ -23014,6 +23252,7 @@ export interface operations {
                     "application/json": components["schemas"]["CountsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_lookup_entities: {
@@ -23042,6 +23281,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_search_entities: {
@@ -23066,6 +23306,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EntityOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_search_csv: {
@@ -23109,6 +23350,7 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_entity: {
@@ -23142,6 +23384,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_patch_entity: {
@@ -23170,6 +23413,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_amounts_split: {
@@ -23196,6 +23440,7 @@ export interface operations {
                     "application/json": components["schemas"]["AliquotsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_amounts_get_amount: {
@@ -23218,6 +23463,7 @@ export interface operations {
                     "application/json": components["schemas"]["AmountOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_amounts_adjust: {
@@ -23246,6 +23492,7 @@ export interface operations {
                     "application/json": components["schemas"]["AmountMovedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_amounts_draw: {
@@ -23272,6 +23519,7 @@ export interface operations {
                     "application/json": components["schemas"]["AmountMovedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_amounts_list_movements: {
@@ -23299,6 +23547,7 @@ export interface operations {
                     "application/json": components["schemas"]["MovementsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_amounts_transfer: {
@@ -23325,6 +23574,7 @@ export interface operations {
                     "application/json": components["schemas"]["AmountMovedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_entity_apps: {
@@ -23347,6 +23597,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityAppOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_bundle_origins: {
@@ -23369,6 +23620,7 @@ export interface operations {
                     "application/json": components["schemas"]["BundleOriginOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_trails_list_contributors: {
@@ -23393,6 +23645,7 @@ export interface operations {
                     "application/json": components["schemas"]["UserOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_graph_downstream: {
@@ -23430,6 +23683,7 @@ export interface operations {
                     "application/json": components["schemas"]["WalkOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_graph_downstream_csv: {
@@ -23463,6 +23717,7 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_export_entity: {
@@ -23507,15 +23762,20 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
             /** @description The export sandbox can't take it now: try again. */
             503: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_graph_get_graph: {
@@ -23547,6 +23807,7 @@ export interface operations {
                     "application/json": components["schemas"]["GraphOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_review_hold: {
@@ -23578,6 +23839,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_get_location: {
@@ -23600,6 +23862,7 @@ export interface operations {
                     "application/json": components["schemas"]["LocationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_list_events: {
@@ -23627,6 +23890,7 @@ export interface operations {
                     "application/json": components["schemas"]["EventsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_making: {
@@ -23649,6 +23913,7 @@ export interface operations {
                     "application/json": components["schemas"]["MakingOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_move_entity: {
@@ -23675,6 +23940,7 @@ export interface operations {
                     "application/json": components["schemas"]["MovedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_origins: {
@@ -23697,6 +23963,7 @@ export interface operations {
                     "application/json": components["schemas"]["OriginOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_list_entity_projects: {
@@ -23719,6 +23986,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityProjectOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_link_entity: {
@@ -23751,6 +24019,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityProjectOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_unlink_entity: {
@@ -23772,6 +24041,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_provenance: {
@@ -23796,6 +24066,7 @@ export interface operations {
                     };
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_list_receipts: {
@@ -23818,6 +24089,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_start_receipt: {
@@ -23840,6 +24112,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_requests_get_request: {
@@ -23864,6 +24137,7 @@ export interface operations {
                     "application/json": components["schemas"]["RequestOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_list_revisions: {
@@ -23896,6 +24170,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RevisionOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_trails_trail_csv: {
@@ -23920,6 +24195,7 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_revision: {
@@ -23945,6 +24221,7 @@ export interface operations {
                     "application/json": components["schemas"]["RevisionDetailOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_list_signatures: {
@@ -23971,6 +24248,7 @@ export interface operations {
                     "application/json": components["schemas"]["SignaturesOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_start_signing: {
@@ -24001,6 +24279,7 @@ export interface operations {
                     "application/json": components["schemas"]["SigningOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_set_entity_state: {
@@ -24032,6 +24311,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_requests_submit_request: {
@@ -24062,6 +24342,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_work_take: {
@@ -24090,6 +24371,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_graph_upstream: {
@@ -24127,6 +24409,7 @@ export interface operations {
                     "application/json": components["schemas"]["WalkOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_graph_upstream_csv: {
@@ -24160,6 +24443,7 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_watch: {
@@ -24184,6 +24468,7 @@ export interface operations {
                     "application/json": components["schemas"]["WatchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_choose_watch: {
@@ -24212,6 +24497,7 @@ export interface operations {
                     "application/json": components["schemas"]["WatchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_record_exports_list_record_exports: {
@@ -24237,6 +24523,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RecordExportOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_record_exports_start_record_export: {
@@ -24270,6 +24557,7 @@ export interface operations {
                     "application/json": components["schemas"]["RecordExportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_record_exports_get_record_export: {
@@ -24292,6 +24580,7 @@ export interface operations {
                     "application/json": components["schemas"]["RecordExportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_record_exports_download_record_export: {
@@ -24312,6 +24601,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_record_exports_record_export_content_url: {
@@ -24334,6 +24624,7 @@ export interface operations {
                     "application/json": components["schemas"]["ContentUrlOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_list_types: {
@@ -24354,6 +24645,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityTypeOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_type: {
@@ -24376,6 +24668,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityTypeOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_get_type_flow: {
@@ -24398,6 +24691,7 @@ export interface operations {
                     "application/json": components["schemas"]["TypeFlowOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_sheets_import_template: {
@@ -24420,6 +24714,7 @@ export interface operations {
                     "text/csv": unknown;
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_get_entry: {
@@ -24442,6 +24737,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_patch_entry: {
@@ -24470,6 +24766,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_add_entry_record: {
@@ -24505,6 +24802,7 @@ export interface operations {
                     "application/json": components["schemas"]["CreatedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_list_entry_revisions: {
@@ -24536,6 +24834,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RevisionOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_get_entry_revision: {
@@ -24559,6 +24858,7 @@ export interface operations {
                     "application/json": components["schemas"]["RevisionDetailOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_supersede_entry: {
@@ -24585,6 +24885,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_list_files: {
@@ -24630,6 +24931,7 @@ export interface operations {
                     "application/json": components["schemas"]["FilePageOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_count_files: {
@@ -24661,6 +24963,7 @@ export interface operations {
                     "application/json": components["schemas"]["FileCountOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_file_formats: {
@@ -24692,6 +24995,7 @@ export interface operations {
                     "application/json": components["schemas"]["FormatOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_get_file: {
@@ -24714,6 +25018,7 @@ export interface operations {
                     "application/json": components["schemas"]["FileDetailOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_download_file: {
@@ -24734,6 +25039,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_file_content_url: {
@@ -24756,6 +25062,7 @@ export interface operations {
                     "application/json": components["schemas"]["ContentUrlOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_file_records: {
@@ -24783,6 +25090,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_HoldingRecordOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_file_runs: {
@@ -24810,6 +25118,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_UsingRunOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_installed_formats: {
@@ -24830,6 +25139,7 @@ export interface operations {
                     "application/json": components["schemas"]["InstalledFormatOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_helm_read_helm: {
@@ -24854,6 +25164,7 @@ export interface operations {
                     "application/json": components["schemas"]["HelmOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_get_import: {
@@ -24876,6 +25187,7 @@ export interface operations {
                     "application/json": components["schemas"]["ImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_discard_import: {
@@ -24896,6 +25208,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_apply_import: {
@@ -24922,6 +25235,7 @@ export interface operations {
                     "application/json": components["schemas"]["ImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_complete_import: {
@@ -24953,6 +25267,7 @@ export interface operations {
                     "application/json": components["schemas"]["ImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_import_entities: {
@@ -24983,6 +25298,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ImportEntityOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_sign_import_parts: {
@@ -25009,6 +25325,7 @@ export interface operations {
                     "application/json": components["schemas"]["PartOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_import_people: {
@@ -25038,6 +25355,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ImportPersonOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_list_lab_roles: {
@@ -25058,6 +25376,7 @@ export interface operations {
                     "application/json": components["schemas"]["LabRoleOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_list_lists: {
@@ -25083,6 +25402,7 @@ export interface operations {
                     "application/json": components["schemas"]["ListOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_get_list: {
@@ -25110,6 +25430,7 @@ export interface operations {
                     "application/json": components["schemas"]["ListOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_list_options: {
@@ -25141,6 +25462,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_add_option: {
@@ -25172,6 +25494,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_get_option: {
@@ -25200,6 +25523,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_patch_option: {
@@ -25234,6 +25558,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_archive_option: {
@@ -25266,6 +25591,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_move_references: {
@@ -25293,6 +25619,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionMovedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_restore_option: {
@@ -25325,6 +25652,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_supersede_option: {
@@ -25357,6 +25685,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_reorder_list: {
@@ -25388,6 +25717,7 @@ export interface operations {
                     "application/json": components["schemas"]["OptionOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_me_me: {
@@ -25408,6 +25738,7 @@ export interface operations {
                     "application/json": components["schemas"]["MeOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_notification_settings: {
@@ -25428,6 +25759,7 @@ export interface operations {
                     "application/json": components["schemas"]["SettingsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_change_notification_settings: {
@@ -25452,6 +25784,7 @@ export interface operations {
                     "application/json": components["schemas"]["SettingsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_my_signing: {
@@ -25472,6 +25805,7 @@ export interface operations {
                     "application/json": components["schemas"]["MySigningOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_work_my_work: {
@@ -25504,6 +25838,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkItemOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_work_open_work: {
@@ -25536,6 +25871,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkItemOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_notifications: {
@@ -25563,6 +25899,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_NotificationOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_mark_all: {
@@ -25587,6 +25924,7 @@ export interface operations {
                     "application/json": components["schemas"]["MarkAllOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_summary: {
@@ -25607,6 +25945,7 @@ export interface operations {
                     "application/json": components["schemas"]["SummaryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_notifications_mark: {
@@ -25633,6 +25972,7 @@ export interface operations {
                     "application/json": components["schemas"]["NotificationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_outside_apis_list_outside_apis: {
@@ -25653,6 +25993,7 @@ export interface operations {
                     "application/json": components["schemas"]["OutsideApiOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_outside_apis_approve_outside_api: {
@@ -25679,6 +26020,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiApprovalOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_outside_apis_revoke_outside_api: {
@@ -25700,6 +26042,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_plugins_preflight: {
@@ -25726,6 +26069,7 @@ export interface operations {
                     "application/json": components["schemas"]["PluginPreflightOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_project_roles: {
@@ -25746,6 +26090,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectRoleOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_inventory: {
@@ -25771,6 +26116,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_InventoryOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_list_projects: {
@@ -25804,6 +26150,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ProjectOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_create_project: {
@@ -25828,6 +26175,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_get_project: {
@@ -25850,6 +26198,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_patch_project: {
@@ -25876,6 +26225,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_list_exports: {
@@ -25903,6 +26253,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ExportOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_start_export: {
@@ -25929,6 +26280,7 @@ export interface operations {
                     "application/json": components["schemas"]["ExportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_entities_project_changes: {
@@ -25954,6 +26306,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectChangeOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_costs_project_costs: {
@@ -25982,6 +26335,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectCostSummaryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_get_dashboard: {
@@ -26004,6 +26358,7 @@ export interface operations {
                     "application/json": components["schemas"]["DashboardOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_put_dashboard: {
@@ -26030,6 +26385,7 @@ export interface operations {
                     "application/json": components["schemas"]["DashboardOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_delete_dashboard: {
@@ -26050,6 +26406,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_apps_dashboard_choices: {
@@ -26072,6 +26429,7 @@ export interface operations {
                     "application/json": components["schemas"]["EntityAppOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_grantable_teams: {
@@ -26099,6 +26457,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_TeamRef_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_list_imports: {
@@ -26126,6 +26485,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ImportOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_bundles_start_import: {
@@ -26152,6 +26512,7 @@ export interface operations {
                     "application/json": components["schemas"]["ImportStartedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_requests_get_intake: {
@@ -26174,6 +26535,7 @@ export interface operations {
                     "application/json": components["schemas"]["IntakeOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_requests_put_intake: {
@@ -26200,6 +26562,7 @@ export interface operations {
                     "application/json": components["schemas"]["IntakeOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_list_members: {
@@ -26227,6 +26590,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ProjectMemberOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_grant_team: {
@@ -26254,6 +26618,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectMemberOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_grant_user: {
@@ -26281,6 +26646,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectMemberOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_remove_member: {
@@ -26302,6 +26668,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_projects_set_lab_roles: {
@@ -26329,6 +26696,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectMemberOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_outside_apis_list_project_outside_apis: {
@@ -26351,6 +26719,7 @@ export interface operations {
                     "application/json": components["schemas"]["OutsideApiOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_work_nameable: {
@@ -26382,6 +26751,7 @@ export interface operations {
                     "application/json": components["schemas"]["NameableOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_requests_list_sent_from: {
@@ -26404,6 +26774,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectRef"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_requests_list_sent_to: {
@@ -26426,6 +26797,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectRef"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_requests_list_services: {
@@ -26451,6 +26823,7 @@ export interface operations {
                     "application/json": components["schemas"]["ServiceOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_sheets_save_sheet: {
@@ -26477,6 +26850,7 @@ export interface operations {
                     "application/json": components["schemas"]["SheetEditSaveOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_sheets_check_sheet: {
@@ -26503,6 +26877,7 @@ export interface operations {
                     "application/json": components["schemas"]["SheetEditCheckOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_list_imports: {
@@ -26530,6 +26905,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_SpreadsheetImportOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_start_import: {
@@ -26556,6 +26932,7 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_list_mappings: {
@@ -26580,6 +26957,7 @@ export interface operations {
                     "application/json": components["schemas"]["SavedMappingOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_stock_project_stock: {
@@ -26608,6 +26986,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_StockSummary_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_stock_stock_orders: {
@@ -26635,6 +27014,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_OpenOrder_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_stock_stock_lots: {
@@ -26663,6 +27043,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_StockLot_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_triggers_trigger_firings: {
@@ -26691,6 +27072,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_FiringOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_triggers_project_triggers: {
@@ -26713,6 +27095,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectTriggerOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_triggers_disable_trigger: {
@@ -26740,6 +27123,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectTriggerOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_triggers_enable_trigger: {
@@ -26767,6 +27151,7 @@ export interface operations {
                     "application/json": components["schemas"]["ProjectTriggerOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_project_webhooks: {
@@ -26794,6 +27179,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WebhookOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_create_project_webhook: {
@@ -26820,6 +27206,7 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookCreated"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_list_quarantine: {
@@ -26851,6 +27238,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_QuarantineOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_read_quarantine: {
@@ -26873,6 +27261,7 @@ export interface operations {
                     "application/json": components["schemas"]["QuarantineOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_release_quarantine: {
@@ -26899,6 +27288,7 @@ export interface operations {
                     "application/json": components["schemas"]["QuarantineOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_get_receipt: {
@@ -26921,6 +27311,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_update_receipt: {
@@ -26947,6 +27338,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_cancel_receipt: {
@@ -26973,6 +27365,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_complete_receipt: {
@@ -26999,6 +27392,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_receipt_history: {
@@ -27027,6 +27421,7 @@ export interface operations {
                     "application/json": components["schemas"]["ObservationEventsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_drop_line: {
@@ -27054,6 +27449,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_check_line: {
@@ -27081,6 +27477,7 @@ export interface operations {
                     "application/json": components["schemas"]["CheckedReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_restore_line: {
@@ -27108,6 +27505,34 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptOut"];
                 };
             };
+            default: components["responses"]["Problem"];
+        };
+    };
+    iki_server_api_storage_receipt_placeable: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                receipt_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReceiptBoxIn"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaceableLineOut"][];
+                };
+            };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_preview_receipt_placement: {
@@ -27134,6 +27559,7 @@ export interface operations {
                     "application/json": components["schemas"]["MovesOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_scan_receipt: {
@@ -27160,6 +27586,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReceiptScanOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_get_reconciliation: {
@@ -27182,6 +27609,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_cancel_reconciliation: {
@@ -27208,6 +27636,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_complete_reconciliation: {
@@ -27234,6 +27663,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_reconciliation_history: {
@@ -27262,6 +27692,7 @@ export interface operations {
                     "application/json": components["schemas"]["ObservationEventsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_resolve_line: {
@@ -27289,6 +27720,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_scan_positions: {
@@ -27315,6 +27747,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_list_registrations: {
@@ -27340,6 +27773,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RegistrationOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_register_file: {
@@ -27373,6 +27807,7 @@ export interface operations {
                     "application/json": components["schemas"]["RegistrationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_registration_locations: {
@@ -27393,6 +27828,7 @@ export interface operations {
                     "application/json": components["schemas"]["LocationsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_get_registration: {
@@ -27415,6 +27851,7 @@ export interface operations {
                     "application/json": components["schemas"]["RegistrationOut"] | components["schemas"]["RegistrationStatusOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_list_registries: {
@@ -27442,6 +27879,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RegistryOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_create_registry: {
@@ -27466,6 +27904,7 @@ export interface operations {
                     "application/json": components["schemas"]["RegistryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_get_registry: {
@@ -27488,6 +27927,7 @@ export interface operations {
                     "application/json": components["schemas"]["RegistryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_patch_registry: {
@@ -27514,6 +27954,7 @@ export interface operations {
                     "application/json": components["schemas"]["RegistryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_list_registry_entries: {
@@ -27546,6 +27987,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RegistryEntryOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_list_curators: {
@@ -27568,6 +28010,7 @@ export interface operations {
                     "application/json": components["schemas"]["ListCuratorOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_appoint_curator: {
@@ -27601,6 +28044,7 @@ export interface operations {
                     "application/json": components["schemas"]["ListCuratorOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_lists_dismiss_curator: {
@@ -27623,6 +28067,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_list_registrars: {
@@ -27645,6 +28090,7 @@ export interface operations {
                     "application/json": components["schemas"]["RegistrarOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_appoint_registrar: {
@@ -27677,6 +28123,7 @@ export interface operations {
                     "application/json": components["schemas"]["RegistrarOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_registries_dismiss_registrar: {
@@ -27698,6 +28145,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_get_run_approval: {
@@ -27720,6 +28168,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunApprovalOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_approve_runs: {
@@ -27742,6 +28191,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunApprovalOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_decline_runs: {
@@ -27768,6 +28218,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunApprovalOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_list_runs: {
@@ -27802,6 +28253,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_RunOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_get_run: {
@@ -27824,6 +28276,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_list_api_calls: {
@@ -27851,6 +28304,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ApiCallOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_list_artifacts: {
@@ -27873,6 +28327,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunArtifactOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_download_artifact: {
@@ -27894,6 +28349,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_list_attempts: {
@@ -27916,6 +28372,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunAttemptOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_attempt_log: {
@@ -27942,6 +28399,7 @@ export interface operations {
                     "application/json": components["schemas"]["AttemptLogOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_download_attempt_log: {
@@ -27965,6 +28423,7 @@ export interface operations {
                     "text/plain": unknown;
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_cancel_run: {
@@ -27991,6 +28450,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_list_effects: {
@@ -28019,6 +28479,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_EffectOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_runs_reproduce_run: {
@@ -28045,6 +28506,7 @@ export interface operations {
                     "application/json": components["schemas"]["RunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_searches_list_saved_searches: {
@@ -28072,6 +28534,7 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_searches_create_saved_search: {
@@ -28096,6 +28559,7 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_searches_get_saved_search: {
@@ -28118,6 +28582,7 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_searches_delete_saved_search: {
@@ -28138,6 +28603,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_searches_update_saved_search: {
@@ -28164,6 +28630,7 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_everything_search_everything: {
@@ -28191,6 +28658,7 @@ export interface operations {
                     "application/json": components["schemas"]["SearchEverythingOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_service_accounts_list_accounts: {
@@ -28216,6 +28684,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_ServiceAccountOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_service_accounts_create_account: {
@@ -28240,6 +28709,7 @@ export interface operations {
                     "application/json": components["schemas"]["ServiceAccountOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_service_accounts_get_account: {
@@ -28262,6 +28732,7 @@ export interface operations {
                     "application/json": components["schemas"]["ServiceAccountOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_service_accounts_patch_account: {
@@ -28288,6 +28759,7 @@ export interface operations {
                     "application/json": components["schemas"]["ServiceAccountOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_get_certification: {
@@ -28308,6 +28780,7 @@ export interface operations {
                     "application/json": components["schemas"]["CertificationState"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_certify: {
@@ -28332,6 +28805,7 @@ export interface operations {
                     "application/json": components["schemas"]["CertificationState"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_get_signature: {
@@ -28354,6 +28828,7 @@ export interface operations {
                     "application/json": components["schemas"]["SignatureOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_verify_signature: {
@@ -28376,6 +28851,7 @@ export interface operations {
                     "application/json": components["schemas"]["SignatureVerificationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_withdraw_signature: {
@@ -28402,6 +28878,7 @@ export interface operations {
                     "application/json": components["schemas"]["SignatureOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_signing_keys_list: {
@@ -28422,6 +28899,7 @@ export interface operations {
                     "application/json": components["schemas"]["SigningKeysOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_get_signing: {
@@ -28444,6 +28922,7 @@ export interface operations {
                     "application/json": components["schemas"]["SigningOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_get_import: {
@@ -28466,6 +28945,7 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_discard_import: {
@@ -28486,6 +28966,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_change_import: {
@@ -28514,6 +28995,7 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_commit_import: {
@@ -28542,6 +29024,7 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_save_mapping: {
@@ -28570,6 +29053,7 @@ export interface operations {
                     "application/json": components["schemas"]["SavedMappingOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_preview_import: {
@@ -28594,6 +29078,7 @@ export interface operations {
                     "application/json": components["schemas"]["SpreadsheetImportOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_import_rows: {
@@ -28625,6 +29110,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_PreviewRowOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_spreadsheets_delete_mapping: {
@@ -28645,6 +29131,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_starters_list_starters: {
@@ -28667,6 +29154,7 @@ export interface operations {
                     "application/json": components["schemas"]["StarterOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_starters_apply_starter: {
@@ -28693,6 +29181,7 @@ export interface operations {
                     "application/json": components["schemas"]["StarterSetupOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_starters_preview_starter: {
@@ -28719,11 +29208,17 @@ export interface operations {
                     "application/json": components["schemas"]["StarterSetupOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_list_awaiting_put_away: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -28736,9 +29231,10 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AwaitingPutAwayOut"][];
+                    "application/json": components["schemas"]["Page_AwaitingPutAwayOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_check_in: {
@@ -28763,6 +29259,7 @@ export interface operations {
                     "application/json": components["schemas"]["CustodyOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_check_out: {
@@ -28787,6 +29284,7 @@ export interface operations {
                     "application/json": components["schemas"]["CustodyOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_list_checked_out: {
@@ -28809,6 +29307,7 @@ export interface operations {
                     "application/json": components["schemas"]["CheckedOutOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_get_container: {
@@ -28831,6 +29330,7 @@ export interface operations {
                     "application/json": components["schemas"]["ContainerOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_list_reconciliations: {
@@ -28853,6 +29353,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_start_reconciliation: {
@@ -28875,6 +29376,7 @@ export interface operations {
                     "application/json": components["schemas"]["ReconciliationOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_hand_over: {
@@ -28899,6 +29401,7 @@ export interface operations {
                     "application/json": components["schemas"]["CustodyOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_label_sizes: {
@@ -28919,6 +29422,7 @@ export interface operations {
                     "application/json": components["schemas"]["LabelSizesOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_prepare_labels: {
@@ -28943,6 +29447,7 @@ export interface operations {
                     "application/json": components["schemas"]["LabelsOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_move: {
@@ -28967,6 +29472,7 @@ export interface operations {
                     "application/json": components["schemas"]["MovesOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_list_places: {
@@ -28989,6 +29495,7 @@ export interface operations {
                     "application/json": components["schemas"]["PlaceOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_scan: {
@@ -29012,6 +29519,7 @@ export interface operations {
                     "application/json": components["schemas"]["ScanOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_storage_scan_resolve_storage_scan: {
@@ -29036,6 +29544,7 @@ export interface operations {
                     "application/json": components["schemas"]["ScanResolveOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_teams_list_teams: {
@@ -29064,6 +29573,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_TeamOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_teams_create_team: {
@@ -29088,6 +29598,7 @@ export interface operations {
                     "application/json": components["schemas"]["TeamOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_teams_get_team: {
@@ -29110,6 +29621,7 @@ export interface operations {
                     "application/json": components["schemas"]["TeamOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_teams_patch_team: {
@@ -29136,6 +29648,7 @@ export interface operations {
                     "application/json": components["schemas"]["TeamOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_teams_list_members: {
@@ -29163,6 +29676,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_TeamMemberOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_teams_add_member: {
@@ -29186,6 +29700,7 @@ export interface operations {
                     "application/json": components["schemas"]["TeamMemberOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_teams_remove_member: {
@@ -29207,6 +29722,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_triggers_list_triggers: {
@@ -29227,6 +29743,7 @@ export interface operations {
                     "application/json": components["schemas"]["TriggerOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_list_uploads: {
@@ -29252,6 +29769,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_UploadOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_start_upload: {
@@ -29276,6 +29794,7 @@ export interface operations {
                     "application/json": components["schemas"]["StartedOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_get_upload: {
@@ -29298,6 +29817,7 @@ export interface operations {
                     "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_cancel_upload: {
@@ -29318,6 +29838,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_complete_upload: {
@@ -29349,6 +29870,7 @@ export interface operations {
                     "application/json": components["schemas"]["UploadOut"] | components["schemas"]["UploadStatusOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_files_sign_parts: {
@@ -29375,6 +29897,7 @@ export interface operations {
                     "application/json": components["schemas"]["PartOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_users_list_users: {
@@ -29404,6 +29927,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_UserOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_users_get_user: {
@@ -29426,6 +29950,7 @@ export interface operations {
                     "application/json": components["schemas"]["UserOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_users_patch_user: {
@@ -29452,6 +29977,7 @@ export interface operations {
                     "application/json": components["schemas"]["UserOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_users_get_org_roles: {
@@ -29474,6 +30000,7 @@ export interface operations {
                     "application/json": components["schemas"]["OrgRolesOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_users_put_org_roles: {
@@ -29500,6 +30027,7 @@ export interface operations {
                     "application/json": components["schemas"]["OrgRolesOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_users_end_sessions: {
@@ -29520,6 +30048,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_signatures_unlock_signing: {
@@ -29531,7 +30060,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockIn"];
+            };
+        };
         responses: {
             /** @description No Content */
             204: {
@@ -29540,6 +30073,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_webhook_events: {
@@ -29562,6 +30096,7 @@ export interface operations {
                     "application/json": components["schemas"]["EventTypeOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_webhook_policy: {
@@ -29582,6 +30117,7 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_change_webhook_policy: {
@@ -29606,6 +30142,7 @@ export interface operations {
                     "application/json": components["schemas"]["PolicyOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_org_webhooks: {
@@ -29631,6 +30168,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WebhookOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_create_org_webhook: {
@@ -29655,6 +30193,7 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookCreated"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_get_webhook: {
@@ -29677,6 +30216,7 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_delete_webhook: {
@@ -29697,6 +30237,7 @@ export interface operations {
                 };
                 content?: never;
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_patch_webhook: {
@@ -29723,6 +30264,7 @@ export interface operations {
                     "application/json": components["schemas"]["WebhookOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_deliveries: {
@@ -29751,6 +30293,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_DeliverySummary_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_get_delivery: {
@@ -29774,6 +30317,7 @@ export interface operations {
                     "application/json": components["schemas"]["DeliveryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_redeliver: {
@@ -29797,6 +30341,7 @@ export interface operations {
                     "application/json": components["schemas"]["DeliveryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_ping: {
@@ -29819,6 +30364,7 @@ export interface operations {
                     "application/json": components["schemas"]["DeliveryOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_webhooks_rotate_secret: {
@@ -29841,6 +30387,7 @@ export interface operations {
                     "application/json": components["schemas"]["SecretOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_list_workflow_runs: {
@@ -29871,6 +30418,7 @@ export interface operations {
                     "application/json": components["schemas"]["Page_WorkflowRunOut_"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_get_workflow_run: {
@@ -29893,6 +30441,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_cancel_workflow_run: {
@@ -29919,6 +30468,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_rerun_workflow_run: {
@@ -29945,6 +30495,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_approve_workflow_step: {
@@ -29972,6 +30523,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_decline_workflow_step: {
@@ -29999,6 +30551,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_list_workflows: {
@@ -30019,6 +30572,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowOut"][];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_get_workflow: {
@@ -30041,6 +30595,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
     iki_server_api_workflows_start_workflow: {
@@ -30067,6 +30622,7 @@ export interface operations {
                     "application/json": components["schemas"]["WorkflowRunOut"];
                 };
             };
+            default: components["responses"]["Problem"];
         };
     };
 }

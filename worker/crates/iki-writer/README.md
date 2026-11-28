@@ -66,12 +66,20 @@ person exporting can't read is absent too, and its role is in `withheld`.
 
 ## The ABI
 
-ABI 1, a core WebAssembly module with no imports. It exports `memory` and these
-functions, each argument and result a wasm `i32`:
+A writer is a core WebAssembly module with no imports. This crate's modules
+read ABI 1. Iki runs a range of ABIs, and builds each module's requests for the
+ABI the module reads, so a module keeps getting the requests it was built for
+as Iki moves on. Within an ABI, a record's request at a revision never changes,
+which keeps exports reproducible; a new request field is a new ABI, which a
+module gets by being built against a newer `iki-writer`. A module of an ABI the
+Iki doesn't run, older or newer, is refused when the plugin image is built.
+
+It exports `memory` and these functions, each argument and result a wasm
+`i32`:
 
 | export                             | what it does                                               |
 | ---------------------------------- | ---------------------------------------------------------- |
-| `iki_abi() -> i32`                 | 1.                                                         |
+| `iki_abi() -> i32`                 | The ABI the module reads: 1.                               |
 | `iki_input(len) -> ptr`            | A fresh buffer of `len` bytes, for the next request.       |
 | `iki_begin() -> status`            | Starts a file. The request is the export.                  |
 | `iki_record() -> status`           | Writes one record. The request is the record.              |
@@ -150,14 +158,25 @@ opt-level = "s"
 ```
 
 It builds from its own directory alone, with its `Cargo.lock`: no path
-dependencies, and nothing read from outside it. Until this crate is on
-crates.io, Cargo finds it through a patch:
+dependencies, and nothing read from outside it. The lock pins `iki-writer` from
+crates.io with its checksum, so the module is built against the SDK it pins,
+not the one of the Iki that builds it, and an Iki release doesn't change it.
+Iki publishes `iki-writer` with each release, at the release's version.
+
+`build-writer.sh`, in Iki's checkout beside this README, pins and tests a
+crate. A crate pinned to the `iki-writer` of the Iki it runs with gets it from
+that Iki until crates.io has it: the same crate, packaged as `cargo publish`
+packages it, with the checksum committed beside this README
+(`iki-writer.crate.sha256`).
 
 ```sh
-PATCH='patch.crates-io.iki-writer.path="<path to worker/crates/iki-writer>"'
-cargo generate-lockfile --config "$PATCH"
-cargo test --config "$PATCH"
+build-writer.sh lock <crate dir>   # pin this Iki's iki-writer in Cargo.lock
+build-writer.sh fetch <crate dir>  # gather the crates it pins; the network
+build-writer.sh test <crate dir>   # its unit tests, natively and offline
 ```
+
+Once a version is on crates.io, Cargo pins it as any crate:
+`cargo update -p iki-writer --precise <version>`.
 
 Unit tests run natively. Call the writer's methods, or drive it through the
 code its exports run with `iki_writer::testing::Session`, which also reads
@@ -165,30 +184,38 @@ back the notes' JSON as Iki would.
 
 ## Building the module
 
-`build-writer.sh`, beside this README, is how every build runs: the plugin
-image's writers stage, `iki plugin writers --update` (which writes the
-digest, from a build in that stage) and local test builds.
+`build-writer.sh` is how every build runs: the plugin image's writers stage,
+`iki plugin writers --update` (which writes the digest, from a build in that
+stage) and local test builds.
 
 ```sh
-build-writer.sh fetch <crate dir>                 # cargo fetch --locked; the network
+build-writer.sh fetch <crate dir>                 # cargo vendor, checked against Cargo.lock; the network
 build-writer.sh build <crate dir> <output .wasm>  # cargo build --locked --offline
 ```
 
-The build runs on a copy of the crate with this SDK inside it, with paths
-remapped, so the same crate gives the same bytes wherever it, the SDK and the
-cargo home are, on the same platform, and whether its crates came from
-crates.io, a mirror or `vendor/`. The digest is the Linux x86-64 build's;
-rustc's precompiled wasm32 standard library differs by host.
+`fetch` gathers every crate the lock pins into one directory, which replaces
+crates.io for the build; Cargo checks each against `Cargo.lock`, and builds it
+as crates.io's. The build runs on a copy of the crate, with paths remapped, so
+the same crate gives the same bytes wherever it and the cargo home are, on the
+same platform, and whether its crates came from crates.io, a mirror or
+`vendor/`. It runs in the writer builder, a Rust image Iki pins apart from its
+own toolchain and moves only in a minor release. The digest is the Linux x86-64
+build's; rustc's precompiled wasm32 standard library differs by host.
+
+`iki plugin writers --update` writes the digest file with what the module was
+built with: the crate's source, the `iki-writer` it pins, the writer builder
+and the build script. When a deployment's image build makes another module,
+it says which of those differs.
 
 Sites without crates.io:
 
 - **A registry mirror.** Set `IKI_CARGO_MIRROR` to its sparse index URL.
-  Both steps use it instead of crates.io, and Cargo still checks each crate
-  against `Cargo.lock`.
-- **Vendored crates.** Run `cargo vendor --versioned-dirs` in the crate (with
-  the patch above), commit `vendor/`, and add the crate's
-  `.cargo/config.toml`. `--versioned-dirs` names each crate's directory as a
-  registry does, so the module is byte for byte the one crates.io's give.
+  `fetch`, `lock` and `vendor` use it instead of crates.io, and Cargo still
+  checks each crate against `Cargo.lock`.
+- **Vendored crates.** Run `build-writer.sh vendor <crate dir>`, commit
+  `vendor/`, and add the crate's `.cargo/config.toml`. The crates are in
+  versioned directories, as a registry names them, so the module is byte for
+  byte the one crates.io's give.
 
   ```toml
   [source.crates-io]

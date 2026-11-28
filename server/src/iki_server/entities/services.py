@@ -103,8 +103,10 @@ __all__ = [
     "entry_at",
     "identity_lock",
     "link",
+    "lock_identity",
     "prepare",
     "provenance",
+    "register_entry",
     "set_archived",
     "unlink",
     "update",
@@ -246,6 +248,7 @@ def create(
     amount: Any = None,  # noqa: ANN401 - JSON: a quantity
     amount_reason: str | None = None,
     fills: frozenset[str] = frozenset(),
+    keeping: frozenset[Any] = frozenset(),
 ) -> Saved:
     """A new entity of ``type_name`` in ``project``. For a type with an identity, the
     project's record of its registry entry: a new one, or the one the project has, as it is.
@@ -257,23 +260,28 @@ def create(
     type with one (ADR 0139). A receipt's ``amount_reason`` explains its ledger movement.
     ``fills``: fields of ``values`` that only fill an
     existing entry's empty ones: where it has a value, it keeps it and this isn't refused,
-    as a fact that differs otherwise is (ADR 0140).
+    as a fact that differs otherwise is (ADR 0140). ``keeping``: entities ``values`` may
+    name though they couldn't be named anew, as a record they come from named them: a lab
+    list's archived options (ADR 0270), as a move to an entry of another type carries them
+    (ADR 0165).
     """
     from iki_server.amounts import services as amounts
 
     if amount is not None and amounts.spec(type_name) is None:
         raise amounts.Wrong({"amount": [f"{type_name} has no amount."]})
     given_amount = amounts.Given.of(amount) if amount is not None else None
-    form, given, holding = prepare(
-        user,
-        type_name,
-        project,
-        values,
-        access.refs_for(user, project),
-        by_run=by_run,
-        hold_reason=hold_reason,
-        defer_result_check=True,
-    )
+    refs = access.refs_for(user, project)
+    with refs.keeping(keeping):
+        form, given, holding = prepare(
+            user,
+            type_name,
+            project,
+            values,
+            refs,
+            by_run=by_run,
+            hold_reason=hold_reason,
+            defer_result_check=True,
+        )
     with transaction.atomic(), _unique_values():
         if errors := requests.check_result(project, type_name, given, lock=True):
             raise Invalid(errors)
@@ -436,12 +444,7 @@ def _find_entry(form: Shape, project: Project, given: Mapping[str, Any]) -> Enti
     identity's lock until the transaction ends: two people registering the same identity at
     once make one entry, the second waiting, then finding it."""
     digest = identity_digest(form, given)
-    identity_lock(form.entity_type, registry_of(project), shared=True)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
-            [f"iki_entry:{registry_of(project)}:{digest}"],
-        )
+    lock_identity(form.entity_type, registry_of(project), digest)
     entry = Entity.objects.filter(registry_id=registry_of(project), identity_hash=digest).first()
     if entry is None:
         return None
@@ -457,6 +460,18 @@ def _find_entry(form: Shape, project: Project, given: Mapping[str, Any]) -> Enti
             }
         )
     return entry
+
+
+def lock_identity(entity_type: EntityType, registry_id: Any, digest: str) -> None:  # noqa: ANN401 - a UUID
+    """Holds one identity's lock in a registry until the transaction ends, as registering
+    it does (and a bulk import's registering its type's): whoever registers it next, or
+    supersedes its entry, waits, then finds what this transaction left."""
+    identity_lock(entity_type, registry_id, shared=True)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"iki_entry:{registry_id}:{digest}"],
+        )
 
 
 def superseded(entry: Entity) -> str:
@@ -516,22 +531,45 @@ def _new_entry(
 ) -> tuple[Entity, Revision]:
     """A new registry entry in the project's registry, with its values from ``given``. An
     import keeps the ID and HRID it had where it's from, when they're free here."""
+    fields = form.entry_fields()
+    clashes = unique.taken(project, form, {n: v for n, v in given.items() if n in fields})
+    if clashes:
+        raise Invalid(clashes)
+    return register_entry(
+        user, form, registry_of(project), given, reason, by_run, project=project, pk=pk, hrid=hrid
+    )
+
+
+def register_entry(
+    user: User,
+    form: Shape,
+    registry_id: Any,  # noqa: ANN401 - a UUID
+    given: Mapping[str, Any],
+    reason: str,
+    by_run: bool = False,
+    *,
+    project: Project | None = None,
+    pk: Any = None,  # noqa: ANN401 - a UUID
+    hrid: str = "",
+    moved_from: Any = None,  # noqa: ANN401 - a UUID
+) -> tuple[Entity, Revision]:
+    """A new registry entry in the registry, with its values from ``given``, whose unique
+    facts the caller has checked are free. ``project``: the one it's registered through,
+    or None for a registrar's; ``moved_from``: the entry a registrar registered it in
+    place of (ADR 0165)."""
     instance = _entry_instance(form, given)
     if pk is not None:
         # Its root table's ID: each table below takes it from there.
         instance.id = pk  # type: ignore[attr-defined]
     if hrid:
         instance.hrid = hrid  # type: ignore[attr-defined]
-    instance.registry_id = registry_of(project)  # type: ignore[attr-defined]
+    instance.registry_id = registry_id  # type: ignore[attr-defined]
     instance.created_by = user  # type: ignore[attr-defined]
     instance.identity_hash = identity.hash_for(  # type: ignore[attr-defined]
         instance, form.entity_type, _lists(form, given)
     )
     fields = form.entry_fields()
     mine = {n: v for n, v in given.items() if n in fields}
-    clashes = unique.taken(project, form, mine)
-    if clashes:
-        raise Invalid(clashes)
     instance.save()
     rows = Rows(form, None, instance)
     touched = [p for p in form.parts if p.entry and not p.extension]
@@ -557,6 +595,7 @@ def _new_entry(
         reason,
         via="run" if by_run else None,
         project=project,
+        moved_from=moved_from,
     )
     _write_history(touched, rows, revision.number)
     _use_files(fields, instance.pk, mine, revision.number)
@@ -1231,11 +1270,49 @@ def set_archived(
         why = frozen(shape(locked.type))
         if why:
             raise Refused(why)
+        if not archived:
+            _reclaim_unique(locked)
         locked.archived_at = dt.datetime.now(dt.UTC) if archived else None
         locked.save(update_fields=["archived_at"])
         kind = RevisionKind.ARCHIVED if archived else RevisionKind.RESTORED
         revision = _revise(locked, kind, [], user, reason)
     return Saved(_specific(locked), revision)
+
+
+def _reclaim_unique(record: Entity) -> None:
+    """A record being restored holds its unique values again (ADR 0082), those it gave the
+    record its move to an entry of another type made (ADR 0165) included. Refused if one is
+    another record's now."""
+    from iki_server.entities.models import UniqueValue
+
+    if record.owner_project_id is None:
+        return
+    form = shape(record.type)
+    rows = Rows.of(_specific(record))
+    for part in form.parts:
+        if part.entry:
+            continue
+        for name, f in part.fields.items():
+            value = rows.value(part, f) if f.unique and not f.removed else None
+            if value is None:
+                continue
+            key = unique.key(part.model, name)
+            held = UniqueValue.objects.filter(
+                project_id=record.owner_project_id, key=key, value=str(value)
+            )
+            holder = held.exclude(entity_id=record.pk).values_list("entity__hrid", flat=True)
+            if found := holder.first():
+                raise Refused(
+                    f"Its {f.label or name} is {found}'s now, as a move gave it there: "
+                    f"{record.hrid} can't have it again, so it stays archived."
+                )
+            if not held.exists():
+                UniqueValue.objects.create(
+                    project_id=record.owner_project_id,
+                    key=key,
+                    value=str(value),
+                    entity_id=record.pk,
+                )
 
 
 def link(user: User, entity: Entity, project: Project) -> bool:
@@ -1449,24 +1526,48 @@ def entry_at(
     then (one it moved from, ADR 0115), and the entry's revision: ``entry_revision``, as a
     run pins it, or else the entry's latest while that revision of the record was its
     latest (now, for its latest), as the entry changes without the record changing."""
-    if entity.registry_id is not None:
-        return (entity.pk, number)
-    moved = (
-        entity.revisions.filter(kind=RevisionKind.MOVED, number__gt=number)
-        .order_by("number")
-        .values_list("moved_from_id", flat=True)
-        .first()
-    )
-    entry_id = moved or entity.entry_id
-    if entry_id is None:
-        return None
-    if entry_revision is not None:
-        return (entry_id, entry_revision)
+    return entries_at([(entity, number, entry_revision)])[0]
+
+
+def entries_at(
+    wanted: Sequence[tuple[Entity, int, int | None]],
+) -> list[tuple[Any, int] | None]:
+    """:func:`entry_at` for each (entity, revision, entry revision) of ``wanted``, reading
+    their records' moves once for all of them. Only a record without its entry's revision,
+    which no run pins, reads its entry's revisions on its own."""
+    records = {entity.pk for entity, _, _ in wanted if entity.registry_id is None}
+    moves: dict[Any, list[tuple[int, Any]]] = defaultdict(list)
+    if records:
+        for owner, number, moved_from in (
+            Revision.objects.filter(entity_id__in=records, kind=RevisionKind.MOVED)
+            .order_by("entity_id", "number")
+            .values_list("entity_id", "number", "moved_from_id")
+        ):
+            moves[owner].append((number, moved_from))
+    out: list[tuple[Any, int] | None] = []
+    for entity, number, entry_revision in wanted:
+        if entity.registry_id is not None:
+            out.append((entity.pk, number))
+            continue
+        moved = next((source for at, source in moves[entity.pk] if at > number), None)
+        entry_id = moved or entity.entry_id
+        if entry_id is None:
+            out.append(None)
+        elif entry_revision is not None:
+            out.append((entry_id, entry_revision))
+        else:
+            out.append((entry_id, _entry_revision_then(entity, number, entry_id)))
+    return out
+
+
+def _entry_revision_then(entity: Entity, number: int, entry_id: Any) -> int:  # noqa: ANN401 - an ID
+    """The entry's latest revision while the record's revision ``number`` was its latest:
+    now, for its latest."""
     after = entity.revisions.filter(number=number + 1).values_list("created_at", flat=True).first()
     then = Revision.objects.filter(entity_id=entry_id)
     if after is not None:
         then = then.filter(created_at__lt=after)
-    return (entry_id, then.order_by("-number").values_list("number", flat=True).first() or 0)
+    return then.order_by("-number").values_list("number", flat=True).first() or 0
 
 
 def entry_revision(entity: Entity) -> int | None:
@@ -1494,28 +1595,71 @@ def values_and_entry_at(
     entity: Entity, number: int, entry_revision: int | None = None, *, removed: bool = False
 ) -> tuple[dict[str, Any], tuple[uuid.UUID, int] | None]:
     """Read both the record values and the historical entry they were composed from."""
-    form = shape(entity.type)
-    is_entry = entity.registry_id is not None
-    entry = entry_at(entity, number, entry_revision) if form.has_entries else None
-    out: dict[str, Any] = {}
-    for part in form.parts:
-        if is_entry and not part.entry:
-            continue
-        if part.entry and not is_entry:
-            if entry is None:
+    return values_and_entries_at([(entity, number, entry_revision)], removed=removed)[0]
+
+
+def values_and_entries_at(
+    wanted: Sequence[tuple[Entity, int, int | None]], *, removed: bool = False
+) -> list[tuple[dict[str, Any], tuple[uuid.UUID, int] | None]]:
+    """:func:`values_and_entry_at` for each (entity, revision, entry revision) of
+    ``wanted``, in order. Each table's history is read once for all of them, so a lease
+    reads a pack's documents in as many queries however many there are (ADR 0055)."""
+    having = [i for i, (entity, _, _) in enumerate(wanted) if shape(entity.type).has_entries]
+    entries: list[tuple[Any, int] | None] = [None] * len(wanted)
+    for i, entry in zip(having, entries_at([wanted[i] for i in having]), strict=True):
+        entries[i] = entry
+    reads: dict[type[Model], set[tuple[Any, int]]] = defaultdict(set)
+    plans: list[list[tuple[Part, Any, int]]] = []
+    for (entity, number, _), entry in zip(wanted, entries, strict=True):
+        is_entry = entity.registry_id is not None
+        plan = []
+        for part in shape(entity.type).parts:
+            if is_entry and not part.entry:
                 continue
-            key, at = entry
-        else:
-            key, at = entity.pk, number
-        row = (
-            part.history._default_manager.filter(entity_id=key, revision__lte=at)
-            .order_by("-revision")
-            .first()
-        )
-        for name, f in part.fields.items():
-            if removed or not f.removed:
-                out[name] = history_value(row, f) if row is not None else None
-    return out, entry
+            if part.entry and not is_entry:
+                if entry is None:
+                    continue
+                key, at = entry
+            else:
+                key, at = entity.pk, number
+            reads[part.history].add((key, at))
+            plan.append((part, key, at))
+        plans.append(plan)
+    rows = {history: _history_rows(history, pairs) for history, pairs in reads.items()}
+    out = []
+    for plan, entry in zip(plans, entries, strict=True):
+        values: dict[str, Any] = {}
+        for part, key, at in plan:
+            row = rows[part.history].get((key, at))
+            for name, f in part.fields.items():
+                if removed or not f.removed:
+                    values[name] = history_value(row, f) if row is not None else None
+        out.append((values, entry))
+    return out
+
+
+def _history_rows(history: type[Model], wanted: set[tuple[Any, int]]) -> dict[Any, Model]:
+    """Of a history table, the row each (entity, revision) of ``wanted`` reads: its latest
+    at or before that revision, by the table's key. One lookup each, however long its
+    history."""
+    keys, revisions = zip(*sorted(wanted, key=lambda w: (str(w[0]), w[1])), strict=True)
+    quote = connection.ops.quote_name
+    columns = {f.name: quote(str(f.column)) for f in history._meta.concrete_fields}
+    table, entity, revision = (
+        quote(history._meta.db_table),
+        columns["entity_id"],
+        columns["revision"],
+    )
+    # What's interpolated is the table's and its columns' quoted names; every value is a
+    # parameter.
+    found = history._default_manager.raw(
+        "SELECT kept.*, wanted.at AS iki_wanted_at"  # noqa: S608 - see above
+        " FROM unnest(%s::uuid[], %s::integer[]) AS wanted(entity_id, at)"
+        f" CROSS JOIN LATERAL (SELECT * FROM {table} AS h WHERE h.{entity} = wanted.entity_id"
+        f" AND h.{revision} <= wanted.at ORDER BY h.{revision} DESC LIMIT 1) AS kept",
+        [list(keys), list(revisions)],
+    )
+    return {(row.entity_id, row.iki_wanted_at): row for row in found}  # type: ignore[attr-defined]
 
 
 def revision_values(entity: Entity, number: int, fields: Mapping[str, Field]) -> dict[str, Any]:

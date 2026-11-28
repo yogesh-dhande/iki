@@ -566,6 +566,7 @@ function Plan({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
       ) : null}
       <Types plan={plan} />
       {plan.outside.count ? <Outside plan={plan} /> : null}
+      {plan.signing_keys.length ? <SigningKeys made={made} plan={plan} /> : null}
     </>
   );
 }
@@ -768,6 +769,30 @@ function Outside({ plan }: { plan: Schemas["ImportPlan"] }) {
       {o.count > o.items.length ? (
         <p className="muted">And {(o.count - o.items.length).toLocaleString()} more.</p>
       ) : null}
+    </section>
+  );
+}
+
+/** The signing keys it brings that aren't trusted here yet: who each signs for, and
+ * whether the deployment it's from vouches for another's. */
+function SigningKeys({ made, plan }: { made: Import; plan: Schemas["ImportPlan"] }) {
+  const from = made.trusted_as || "the deployment it’s from";
+  return (
+    <section className="card">
+      <h3 className="section-title">Signing keys it brings</h3>
+      <p className="muted">
+        {made.state === "applied"
+          ? "Its electronic signatures were checked with these keys, which this deployment now trusts for them. Each is in the audit log."
+          : "Its electronic signatures are checked with these keys, which this deployment doesn’t trust yet. Importing trusts each for the signatures it brings, and records that in the audit log."}
+      </p>
+      <ul className="plain-list">
+        {plan.signing_keys.map((k) => (
+          <li key={k.key}>
+            <code>{k.key}</code>:{" "}
+            {k.source ? `${k.deployment}’s own` : `${k.deployment}’s, vouched for by ${from}`}
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

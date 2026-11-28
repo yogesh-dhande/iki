@@ -277,6 +277,7 @@ def test_a_plugins_writers_are_staged_for_the_image_to_build(tmp_path: Path) -> 
     assert (entry["crate"], entry["sha256"]) == (crate, tracked)
     assert (writers / crate / "Cargo.lock").is_file()
     assert not (writers / crate / "target").exists()
-    assert (writers / "sdk" / "iki-writer" / "build-writer.sh").is_file()
+    for name in ("build-writer.sh", "Cargo.lock", "iki-writer.crate.sha256"):
+        assert (writers / "sdk" / "iki-writer" / name).is_file(), name
     locked = json.loads((tmp_path / "iki_installed_plugins" / "lock.json").read_text())
     assert locked["plugins"][0]["writers"] == {"acme/liquid_handling.tecan_worklist": tracked}

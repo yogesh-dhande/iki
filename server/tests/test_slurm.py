@@ -16,12 +16,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
+from test_run_batches import lock_held
 from test_run_results import done, output
 from test_runs import TEMPLATE, protein
 from test_workers import LOCAL, WorkerClient
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import registry
+from iki_server.entities import access, registry
 from iki_server.runs import catalog, costs, provisioner, queue, services, slurm, workers
 from iki_server.runs.models import (
     ActionRun,
@@ -322,6 +323,30 @@ def test_a_pinned_kubernetes_secret_cannot_follow_a_run_to_slurm(
     assert "no longer binds" in ended.error["message"]
 
 
+@pytest.mark.django_db(transaction=True)
+def test_a_login_nodes_lease_reads_its_job_after_counting_and_claiming(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cluster's other login nodes don't wait while a lease reads what its job reads:
+    its claim, counted against its template's `max_concurrent`, has committed."""
+    queue_run(world)
+    node = login_node(world)
+    held: list[bool] = []
+    readable = access.project_reference_ids
+
+    def reading(project: Any, ids: Any) -> Any:
+        held.append(lock_held("iki_slurm:hpc1", hashed="hashtext(%s)"))
+        return readable(project, ids)
+
+    monkeypatch.setattr(access, "project_reference_ids", reading)
+
+    leased = node.lease()
+
+    assert leased.status_code == 200, leased.content
+    assert held and not any(held)
+    assert leased.json()["job"]["slurm"]["template"] == "hpc-gpu"
+
+
 def test_a_cluster_holds_many_jobs_at_once_up_to_its_templates_limit(world: World) -> None:
     for i in range(3):
         queue_run(world, name="ACDEFG"[: i + 1])
@@ -441,7 +466,17 @@ def test_a_project_is_charged_to_its_own_account_or_its_run_fails_with_why(
     del compute["templates"]["hpc-gpu"]["slurm"]["account"]
     use(compute)
     run = queue_run(world, name="ACDEF")
+    queued = Job.objects.get(run_id=run["id"])
     assert node.lease().status_code == 204
+    # It ends as it was queued: no worker held it, and no template counts it.
+    ended = Job.objects.get(run_id=run["id"])
+    assert (ended.worker_id, ended.template, ended.started_at, ended.lease_token) == (
+        None,
+        queued.template,
+        None,
+        None,
+    )
+    assert not SlurmJob.objects.filter(job=ended).exists()
     failed = ActionRun.objects.get(pk=run["id"])
     assert failed.status == RunStatus.FAILED
     assert failed.error is not None

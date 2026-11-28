@@ -2182,7 +2182,9 @@ A writer declares:
 - `module`: the crate's directory under `writers/`. It holds `Cargo.toml`, with
   `crate-type = ["cdylib"]`, and `Cargo.lock`, and no symbolic links. Beside it,
   `<module>.wasm.sha256` holds the SHA-256 of the module the Linux x86-64 builder
-  makes. `iki plugin writers --update` builds it and writes the file. Commit the
+  makes, and what it was built with: the crate's source, the `iki-writer` its
+  lock pins, the writer builder and the build script. Run
+  `iki plugin writers --update` to build it and write the file. Commit the
   digest with the Rust, and never the `.wasm`.
 - `many`: `file` when many records make one file, as a worklist's lines do (the
   default); `zip` when each record is a file of its own, so many make a ZIP of
@@ -2209,7 +2211,8 @@ it adds to the file and notes on what the file couldn't hold. Or it refuses
 the record, saying why, and the export fails, naming it.
 
 Write a writer with the `iki-writer` crate. It turns a `Writer` trait's `begin`,
-`record` and `end` into the module's exports (ABI 1):
+`record` and `end` into the module's exports, and says which ABI the module
+reads:
 
 ```rust
 use iki_writer::{Part, Record, Refusal, Writer};
@@ -2229,20 +2232,34 @@ impl Writer for SampleSheet {
 iki_writer::writer!(SampleSheet);
 ```
 
-Depend on `iki-writer = "=0.1.0-dev.0"`. Until the crate is published, the
-builder supplies it from the Iki that builds the plugin. The module must
-import nothing: no clock, no files, no randomness. A writer is a function of
-its records, so the same records always make the same file.
+Depend on `iki-writer = "=0.1.0-dev.0"`, and pin it in `Cargo.lock` with its
+checksum. Iki publishes `iki-writer` to crates.io with each release, at the
+release's version, so the module is built against the SDK it pins, not the
+one of the Iki that builds it: an Iki release doesn't change it. Until a
+version is on crates.io, the build takes it from the Iki whose version it is,
+the same crate with the same checksum; `build-writer.sh lock`, in the SDK,
+pins it. The module must import nothing: no clock, no files, no randomness. A
+writer is a function of its records, so the same records always make the same
+file.
+
+Iki runs a range of writer ABIs, each module's requests built for the ABI it
+reads, so a module keeps getting the requests it was built for. A new request
+field is a new ABI, which a module gets by being built against a newer
+`iki-writer`. A module of an ABI the Iki doesn't run, older or newer, is
+refused when the image is built, saying which.
 
 A deployment's image build rebuilds each writer from its source on
-`linux/amd64`, with Iki's pinned Rust and no network or credentials. Only
-fetching the crates uses the network, and Cargo checks each against
-`Cargo.lock`. A site without crates.io sets `IKI_CARGO_MIRROR` to a registry
-mirror, or the plugin vendors its crates (`cargo vendor --versioned-dirs`, with
-the crate's `.cargo/config.toml` replacing crates.io). Either way the module
-is the same. The build refuses a module whose digest isn't the tracked one,
-or one that imports anything, breaks the ABI, has more than one memory, or
-holds a function body over 1 MiB or a `br_table` over 65,536 targets.
+`linux/amd64`, in the writer builder (a Rust image Iki pins apart from its own
+toolchain, and moves only in a minor release), with no network or
+credentials. Only fetching the crates uses the network, and Cargo checks each
+against `Cargo.lock`. A site without crates.io sets `IKI_CARGO_MIRROR` to a
+registry mirror, or the plugin vendors its crates (`build-writer.sh vendor`,
+with the crate's `.cargo/config.toml` replacing crates.io). Either way the
+module is the same. The build refuses a module whose digest isn't the tracked
+one, saying which of its inputs differs from those the digest was written
+with, and one that imports anything, reads an ABI the Iki doesn't run, has
+more than one memory, or holds a function body over 1 MiB or a `br_table` over
+65,536 targets.
 
 The writer runs in the chart's export sandbox (`sandbox.enabled`), a
 Deployment with no Secrets, no service-account token, no cloud identity and
