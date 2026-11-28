@@ -112,7 +112,8 @@ def test_enter_on_a_pasted_hrid_opens_that_record_not_what_the_text_before_found
     open_as: Any, world: World
 ) -> None:
     """↵ pressed at once after pasting, while the last text's results still show and the
-    answer for the new text is on its way, waits for that answer and opens what it found."""
+    answer for the new text is on its way, waits for that answer and opens what it found;
+    text that finds nothing opens nothing, however quickly ↵ follows it."""
     made = lysozymes(world)
     page = open_as("admin", "/projects/")
     dialog = search_for(page, "lysozyme")
@@ -124,8 +125,10 @@ def test_enter_on_a_pasted_hrid_opens_that_record_not_what_the_text_before_found
     with page.expect_request(asked):
         dialog.get_by_role("combobox").fill(made["c"].hrid)
         page.keyboard.press("Enter")
-    # Lysozyme B, which "lysozyme" found first, still shows, and ↵ didn't open it.
+    # Lysozyme B, which "lysozyme" found first, still shows, isn't active, and ↵ didn't
+    # open it.
     expect(found.first).to_contain_text(made["b"].hrid)
+    expect(found.first).to_have_attribute("aria-selected", "false")
     expect(dialog).to_be_visible()
     assert "/entities/" not in page.url
     assert len(held) == 1
@@ -133,6 +136,34 @@ def test_enter_on_a_pasted_hrid_opens_that_record_not_what_the_text_before_found
     page.get_by_role("heading", level=1, name="Lysozyme C").wait_for()
     page.get_by_text(made["c"].hrid, exact=True).first.wait_for()
     assert_clean(page)
+    page.unroute(asked)
+    dialog = search_for(page, "lysozyme")
+    dialog.get_by_role("combobox").fill("nothing like it")
+    page.keyboard.press("Enter")
+    expect(dialog).to_contain_text("Nothing you can read matches “nothing like it”.")
+    expect(dialog).to_be_visible()
+    assert made["c"].hrid in page.url
+
+
+def test_a_saved_view_the_grid_cant_show_opens_on_its_own_page(open_as: Any, world: World) -> None:
+    """Saved with the API for an exact type alone, it can't open in the grid: found by
+    search, it opens where the sidebar's does, on the page that says so (ADR 0176)."""
+    SavedSearch.objects.create(
+        project=world.project,
+        name="Proteins of this type only",
+        query={"type": "acme/protein.Protein", "exact_type": True},
+        created_by=world.users["admin"],
+    )
+    page = open_as("admin", "/projects/")
+    dialog = open_palette(page)
+    dialog.get_by_role("combobox").fill("this type only")
+    view = dialog.get_by_role("group", name="Saved views").get_by_role("option")
+    expect(view).to_contain_text("Proteins of this type only")
+    page.keyboard.press("Enter")
+    page.get_by_role("heading", level=1, name="Proteins of this type only").wait_for()
+    explained = page.get_by_text("conditions the grid can’t show, so it can’t open there")
+    expect(explained).to_be_visible()
+    assert "/saved-searches/" in page.url
 
 
 @pytest.mark.parametrize("focus_link", [False, True], ids=["disclosure", "child-link"])
