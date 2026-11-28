@@ -1,1 +1,5 @@
-6b5d8bda05255bc61b889b906ee4490234225edaca1bbda400c536b5793931ca  tecan-worklist.wasm
+e6ce548d7744332d398b00ba04e9aff4e6a2aaae98c9c98ef2efbe3ecb6317e3  tecan-worklist.wasm
+# source d9f992b24e6bee6ed3bad5b403521ecd0167a7e9d69a50a59214b6563fd3f580
+# iki-writer 0.1.0-dev.0 f1d5c12c1872f183fe71bce7e81ae1371e3d2ef2eb4bfa2cf51f9d0ada7e18bb
+# builder rust:1.93.0-slim-trixie@sha256:760ad1d638d70ebbd0c61e06210e1289cbe45ff6425e3ea6e01241de3e14d08e
+# build-writer.sh a7112a43d76aa7b00984502358b647940f5d1d91b413975f8b2329a6749ce9c0

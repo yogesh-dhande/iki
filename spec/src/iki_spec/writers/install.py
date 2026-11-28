@@ -9,9 +9,11 @@ and install it.
 writer it:
 
 1. compares the module's SHA-256 with the digest the plugin tracks, and fails naming the
-   writer and both digests if they differ;
-2. refuses a module the checker refuses (imports, the wrong ABI, a second or shared
-   memory, an oversized module, function body or ``br_table``);
+   writer, both digests and which of the module's inputs differ from those the digest
+   was written with: its source, the iki-writer its Cargo.lock pins, the writer builder
+   or the build script;
+2. refuses a module the checker refuses (imports, an ABI this Iki doesn't run, a second
+   or shared memory, an oversized module, function body or ``br_table``);
 3. compiles it with the sandbox's engine, checks its exports' types, and starts it once
    within its memory, so one that can't start fails here rather than on a download;
 4. writes the module, its precompiled code and ``manifest.json`` with both digests, this
@@ -32,7 +34,8 @@ from typing import Any
 
 import wasmtime
 
-from iki_spec.writers import BUILD, MANIFEST
+from iki_spec.writers import BUILD, MANIFEST, SDK
+from iki_spec.writers import build as writer_build
 from iki_spec.writers.check import check_module
 from iki_spec.writers.child import host_target
 from iki_spec.writers.runtime import Instance, WriterFailed, engine
@@ -59,12 +62,7 @@ def install(build: Path, built: Path, out: Path) -> dict[str, Any]:
         binary = module.read_bytes()
         made = hashlib.sha256(binary).hexdigest()
         if made != entry["sha256"]:
-            raise InstallError(
-                f"{writer}: the module built from its source is {made}, but the plugin's "
-                f"{entry['name']}.wasm.sha256 says {entry['sha256']}. If the Rust or its "
-                "Cargo.lock changed on purpose, run `iki plugin writers --update` and commit "
-                "the digest; otherwise the source isn't what was reviewed."
-            )
+            raise InstallError(_mismatch(writer, entry, made, build, built))
         if problems := check_module(binary):
             raise InstallError(f"{writer}: " + " ".join(p.message for p in problems))
         try:
@@ -92,6 +90,29 @@ def install(build: Path, built: Path, out: Path) -> dict[str, Any]:
     }
     (out / MANIFEST).write_text(json.dumps(found, indent=2, sort_keys=True) + "\n", "utf-8")
     return found
+
+
+def _mismatch(writer: str, entry: dict[str, Any], made: str, build: Path, built: Path) -> str:
+    """Why a module isn't the one its plugin tracks: which of its inputs differ from those
+    its digest was written with."""
+    crate = str(entry["crate"])
+    digest = build / f"{crate}.wasm.sha256"
+    recorded = writer_build.read_built_with(digest.read_text("utf-8")) if digest.is_file() else None
+    builder = built / writer_build.BUILT_BY
+    current = writer_build.built_with(
+        build / crate,
+        builder=builder.read_text("utf-8").strip() if builder.is_file() else "",
+        sdk=build / SDK,
+    )
+    said = f"{writer}: the module built here is {made}, but {entry['name']}.wasm.sha256 says "
+    said += f"{entry['sha256']}"
+    if found := writer_build.differences(recorded, current):
+        return f"{said}, and " + "; and ".join(found) + "."
+    return (
+        f"{said}, though its source, its iki-writer, the writer builder and the build "
+        "script are the ones the digest was written with: the build didn't reproduce the "
+        "module, which is Iki's bug to report, with both digests."
+    )
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -156,9 +156,10 @@ COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.was
 # because `iki deploy build` exports a plugin with `git archive`, which has each module's
 # tracked digest but not its bytes; the CLI takes them from here and checks them again.
 COPY --from=verified-wasm /artifacts/plasmid-tools.wasm /artifacts/oligo-checks.wasm spec/src/iki_spec/modules/
-# And the iki-writer SDK, which `iki deploy build` gives plugins' writers to build against
-# in the plugin image (ADR 0230).
-COPY worker/crates/iki-writer/Cargo.toml worker/crates/iki-writer/README.md worker/crates/iki-writer/build-writer.sh spec/src/iki_spec/writers/sdk/iki-writer/
+# And the iki-writer SDK (ADR 0230): the build script `iki deploy build` gives the plugin
+# image's writer builder, and this Iki's iki-writer, which writers pinned to it build
+# against.
+COPY worker/crates/iki-writer/Cargo.toml worker/crates/iki-writer/Cargo.lock worker/crates/iki-writer/README.md worker/crates/iki-writer/build-writer.sh worker/crates/iki-writer/iki-writer.crate.sha256 spec/src/iki_spec/writers/sdk/iki-writer/
 COPY worker/crates/iki-writer/src spec/src/iki_spec/writers/sdk/iki-writer/src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --package iki-server --extra c --no-editable \

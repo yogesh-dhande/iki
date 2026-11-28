@@ -187,7 +187,8 @@ def serve(
         write_json(stdout, {"error": {"code": code, "message": str(error)}})
         return 1
     _confine()
-    write_json(stdout, {"ready": True})
+    # The ABI the module reads, which the server builds each request for.
+    write_json(stdout, {"ready": True, "abi": instance.abi})
     begun = False
     while True:
         try:
