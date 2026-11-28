@@ -17,7 +17,7 @@ const GI = 1024 ** 3;
 const NOW = new Date().toISOString();
 const TEAM = { id: "00000000-0000-7000-8000-0000000000a1", name: "Structural Biology" };
 const PROJECT = { id: "00000000-0000-7000-8000-0000000000p1", name: "Cryo-EM screening" };
-const ACCOUNTS = "/api/v1/compute/slurm/hpc/accounts";
+const ACCOUNTS = "/api/v1/compute/slurm-clusters/hpc/accounts";
 
 function template(
   overrides: Partial<Schemas["SlurmTemplateOut"]> = {},
@@ -56,7 +56,7 @@ function account(overrides: Partial<Schemas["SlurmAccountOut"]> = {}): Schemas["
 
 function onSlurm(clusters: Schemas["SlurmClusterOut"][], accounts: Schemas["SlurmAccountOut"][]) {
   signedIn({ can: COMPUTE_ADMIN });
-  answer("GET /api/v1/compute/slurm", () => clusters);
+  answer("GET /api/v1/compute/slurm-clusters", () => page(clusters));
   answer(`GET ${ACCOUNTS}`, () => page(accounts));
 }
 
@@ -199,9 +199,11 @@ describe("Compute → Slurm", () => {
     const given: Schemas["SlurmAccountOut"][] = [];
     onSlurm([cluster({ accounts: 0 })], given);
     answer("GET /api/v1/compute/quota-scopes", (r: { query: URLSearchParams }) =>
-      r.query.get("kind") === "project" && r.query.get("search") === "cryo"
-        ? [{ ...PROJECT, team: TEAM.name, team_id: TEAM.id }]
-        : [],
+      page(
+        r.query.get("kind") === "project" && r.query.get("q") === "cryo"
+          ? [{ ...PROJECT, team: TEAM.name, team_id: TEAM.id }]
+          : [],
+      ),
     );
     answer(`PUT ${ACCOUNTS}/${PROJECT.id}`, () => {
       given.push(account());
@@ -275,9 +277,9 @@ describe("Compute → Slurm", () => {
 
   it("asks which project when none is chosen", async () => {
     onSlurm([cluster()], []);
-    answer("GET /api/v1/compute/quota-scopes", () => [
-      { ...PROJECT, team: TEAM.name, team_id: TEAM.id },
-    ]);
+    answer("GET /api/v1/compute/quota-scopes", () =>
+      page([{ ...PROJECT, team: TEAM.name, team_id: TEAM.id }]),
+    );
     const { user } = await renderApp("/admin/compute/slurm/");
     await user.click(
       await (await accounts()).findByRole("button", { name: "Give a project an account" }),
@@ -314,6 +316,6 @@ describe("Compute → Slurm", () => {
     signedIn();
     await renderApp("/admin/compute/slurm/");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Not found");
-    expect(calls("GET", "/api/v1/compute/slurm")).toEqual([]);
+    expect(calls("GET", "/api/v1/compute/slurm-clusters")).toEqual([]);
   });
 });

@@ -1209,8 +1209,8 @@ as its `material` and matches the item's unit. An open order contributes
 its ordered packs less the packs already received. A missing received
 count means zero.
 
-A project reader can page through `GET /api/v1/projects/{project_id}/stock`,
-the item's `/stock/{item_id}/lots` and the project's `/stock/orders`.
+A project reader can page through `GET /api/v1/projects/{project_id}/stock/items`,
+each item's `/stock/items/{item_id}/lots` and the project's `/stock/orders`.
 Physical stock is the current ledger balance of its lots. Stored stock
 is in a container and checked in. Available stock must also pass routine
 draw guards and hold, archive and expiry checks. A reader sees a container's

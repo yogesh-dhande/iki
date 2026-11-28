@@ -68,7 +68,7 @@ export function registryEntriesQuery(id: string, filter: EntryFilter) {
             query: {
               limit: 50,
               ...(filter.q?.trim() ? { q: filter.q.trim() } : {}),
-              ...(filter.type ? { type: filter.type } : {}),
+              ...(filter.type ? { type: [filter.type] } : {}),
               ...(filter.superseded === undefined ? {} : { superseded: filter.superseded }),
               ...(pageParam ? { cursor: pageParam } : {}),
             },

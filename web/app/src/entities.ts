@@ -7,7 +7,7 @@
 import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 
-import { iki, projectQuery, queryClient } from "./api";
+import { everyPage, iki, projectQuery, queryClient } from "./api";
 import { searchWords, validateFilters, type Filter } from "./filters";
 import { objectList, objectListText } from "./object-lists";
 import { fetchPageRead } from "./page-reads";
@@ -28,7 +28,10 @@ export const ENTITIES = ["entities"] as const;
 /** The installed types: they change only when the deployment does. */
 export const typesQuery = queryOptions({
   queryKey: ["entity-types"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/entity-types", { signal: signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/entity-types", { params: { query: page }, signal })),
+    ),
   staleTime: 10 * 60_000,
 });
 
@@ -167,12 +170,14 @@ export const SAVED_SEARCHES = ["saved-searches"] as const;
 export function savedSearchesQuery(projectId: string) {
   return queryOptions({
     queryKey: [...SAVED_SEARCHES, projectId],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/saved-searches", {
-          params: { query: { project: projectId } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/saved-searches", {
+            params: { query: { project: projectId, ...page } },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -192,11 +197,7 @@ export function pickerQuery(types: readonly string[], q: string) {
             query: {
               limit: 20,
               archived: false,
-              ...(named.length === 1 && named[0]
-                ? { type: named[0] }
-                : named.length
-                  ? { types: named }
-                  : {}),
+              ...(named.length ? { type: named } : {}),
               ...(q.trim() ? { q: q.trim() } : {}),
             },
           },
@@ -298,9 +299,14 @@ export function provenanceQuery(ref: string) {
 export function originsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "origins", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/entities/{ref}/origins", { params: { path: { ref } }, signal }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/entities/{ref}/origins", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -309,8 +315,15 @@ export function originsQuery(ref: string) {
 export function makingQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "making", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(await iki.GET("/api/v1/entities/{ref}/making", { params: { path: { ref } }, signal })),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/entities/{ref}/makings", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
+      ),
   });
 }
 
@@ -318,9 +331,14 @@ export function makingQuery(ref: string) {
 export function bundleOriginsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "bundles", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/entities/{ref}/bundles", { params: { path: { ref } }, signal }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/entities/{ref}/bundles", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -328,9 +346,14 @@ export function bundleOriginsQuery(ref: string) {
 export function entityProjectsQuery(ref: string) {
   return queryOptions({
     queryKey: [...ENTITIES, "projects", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/entities/{ref}/projects", { params: { path: { ref } }, signal }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/entities/{ref}/projects", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }

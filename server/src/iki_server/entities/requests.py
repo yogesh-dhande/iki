@@ -290,15 +290,18 @@ def accepted_by(type_name: str) -> list[str]:
     return [type_name, *(t.qualified_name for t in registry.ancestors(entity_type))]
 
 
-def services_for(asking: Project, type_name: str | None = None) -> QuerySet[Project]:
-    """The projects that take requests (of ``type_name``, or any) from ``asking``: in its
-    registry, not archived, and naming it or taking requests from the whole registry."""
+def services_for(asking: Project, type_names: Sequence[str] = ()) -> QuerySet[Project]:
+    """The projects that take requests (of one of ``type_names``, or any) from ``asking``:
+    in its registry, not archived, and naming it or taking requests from the whole
+    registry."""
     named = IntakeSource.objects.filter(intake_id=OuterRef("pk"), project=asking)
     intakes = Intake.objects.filter(project_id=OuterRef("pk")).filter(
         Q(from_registry=True) | Exists(named)
     )
-    if type_name is not None:
-        intakes = intakes.filter(types__overlap=accepted_by(type_name))
+    if type_names:
+        intakes = intakes.filter(
+            types__overlap=sorted({n for t in type_names for n in accepted_by(t)})
+        )
     else:
         intakes = intakes.exclude(types=[])
     return (
@@ -310,7 +313,7 @@ def services_for(asking: Project, type_name: str | None = None) -> QuerySet[Proj
 
 
 def accepts(service: Project, asking: Project, type_name: str) -> bool:
-    return services_for(asking, type_name).filter(pk=service.pk).exists()
+    return services_for(asking, [type_name]).filter(pk=service.pk).exists()
 
 
 @dataclass(frozen=True)

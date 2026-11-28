@@ -3,7 +3,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import { machineTime } from "./costs";
 import { formatSize } from "./entities";
 
@@ -162,13 +162,20 @@ export type QuotaScopeKind = "team" | "project";
 /** Every quota, the organization's first, with how much of each is in use now. */
 export const quotasQuery = queryOptions({
   queryKey: [...COMPUTE, "quotas"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/quotas", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/compute/quotas", { params: { query: page }, signal })),
+    ),
   refetchInterval: OVERVIEW_POLL_MS,
 });
 
+/** How many teams or projects a picker of them lists: the best matches for what's typed. */
+const SCOPES_SHOWN = 20;
+
 /**
  * Teams or projects to set a quota on or give a self-hosted worker to, any of them, by part
- * of the name; projects only of `teams`, when given. No placeholder: until the answer for
+ * of the name; projects only of `teams`, when given. The first {@link SCOPES_SHOWN} that
+ * match, for a picker that narrows as people type. No placeholder: until the answer for
  * `search` comes, none are listed, never another search's, which would change under someone
  * choosing from them.
  */
@@ -179,11 +186,16 @@ export function quotaScopesQuery(kind: QuotaScopeKind, search: string, teams: st
       unwrap(
         await iki.GET("/api/v1/compute/quota-scopes", {
           params: {
-            query: { kind, search: search.trim(), ...(teams.length ? { team: teams } : {}) },
+            query: {
+              kind,
+              q: search.trim(),
+              limit: SCOPES_SHOWN,
+              ...(teams.length ? { team: teams } : {}),
+            },
           },
           signal,
         }),
-      ),
+      ).items,
     staleTime: 30_000,
   });
 }
@@ -217,7 +229,10 @@ export const SLURM = [...COMPUTE, "slurm"] as const;
 /** The clusters the deployment's Slurm templates name, with their workers and accounts. */
 export const slurmClustersQuery = queryOptions({
   queryKey: SLURM,
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/slurm", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/compute/slurm-clusters", { params: { query: page }, signal })),
+    ),
   refetchInterval: OVERVIEW_POLL_MS,
 });
 
@@ -228,7 +243,7 @@ export function slurmAccountsQuery(cluster: string) {
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) =>
       unwrap(
-        await iki.GET("/api/v1/compute/slurm/{cluster}/accounts", {
+        await iki.GET("/api/v1/compute/slurm-clusters/{cluster}/accounts", {
           params: {
             path: { cluster },
             query: { limit: 50, ...(pageParam ? { cursor: pageParam } : {}) },

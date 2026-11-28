@@ -142,7 +142,7 @@ describe("what it lists", () => {
   it("is open on the entities' pages and closed elsewhere, until the reader says", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
-    answer("GET /api/v1/entity-types", []);
+    answer("GET /api/v1/entity-types", page([]));
     const { router } = await renderApp("/projects/");
     const entities = () => within(nav()).getByRole("button", { name: "Entities" });
     // Closed, its types don't push Requests, Runs and the rest out of sight.
@@ -229,7 +229,7 @@ describe("what it lists", () => {
   it("lists the reader's saved searches, each opening from its own address", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([project()]));
-    answer("GET /api/v1/saved-searches", [saved()]);
+    answer("GET /api/v1/saved-searches", page([saved()]));
     await renderApp("/projects/");
     const view = await within(nav()).findByRole("link", { name: "Ampicillin plasmids" });
     expect(view).toHaveAttribute("href", "/saved-searches/00000000-0000-7000-8000-0000000000s1/");
@@ -245,7 +245,7 @@ describe("what it lists", () => {
     answer("GET /api/v1/projects", page([atlas]));
     answer(`GET /api/v1/projects/${atlas.id}`, atlas);
     answer("GET /api/v1/saved-searches/00000000-0000-7000-8000-0000000000s1", saved());
-    answer("GET /api/v1/entity-types", []);
+    answer("GET /api/v1/entity-types", page([]));
     answer("POST /api/v1/entities/search", { items: [], next_cursor: null, total: 0 });
     const { router } = await renderApp("/saved-searches/00000000-0000-7000-8000-0000000000s1/");
     await waitFor(() => {
@@ -288,7 +288,7 @@ describe("what it lists", () => {
       "GET /api/v1/saved-searches/00000000-0000-7000-8000-0000000000s1",
       saved({ project: null }),
     );
-    answer("GET /api/v1/entity-types", []);
+    answer("GET /api/v1/entity-types", page([]));
     answer("POST /api/v1/entities/search", { items: [], next_cursor: null, total: 0 });
     const { router } = await renderApp("/saved-searches/00000000-0000-7000-8000-0000000000s1/");
     await waitFor(() => {
@@ -381,7 +381,7 @@ describe("the drawer", () => {
   it("closes when the reader goes somewhere", async () => {
     signedIn();
     answer("GET /api/v1/projects", page([]));
-    answer("GET /api/v1/entity-types", []);
+    answer("GET /api/v1/entity-types", page([]));
     const { user } = await renderApp("/projects/");
     await user.click(screen.getByRole("button", { name: "Menu" }));
     await user.click(

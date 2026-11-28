@@ -60,10 +60,10 @@ def test_an_artifacts_metadata_explains_why_its_content_is_held(world: World) ->
     )
     viewer = api_as(world, "viewer")
     path = f"/runs/{run['hrid']}/artifacts"
-    assert viewer.get(path).json()[0]["state"] == "scanning"
+    assert viewer.every(path)[0]["state"] == "scanning"
     problem(viewer.get(f"{path}/{artifact.pk}/content"), 409, "file_scanning")
     quarantine(upload)
-    shown = viewer.get(path).json()[0]
+    shown = viewer.every(path)[0]
     assert shown["state"] == "quarantined" and not shown["scan"]["usable"]
     problem(viewer.get(f"{path}/{artifact.pk}/content"), 409, "file_quarantined")
     problem(api_as(world, "outsider").get(f"{path}/{artifact.pk}/content"), 404, "not_found")

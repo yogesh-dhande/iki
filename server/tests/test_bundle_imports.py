@@ -461,7 +461,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
     # Its page says where it's from.
     origins = api.get(f"/entities/{kinase.hrid}/bundles")
     assert origins.status_code == 200, origins.content
-    (origin,) = origins.json()
+    (origin,) = origins.json()["items"]
     assert origin["deployment"] == "test" and origin["hrid"] == kinase.hrid
     assert origin["action"] == "new" and origin["revisions"] == 2
     assert origin["bundle_import"] == made["id"]
@@ -600,7 +600,7 @@ def test_applying_renumbers_taken_hrids_and_adds_later_revisions(
     assert api.get(f"/entities/{here.hrid}").json()["values"]["name"] == "changed there"
     moved = Entity.objects.get(pk=renumbered["id"])
     assert moved.hrid != renumbered["hrid"]
-    (origin,) = api.get(f"/entities/{moved.hrid}/bundles").json()
+    (origin,) = api.every(f"/entities/{moved.hrid}/bundles")
     assert origin["hrid"] == renumbered["hrid"]
     rows = {r["id"]: r for r in entities_of(api, done)}
     assert rows[renumbered["id"]]["hrid_here"] == moved.hrid
@@ -1281,7 +1281,7 @@ def test_a_run_whose_input_isnt_coming_keeps_it_on_record(world: World, tmp_path
     api = Api(world.browser("admin"))
     made = upload(api, world.project, path)
     assert made["plan"]["applicable"], made["plan"]
-    assert made["plan"]["outside"]["items"][0]["why"] == "run"
+    assert made["plan"]["outside"]["first"][0]["why"] == "run"
     assert made["plan"]["counts"]["runs_renumbered"] == 1
     done = applied(api, made)
     assert done["state"] == "applied", done

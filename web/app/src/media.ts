@@ -3,7 +3,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { queryOptions, useQuery } from "@tanstack/react-query";
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 
 export type FileFormat = Schemas["InstalledFormatOut"];
 
@@ -146,7 +146,11 @@ export class FormatError extends Error {}
 export const formatsQuery = queryOptions({
   queryKey: ["formats"],
   queryFn: async ({ signal }) =>
-    new MediaFormats(unwrap(await iki.GET("/api/v1/formats", { signal }))),
+    new MediaFormats(
+      await everyPage(async (page) =>
+        unwrap(await iki.GET("/api/v1/formats", { params: { query: page }, signal })),
+      ),
+    ),
   staleTime: 10 * 60_000,
 });
 

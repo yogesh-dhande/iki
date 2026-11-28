@@ -24,9 +24,10 @@ from iki_server.api import preconditions
 from iki_server.api import registries as registries_api
 from iki_server.api.common import caller, require
 from iki_server.api.entities import _invalid
+from iki_server.api.pagination import PageParams, page_by, page_sorted
 from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import RegistryRef
+from iki_server.api.schemas import Page, RegistryRef
 from iki_server.entities import access, entries, lists, registry, services
 from iki_server.entities.values import Invalid, shape
 from iki_server.org import permissions
@@ -38,10 +39,9 @@ router = Router(tags=["lists"])
 
 
 class Scope(Schema):
-    project: str | None = Field(
+    project: UUID | None = Field(
         None,
-        description="A project you read, by ID or slug: its registry's lists, which its "
-        "records pick from.",
+        description="A project you read, by ID: its registry's lists, which its records pick from.",
     )
     registry: UUID | None = Field(
         None,
@@ -54,11 +54,12 @@ def _registry(user: User, scope: Scope) -> Registry:
     """The registry the caller asks about: a project's they read, or one they see; else
     404."""
     if scope.project is not None:
-        try:
-            key: dict[str, Any] = {"pk": UUID(scope.project)}
-        except ValueError:
-            key = {"slug": scope.project}
-        found = access.readable_projects(user).filter(**key).select_related("registry").first()
+        found = (
+            access.readable_projects(user)
+            .filter(pk=scope.project)
+            .select_related("registry")
+            .first()
+        )
         if found is None:
             raise Problem(404, "No such project, or you can’t read it.")
         return found.registry
@@ -118,14 +119,23 @@ def _list_out(user: User, found: Registry, entity_type: EntityType, counts: dict
     }
 
 
-@router.get("/lists", response=list[ListOut], summary="A registry's lab lists")
-def list_lists(request: HttpRequest, scope: Query[Scope]) -> list[Any]:
+class ListsParams(Scope, PageParams):
+    pass
+
+
+@router.get("/lists", response=Page[ListOut], summary="A registry's lab lists")
+def list_lists(request: HttpRequest, params: Query[ListsParams]) -> dict[str, Any]:
     """Every installed list, by label, with how many options each offers in the registry."""
     me = caller(request)
-    found = _registry(me, scope)
+    found = _registry(me, params)
     counts = lists.counted(found.pk)
-    every = sorted(registry.lab_lists().values(), key=lambda t: (t.label_plural.casefold(), t.name))
-    return [_list_out(me, found, t, counts) for t in every]
+    paged = page_sorted(
+        registry.lab_lists().values(),
+        params,
+        by=("label", "type"),
+        key=lambda t: (t.label_plural.casefold(), t.name),
+    )
+    return {**paged, "items": [_list_out(me, found, t, counts) for t in paged["items"]]}
 
 
 @router.get("/lists/{qualified:name}", response=ListOut, summary="A lab list")
@@ -169,7 +179,7 @@ class OptionOut(Schema):
     )
 
 
-class OptionFilters(Scope):
+class OptionFilters(Scope, PageParams):
     archived: bool = Field(
         False, description="Every option, archived and superseded ones too, as curators see them."
     )
@@ -218,18 +228,17 @@ def _options_out(
 
 
 @router.get(
-    "/lists/{qualified:name}/options", response=list[OptionOut], summary="A lab list's options"
+    "/lists/{qualified:name}/options", response=Page[OptionOut], summary="A lab list's options"
 )
-def list_options(request: HttpRequest, name: str, filters: Query[OptionFilters]) -> list[Any]:
+def list_options(request: HttpRequest, name: str, filters: Query[OptionFilters]) -> dict[str, Any]:
     """In the list's order. Without ``archived``, what a dropdown offers."""
     me = caller(request)
     entity_type = _list(name)
     found = _registry(me, filters)
-    chosen = lists.options(found.pk, name, archived=filters.archived)
-    if filters.q:
-        wanted = filters.q.strip().casefold()
-        chosen = [o for o in chosen if wanted in o.label.casefold() or wanted in o.code.casefold()]
-    return _options_out(me, found, entity_type, chosen)
+    rows = lists.option_rows(found.pk, name, archived=filters.archived, q=filters.q)
+    paged = page_by(rows, filters, by=lists.ORDER)
+    chosen = lists.as_options(name, paged["items"])
+    return {**paged, "items": _options_out(me, found, entity_type, chosen)}
 
 
 def _option(found: Registry, name: str, code: str) -> lists.Option:
@@ -573,7 +582,7 @@ def supersede_option(
 
 
 class OptionMoveIn(Schema):
-    project: str = Field(description="The project whose records move, by ID or slug.")
+    project: UUID = Field(description="The project whose records move, by ID.")
     reason: str = Field(
         min_length=1, max_length=2000, description="Why: each record's history keeps it."
     )
@@ -595,11 +604,7 @@ def move_references(request: HttpRequest, name: str, code: str, payload: OptionM
     me = caller(request)
     _list(name)
     found = _registry(me, Scope(project=payload.project, registry=None))
-    try:
-        key: dict[str, Any] = {"pk": UUID(payload.project)}
-    except ValueError:
-        key = {"slug": payload.project}
-    chosen = Project.objects.select_related("team").get(**key)
+    chosen = Project.objects.select_related("team").get(pk=payload.project)
     require(me, Action.PROJECT_EDIT, chosen)
     option = _option(found, name, code)
     try:

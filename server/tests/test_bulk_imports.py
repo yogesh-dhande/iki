@@ -809,9 +809,9 @@ def test_lines_that_match_entities_update_them(world: World) -> None:
     api = api_as(world, "editor")
     (one,) = api.get(
         "/entities/lookup", type="acme/protein.Protein", field="lims_id", value="LIMS-1"
-    ).json()
+    ).json()["items"]
     assert (one["values"]["name"], one["revision"]) == ("A2", 2)
-    origins = api.get(f"/entities/{one['hrid']}/origins").json()
+    origins = api.every(f"/entities/{one['hrid']}/origins")
     assert [(o["run"]["id"], o["revision"]) for o in origins] == [
         (second["id"], 2),
         (first["id"], 1),
@@ -847,7 +847,7 @@ def test_each_line_keeps_how_it_was_made_and_who_says_so(world: World) -> None:
     def making(hrid: str) -> list[tuple[str, str, str, str]]:
         return [
             (m["by"], m["kind"], m["software"], m["run"]["id"])
-            for m in api.get(f"/entities/{hrid}/making").json()
+            for m in api.every(f"/entities/{hrid}/makings")
         ]
 
     run = first["id"]
@@ -914,7 +914,7 @@ def test_lines_claim_the_same_entities_without_a_record(world: World) -> None:
     (one,) = (
         api_as(world, "editor")
         .get("/entities/lookup", type="acme/protein.Protein", field="lims_id", value="LIMS-1")
-        .json()
+        .json()["items"]
     )
     assert one["hrid"] == claimed.hrid
 

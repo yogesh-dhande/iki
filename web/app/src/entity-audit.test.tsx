@@ -98,7 +98,7 @@ const APPROVAL: Schemas["SignatureOut"] = {
 
 function onPlasmid(currentRevision: 2 | 3 = 3): void {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, PLASMID]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, PLASMID]));
   answer(
     "GET /api/v1/entities/PLS-000001",
     entity({
@@ -134,7 +134,7 @@ function onPlasmid(currentRevision: 2 | 3 = 3): void {
         }
       : {}),
   });
-  answer("GET /api/v1/entities/PLS-000001/contributors", [ADA, ALICE]);
+  answer("GET /api/v1/entities/PLS-000001/contributors", page([ADA, ALICE]));
   answer("GET /api/v1/entities/PLS-000001/revisions", ({ query }: { query: URLSearchParams }) => {
     const all = [
       revision({
@@ -178,7 +178,7 @@ function onPlasmid(currentRevision: 2 | 3 = 3): void {
       ),
     );
   });
-  answer("GET /api/v1/entities/PLS-000001/signatures", { items: [APPROVAL], missing: [] });
+  answer("GET /api/v1/entities/PLS-000001/signatures", { signatures: [APPROVAL], missing: [] });
   answer(`GET /api/v1/entities/PLS-000001/graph`, {
     root: PLS_ID,
     entities: [
@@ -587,8 +587,8 @@ describe("a record's overview", () => {
 
   function onVector(): void {
     onPlasmid();
-    answer("GET /api/v1/entity-types", [PROTEIN, PLASMID, VECTOR]);
-    answer("GET /api/v1/components", [VECTOR_MAP]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, PLASMID, VECTOR]));
+    answer("GET /api/v1/components", page([VECTOR_MAP]));
     // Its plasmid, by the ID its reference holds, as Kinase Atlas's record.
     answer(
       `GET /api/v1/entities/${PLS_ID}`,

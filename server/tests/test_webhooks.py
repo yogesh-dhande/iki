@@ -1015,8 +1015,8 @@ def test_whoever_turns_an_apps_webhook_back_on_answers_for_it(world: World) -> N
 
 def test_the_event_catalog_lists_each_scopes_events(world: World) -> None:
     api = Api(world.browser("viewer"))
-    project_events = {e["type"] for e in api.get("/webhook-events").json()}
-    org_events = {e["type"] for e in api.get("/webhook-events", scope="org").json()}
+    project_events = {e["type"] for e in api.every("/webhook-events")}
+    org_events = {e["type"] for e in api.every("/webhook-events", scope="org")}
     assert "project.updated" in project_events and "team.created" not in project_events
     assert {"team.created", "project.created", "user.created"} <= org_events
     assert "ping" not in project_events | org_events

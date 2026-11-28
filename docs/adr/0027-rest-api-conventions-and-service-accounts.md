@@ -1,6 +1,6 @@
 # 0027. REST API conventions, and service accounts
 
-- Status: Accepted (preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md))
+- Status: Accepted (preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md); collections and filters amended by [0291](0291-every-collection-is-a-page-and-filters-share-one-glossary.md))
 - Date: 2026-11-09
 - Refines: [0003](0003-roles-and-permissions.md),
   [0004](0004-backend-stack-django.md),

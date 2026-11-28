@@ -57,7 +57,7 @@ function SignedWith({ entity, revision }: { entity: Entity; revision: Revision }
   const given = useQuery({
     ...signaturesQuery(apiRef(entity), false),
     enabled: listed.length > 0,
-  }).data?.items;
+  }).data?.signatures;
   if (!listed.length) return null;
   const byId = new Map((given ?? []).map((s) => [s.id, s]));
   return (

@@ -885,8 +885,11 @@ function personOption(item: Picked) {
 }
 
 /** Someone found, as a picker offers them. */
-function personPicked(found: readonly { id: string; email: string; name: string }[]): Picked[] {
-  return found.map((p) => ({ id: p.id, hrid: p.email, title: p.name }));
+function personPicked(found: {
+  items: readonly { id: string; email: string; name: string }[];
+}): Picked[] {
+  // The first page of who matches: the suggestions are a few, for the text typed.
+  return found.items.map((p) => ({ id: p.id, hrid: p.email, title: p.name }));
 }
 
 export interface PersonPickerProps {

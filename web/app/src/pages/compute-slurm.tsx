@@ -394,7 +394,7 @@ function AccountDialog({
   const save = useApiMutation(
     async (projectId: string) =>
       unwrap(
-        await iki.PUT("/api/v1/compute/slurm/{cluster}/accounts/{project_id}", {
+        await iki.PUT("/api/v1/compute/slurm-clusters/{cluster}/accounts/{project_id}", {
           params: { path: { cluster, project_id: projectId } },
           body: { account: account.trim() },
         }),
@@ -501,7 +501,7 @@ function ClearAccount({ given, onClose }: { given: SlurmAccount; onClose: () => 
   const name = given.project.name;
   const clear = useApiMutation(async () => {
     unwrap(
-      await iki.DELETE("/api/v1/compute/slurm/{cluster}/accounts/{project_id}", {
+      await iki.DELETE("/api/v1/compute/slurm-clusters/{cluster}/accounts/{project_id}", {
         params: { path: { cluster: given.cluster, project_id: given.project.id } },
       }),
     );

@@ -428,7 +428,7 @@ def exercise_qc() -> None:
     record_signatures = (
         Api(world.browser("admin"))
         .get(f"/entities/{certificate.pk}/signatures?verify=true")
-        .json()["items"]
+        .json()["signatures"]
     )
     assert [item["verification"]["valid"] for item in record_signatures] == [True] * 3
 

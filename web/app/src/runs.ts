@@ -8,7 +8,7 @@ import { unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
-import { iki, isSignedOut, markSignedOut } from "./api";
+import { everyPage, iki, isSignedOut, markSignedOut } from "./api";
 import { searchEntities, type FieldDef } from "./entities";
 import { HIDDEN_GRACE_MS, REFUSED_RETRY_MS } from "./events";
 
@@ -99,7 +99,10 @@ export function finished(status: RunStatus): boolean {
 /** The actions installed here, for their labels. */
 export const actionsQuery = queryOptions({
   queryKey: ["actions"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/actions", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/actions", { params: { query: page }, signal })),
+    ),
   staleTime: 5 * 60_000,
 });
 
@@ -108,8 +111,15 @@ export function actionsTakingQuery(types: string[]) {
   const sorted = [...types].sort();
   return queryOptions({
     queryKey: ["actions", "taking", ...sorted],
-    queryFn: async ({ signal }) =>
-      unwrap(await iki.GET("/api/v1/actions", { params: { query: { takes: sorted } }, signal })),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/actions", {
+            params: { query: { takes: sorted, ...page } },
+            signal,
+          }),
+        ),
+      ),
     staleTime: 5 * 60_000,
   });
 }
@@ -126,25 +136,19 @@ async function searchHrids(
   signal: AbortSignal,
   project?: string,
 ): Promise<Schemas["EntityOut"][]> {
-  const found: Schemas["EntityOut"][] = [];
-  let cursor: string | undefined;
-  do {
-    const page = unwrap(
+  return everyPage(async (page) =>
+    unwrap(
       await searchEntities(
         {
           where: { field: "hrid", op: "in", value: hrids },
           ...(project ? { project } : {}),
           exact_type: false,
-          limit: 100,
-          ...(cursor ? { cursor } : {}),
+          ...page,
         },
         signal,
       ),
-    );
-    found.push(...page.items);
-    cursor = page.next_cursor ?? undefined;
-  } while (cursor);
-  return found;
+    ),
+  );
 }
 
 /** Entities by HRID, as a plugin's component picks them. */
@@ -241,7 +245,10 @@ export function projectRunsQuery(projectId: string | undefined, status: RunStatu
 /** The workflows installed plugins provide (ADR 0079). */
 export const workflowsQuery = queryOptions({
   queryKey: ["workflows"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/workflows", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/workflows", { params: { query: page }, signal })),
+    ),
   staleTime: 5 * 60_000,
 });
 
@@ -249,12 +256,14 @@ export const workflowsQuery = queryOptions({
 export function projectTriggersQuery(projectId: string) {
   return queryOptions({
     queryKey: [...RUNS, "triggers", projectId],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/projects/{project_id}/triggers", {
-          params: { path: { project_id: projectId } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/projects/{project_id}/triggers", {
+            params: { path: { project_id: projectId }, query: page },
+            signal,
+          }),
+        ),
       ),
   });
 }
@@ -427,8 +436,15 @@ export function moreEffectsQuery(ref: string, after: string) {
 export function attemptsQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "attempts", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(await iki.GET("/api/v1/runs/{ref}/attempts", { params: { path: { ref } }, signal })),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/runs/{ref}/attempts", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
+      ),
   });
 }
 
@@ -438,8 +454,15 @@ export type Artifact = Schemas["RunArtifactOut"];
 export function artifactsQuery(ref: string) {
   return queryOptions({
     queryKey: [...RUNS, "artifacts", ref.toUpperCase()],
-    queryFn: async ({ signal }) =>
-      unwrap(await iki.GET("/api/v1/runs/{ref}/artifacts", { params: { path: { ref } }, signal })),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/runs/{ref}/artifacts", {
+            params: { path: { ref }, query: page },
+            signal,
+          }),
+        ),
+      ),
   });
 }
 

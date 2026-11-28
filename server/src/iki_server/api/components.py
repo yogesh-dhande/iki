@@ -11,14 +11,15 @@ from uuid import UUID
 
 from django.http import HttpRequest
 from django.urls import reverse
-from ninja import Field, Router, Schema
+from ninja import Field, Query, Router, Schema
 from pydantic import ConfigDict
 
 from iki_server.api.common import caller, project, require_scope
 from iki_server.api.entities import Condition, RefOut, SortIn, _searching
 from iki_server.api.entities import _out as entities_out
+from iki_server.api.pagination import PageParams, page_sorted
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import ProjectRef
+from iki_server.api.schemas import Page, ProjectRef
 from iki_server.components import places
 from iki_server.components import views as component_views
 from iki_server.components.installed import components
@@ -124,10 +125,14 @@ def _out(component: Component) -> dict[str, Any]:
     }
 
 
-@router.get("/components", response=list[ComponentOut], summary="Installed components")
-def list_components(request: HttpRequest) -> list[dict[str, Any]]:
+@router.get("/components", response=Page[ComponentOut], summary="Installed components")
+def list_components(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """By qualified name."""
     caller(request)
-    return [_out(c) for c in components().values()]
+    found = page_sorted(
+        components().values(), params, by=("name",), key=lambda c: (c.qualified_name,)
+    )
+    return {**found, "items": [_out(c) for c in found["items"]]}
 
 
 class PlaceSearchIn(Schema):

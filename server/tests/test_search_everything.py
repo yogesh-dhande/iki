@@ -93,7 +93,7 @@ def group(body: dict[str, Any], kind: str) -> dict[str, Any]:
 
 
 def titles(body: dict[str, Any], kind: str) -> list[str]:
-    return [r["title"] for r in group(body, kind)["items"]]
+    return [r["title"] for r in group(body, kind)["results"]]
 
 
 def test_each_kind_is_found_across_the_projects_its_caller_reads(
@@ -108,11 +108,11 @@ def test_each_kind_is_found_across_the_projects_its_caller_reads(
     assert body["projects_readable"] == 3  # Kinase Atlas, Old Screens and Enzymes
     records = group(body, "entities")
     # Newest first, each with its project and where it opens.
-    assert [(r["hrid"], r["projects"][0]["name"]) for r in records["items"]] == [
+    assert [(r["hrid"], r["projects"][0]["name"]) for r in records["results"]] == [
         (elsewhere.hrid, "Enzymes"),
         (made["record"].hrid, world.project.name),
     ]
-    first = records["items"][0]
+    first = records["results"][0]
     assert first["kind"] == "entity"
     assert first["detail"] == "Protein"
     assert first["type"] == PROTEIN
@@ -123,17 +123,17 @@ def test_each_kind_is_found_across_the_projects_its_caller_reads(
     assert records["href"] == "/entities/?q=lysozyme"
     # A request is a request, not a record.
     asks = group(body, "requests")
-    assert [r["hrid"] for r in asks["items"]] == [made["request"].hrid]
-    assert asks["items"][0]["kind"] == "request"
+    assert [r["hrid"] for r in asks["results"]] == [made["request"].hrid]
+    assert asks["results"][0]["kind"] == "request"
     assert asks["href"] == "/requests/?q=lysozyme"
-    assert made["request"].hrid not in [r["hrid"] for r in records["items"]]
+    assert made["request"].hrid not in [r["hrid"] for r in records["results"]]
     # Runs by their action's name or label; projects, saved views by theirs.
     assert titles(searched(Api(world.browser("editor")), q="compute"), "runs") == [
         catalog.action("acme/protein.compute_properties").label  # type: ignore[union-attr]
     ]
     assert titles(body, "projects") == [world.project.name]
-    assert group(body, "projects")["items"][0]["href"] == f"/projects/{world.project.slug}/"
-    view = group(body, "saved_views")["items"][0]
+    assert group(body, "projects")["results"][0]["href"] == f"/projects/{world.project.slug}/"
+    view = group(body, "saved_views")["results"][0]
     assert (view["title"], view["detail"], view["query"]) == (
         "Lysozyme work",
         "Shared with the project",
@@ -148,10 +148,10 @@ def test_a_record_in_two_projects_lists_both_its_owner_first(world: World, secon
     editor = world.users["editor"]
     record = protein(editor, second, "Lysozyme C")
     entities.link(editor, record, world.project)
-    found = group(searched(Api(world.browser("editor")), q="lysozyme"), "entities")["items"]
+    found = group(searched(Api(world.browser("editor")), q="lysozyme"), "entities")["results"]
     assert [p["name"] for p in found[0]["projects"]] == ["Enzymes", world.project.name]
     # The viewer reads only one of them: only it is listed, and the record is still found.
-    found = group(searched(Api(world.browser("viewer")), q="lysozyme"), "entities")["items"]
+    found = group(searched(Api(world.browser("viewer")), q="lysozyme"), "entities")["results"]
     assert [p["name"] for p in found[0]["projects"]] == [world.project.name]
 
 
@@ -175,7 +175,7 @@ def test_another_projects_things_never_appear_nor_count(world: World, foreign: W
             {"q": theirs["request"].hrid.lower()},
             {"q": theirs["record"].hrid.split("-")[0] + "-"},
             {"q": "compute"},
-            {"q": "lysozyme", "kind": "entities", "limit": 50},
+            {"q": "lysozyme", "kind": "entities", "per_kind": 50},
             {"q": "lysozyme", "kind": "requests"},
             {"q": "compute", "kind": "runs"},
             {"q": "lysozyme", "kind": "saved_views"},
@@ -201,14 +201,14 @@ def test_another_projects_things_never_appear_nor_count(world: World, foreign: W
                 assert g["total"] <= (1 if readable else 0), (principal, query, kind)
     # The world's own are found by those who read its project, by HRID too.
     body = searched(Api(world.browser("viewer")), q=ours["run"].hrid)
-    assert [r["hrid"] for r in group(body, "runs")["items"]] == [ours["run"].hrid]
-    assert group(body, "runs")["items"][0]["href"] == f"/runs/{ours['run'].hrid}/"
+    assert [r["hrid"] for r in group(body, "runs")["results"]] == [ours["run"].hrid]
+    assert group(body, "runs")["results"][0]["href"] == f"/runs/{ours['run'].hrid}/"
 
 
 def test_the_foreign_worlds_people_see_none_of_it_either(world: World, foreign: World) -> None:
     lysozyme_everywhere(world)
     body = searched(Api(foreign.browser("editor")), q="lysozyme")
-    assert all(g["total"] == 0 and g["items"] == [] for g in body["groups"]), body
+    assert all(g["total"] == 0 and g["results"] == [] for g in body["groups"]), body
 
 
 def test_an_org_admin_sees_projects_but_not_records_they_dont_read(world: World) -> None:
@@ -232,7 +232,7 @@ def test_short_text_searches_only_the_small_lists(world: World) -> None:
             "total": 0,
             "more_than_total": False,
             "href": None,
-            "items": [],
+            "results": [],
         }
     assert titles(body, "projects") == [world.project.name]
     assert titles(body, "saved_views") == ["Lysozyme work"]
@@ -245,9 +245,9 @@ def test_the_start_of_an_hrid_finds_records_and_a_whole_one_comes_first(world: W
     prefix = made[0].hrid.split("-")[0]
     found = group(searched(api, q=f"{prefix.lower()}-"), "entities")
     assert found["total"] == 3
-    assert [r["hrid"] for r in found["items"]] == [m.hrid for m in reversed(made)]
+    assert [r["hrid"] for r in found["results"]] == [m.hrid for m in reversed(made)]
     found = group(searched(api, q=made[0].hrid.lower()), "entities")
-    assert found["items"][0]["hrid"] == made[0].hrid
+    assert found["results"][0]["hrid"] == made[0].hrid
 
 
 def test_one_kind_comes_with_more_and_totals_stop_at_the_cap(
@@ -257,11 +257,12 @@ def test_one_kind_comes_with_more_and_totals_stop_at_the_cap(
     for i in range(7):
         protein(editor, world.project, f"Lysozyme {i}")
     api = Api(world.browser("editor"))
-    assert len(group(searched(api, q="lysozyme"), "entities")["items"]) == 5
+    assert len(group(searched(api, q="lysozyme"), "entities")["results"]) == 5
     body = searched(api, q="lysozyme", kind="entities")
     assert [g["kind"] for g in body["groups"]] == ["entities"]
-    assert len(body["groups"][0]["items"]) == 7
-    assert len(group(searched(api, q="lysozyme", kind="entities", limit=2), "entities")["items"])
+    assert len(body["groups"][0]["results"]) == 7
+    fewer = group(searched(api, q="lysozyme", kind="entities", per_kind=2), "entities")
+    assert len(fewer["results"]) == 2
     monkeypatch.setattr(everything, "TOTAL_CAP", 4)
     capped = group(searched(api, q="lysozyme"), "entities")
     assert (capped["total"], capped["more_than_total"]) == (4, True)
@@ -279,7 +280,7 @@ def test_a_record_of_no_registry_entry_opens_by_its_hrid_alone(world: World) -> 
         world.users["editor"], "acme/protein.Sample", world.project, {"label": "S1"}
     )
     sample = Entity.objects.get(pk=made.entity.pk)
-    found = group(searched(Api(world.browser("editor")), q=sample.hrid), "entities")["items"]
+    found = group(searched(Api(world.browser("editor")), q=sample.hrid), "entities")["results"]
     assert [(r["title"], r["detail"], r["href"]) for r in found] == [
         (sample.hrid, "Sample", f"/entities/{sample.hrid}/")
     ]
@@ -287,8 +288,8 @@ def test_a_record_of_no_registry_entry_opens_by_its_hrid_alone(world: World) -> 
 
 def test_people_are_those_whose_members_pages_the_caller_sees(world: World, foreign: World) -> None:
     api = Api(world.browser("editor"))
-    body = searched(api, q="example.com", kind="people", limit=50)
-    named = {r["title"] for r in body["groups"][0]["items"]}
+    body = searched(api, q="example.com", kind="people", per_kind=50)
+    named = {r["title"] for r in body["groups"][0]["results"]}
     # Colleagues in the editor's projects, by grant or by team; not the foreign world's, not
     # the deactivated, and not people in no project of theirs.
     assert {"Viewer", "Admin", "Via Team", "Mixed", "Editor"} <= named
@@ -296,7 +297,7 @@ def test_people_are_those_whose_members_pages_the_caller_sees(world: World, fore
     assert "Inactive" not in named
     assert "Outsider" not in named
     assert body["groups"][0]["href"] is None
-    viewer = next(r for r in body["groups"][0]["items"] if r["title"] == "Viewer")
+    viewer = next(r for r in body["groups"][0]["results"] if r["title"] == "Viewer")
     assert viewer["detail"] == "viewer@example.com"
     assert viewer["href"] == f"/projects/{world.project.slug}/members/"
     assert [p["name"] for p in viewer["projects"]] == [world.project.name, world.archived.name]
@@ -304,7 +305,7 @@ def test_people_are_those_whose_members_pages_the_caller_sees(world: World, fore
     TeamMembership.objects.create(team=world.team, user=world.users["editor"])
     permissions.forget(world.users["editor"])
     body = searched(api, q="team member", kind="people")
-    assert [(r["title"], r["href"]) for r in body["groups"][0]["items"]] == [
+    assert [(r["title"], r["href"]) for r in body["groups"][0]["results"]] == [
         ("Team Member", f"/teams/{world.team.slug}/")
     ]
 
@@ -313,12 +314,12 @@ def test_those_who_manage_people_find_everyone(world: World, foreign: World) -> 
     body = searched(Api(world.browser("org_admin")), q="outsider", kind="people")
     found = body["groups"][0]
     assert found["href"] == "/admin/people/"
-    assert {(r["title"], r["href"]) for r in found["items"]} == {
+    assert {(r["title"], r["href"]) for r in found["results"]} == {
         ("foreign-Outsider", f"/admin/people/{foreign.users['outsider'].pk}/"),
         ("Outsider", f"/admin/people/{world.users['outsider'].pk}/"),
     }
     body = searched(Api(world.browser("org_admin")), q="inactive", kind="people")
-    assert "Deactivated" in body["groups"][0]["items"][-1]["detail"]
+    assert "Deactivated" in body["groups"][0]["results"][-1]["detail"]
 
 
 def test_saved_views_are_your_own_and_those_shared(world: World) -> None:
@@ -360,7 +361,7 @@ def test_a_view_the_grid_cant_show_opens_from_its_own_address(world: World) -> N
         },
     )
     body = searched(Api(world.browser("editor")), q="kinases", kind="saved_views")
-    assert [(v["title"], v["href"]) for v in group(body, "saved_views")["items"]] == [
+    assert [(v["title"], v["href"]) for v in group(body, "saved_views")["results"]] == [
         ("Kinases, either name", f"/saved-searches/{either.pk}/"),
         ("Kinases, this type only", f"/saved-searches/{exact.pk}/"),
     ]
@@ -372,7 +373,7 @@ def test_a_view_of_every_project_is_its_owners_and_opens_in_all_entities(world: 
     editor = world.users["editor"]
     saved = saved_searches.create(editor, None, name="Kinases everywhere", query={"q": "kinase"})
     body = searched(Api(world.browser("editor")), q="kinases", kind="saved_views")
-    [view] = group(body, "saved_views")["items"]
+    [view] = group(body, "saved_views")["results"]
     assert (view["title"], view["detail"], view["href"], view["projects"]) == (
         "Kinases everywhere",
         "Yours, across your projects",
@@ -390,7 +391,7 @@ def test_limited_tokens_find_the_same_saved_views_in_search_and_the_list(world: 
     saved_searches.create(editor, world.project, name="Kinases here", query={"q": "kinase"})
     _, tokens = signed_in_token(world, scope="read", projects=[world.project])
     token = tokens["access_token"]
-    listed = bearer(token, "GET", "/saved-searches").json()
+    listed = bearer(token, "GET", "/saved-searches").json()["items"]
     found = bearer(token, "GET", "/search?q=kinases&kind=saved_views").json()
     assert [s["name"] for s in listed] == titles(found, "saved_views") == ["Kinases here"]
     assert group(found, "saved_views")["total"] == 1
@@ -441,5 +442,5 @@ def test_a_kind_too_slow_to_search_says_so_and_the_rest_still_answer(
     monkeypatch.setattr(everything, "_entities", slow)
     body = searched(Api(world.browser("editor")), q="lysozyme")
     assert group(body, "entities")["total"] is None
-    assert group(body, "entities")["items"] == []
+    assert group(body, "entities")["results"] == []
     assert titles(body, "saved_views") == ["Lysozyme work"]

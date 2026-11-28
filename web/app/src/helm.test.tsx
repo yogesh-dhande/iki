@@ -62,7 +62,7 @@ const OLIGO: Schemas["EntityTypeOut"] = {
 describe("HELM in forms", () => {
   it("says what's wrong and where as it's typed, then what it holds", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, OLIGO]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, OLIGO]));
     answer("GET /api/v1/projects", page([KINASE]));
     const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=acme/oligo.Oligo");
     const input = screen.getByRole("textbox", { name: /^HELM/ });

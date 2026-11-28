@@ -162,7 +162,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     };
   }, []);
 
-  const groups = useMemo(() => (data?.groups ?? []).filter((g) => g.items.length > 0), [data]);
+  const groups = useMemo(() => (data?.groups ?? []).filter((g) => g.results.length > 0), [data]);
   const recent = useMemo(() => (q === "" ? (data?.recent ?? []) : []), [q, data]);
   const rows = useMemo(() => rowsOf(id, groups, recent), [id, groups, recent]);
   const active = chosen.in === rows ? Math.min(chosen.index, rows.length - 1) : 0;
@@ -370,10 +370,10 @@ function rowsOf(id: string, groups: SearchGroup[], recent: SearchResult[]): Row[
     result: r,
   }));
   for (const g of groups) {
-    for (const r of g.items) {
+    for (const r of g.results) {
       rows.push({ id: `${id}-${g.kind}-${r.id}`, href: r.href, result: r });
     }
-    const shown = g.items.length;
+    const shown = g.results.length;
     if (g.href && g.total !== null && (g.total > shown || g.more_than_total)) {
       rows.push({
         id: `${id}-${g.kind}-all`,

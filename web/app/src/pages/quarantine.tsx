@@ -460,7 +460,7 @@ function ReleaseDialog({
   const release = useApiMutation(
     async () =>
       unwrap(
-        await iki.POST("/api/v1/quarantine/{decision_id}/release", {
+        await iki.POST("/api/v1/quarantine-decisions/{decision_id}/release", {
           params: { path: { decision_id: item.id } },
           body: { reason: reason.trim() },
         }),

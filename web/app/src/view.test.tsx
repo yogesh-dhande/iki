@@ -4,7 +4,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, PROTEIN_ID, renderApp, withTypes } from "./entity-fixtures";
-import { answer, calls } from "./test-server";
+import { answer, calls, page } from "./test-server";
 
 const PLASMID = {
   ...PROTEIN,
@@ -92,7 +92,7 @@ const PROTEIN_REF = {
 
 function onTypes() {
   withTypes();
-  answer("GET /api/v1/entity-types", [SEQUENCED, PLASMID, VIEW]);
+  answer("GET /api/v1/entity-types", page([SEQUENCED, PLASMID, VIEW]));
 }
 
 describe("saving a view", () => {

@@ -127,7 +127,7 @@ const TEXT = {
 
 function onTypes() {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, PLASMID, APP]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, PLASMID, APP]));
 }
 
 describe("an app", () => {
@@ -234,9 +234,10 @@ describe("an app about an entity", () => {
   it("is a tab on its page, reading it, its grids' conditions too", async () => {
     onTypes();
     answer("GET /api/v1/entities/DNA-000001", PTEST);
-    answer("GET /api/v1/entities/DNA-000001/apps", [
-      { id: about([]).id, hrid: "APP-000001", name: "Plasmid QC" },
-    ]);
+    answer(
+      "GET /api/v1/entities/DNA-000001/apps",
+      page([{ id: about([]).id, hrid: "APP-000001", name: "Plasmid QC" }]),
+    );
     answer("GET /api/v1/entities/APP-000001", about([ITS_LENGTH, OTHERS]));
     answer("POST /api/v1/entities/search", { items: [POTHER], next_cursor: null });
     const { user } = await renderApp("/entities/DNA-000001/");
@@ -259,7 +260,7 @@ describe("an app about an entity", () => {
   it("opens only on the entities the server lists it for", async () => {
     onTypes();
     answer("GET /api/v1/entities/DNA-000001", PTEST);
-    answer("GET /api/v1/entities/DNA-000001/apps", []);
+    answer("GET /api/v1/entities/DNA-000001/apps", page([]));
     answer("GET /api/v1/entities/APP-000001", about([ITS_LENGTH]));
     await renderApp("/entities/DNA-000001/apps/APP-000001/");
     expect(
@@ -313,9 +314,10 @@ describe("an app's grid, when it can't search", () => {
     onTypes();
     const unnamed = { ...PTEST, values: { ...PTEST.values, name: null } };
     answer("GET /api/v1/entities/DNA-000001", unnamed);
-    answer("GET /api/v1/entities/DNA-000001/apps", [
-      { id: about([]).id, hrid: "APP-000001", name: "Plasmid QC" },
-    ]);
+    answer(
+      "GET /api/v1/entities/DNA-000001/apps",
+      page([{ id: about([]).id, hrid: "APP-000001", name: "Plasmid QC" }]),
+    );
     answer("GET /api/v1/entities/APP-000001", about([OTHERS]));
     await renderApp("/entities/DNA-000001/apps/APP-000001/");
     const others = await screen.findByRole("region", { name: "Others" });
@@ -388,7 +390,7 @@ describe("a plugin's component in an app", () => {
 
   it("is given what its search finds, and offers what's picked in it", async () => {
     onTypes();
-    answer("GET /api/v1/components", [MAP]);
+    answer("GET /api/v1/components", page([MAP]));
     answer("GET /api/v1/entities/APP-000001", app([MAPPED, PICKED]));
     answer(`POST ${MAP_PATH}`, page([shown]));
     answer("POST /api/v1/entities/search", page([PTEST]));
@@ -424,7 +426,7 @@ describe("a plugin's component in an app", () => {
 
   it("is given one entity, as its tab is", async () => {
     onTypes();
-    answer("GET /api/v1/components", [MAP]);
+    answer("GET /api/v1/components", page([MAP]));
     const one = { ...MAPPED, props: { entity: "DNA-000001" } };
     answer("GET /api/v1/entities/APP-000001", app([one]));
     answer("GET /api/v1/entities/DNA-000001", PTEST);
@@ -443,7 +445,7 @@ describe("a plugin's component in an app", () => {
 
   it("that isn't installed costs only its own panel", async () => {
     onTypes();
-    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/components", page([]));
     answer("GET /api/v1/entities/APP-000001", app([MAPPED, PICKED]));
     await renderApp("/entities/APP-000001/");
     const panel = await screen.findByRole("region", { name: "Plasmid map" });
@@ -459,11 +461,14 @@ describe("an entity's apps", () => {
   it("are told apart by their IDs when they share a name", async () => {
     onTypes();
     answer("GET /api/v1/entities/DNA-000001", PTEST);
-    answer("GET /api/v1/entities/DNA-000001/apps", [
-      { id: "a", hrid: "APP-000001", name: "QC" },
-      { id: "b", hrid: "APP-000002", name: "QC" },
-      { id: "c", hrid: "APP-000003", name: "Maps" },
-    ]);
+    answer(
+      "GET /api/v1/entities/DNA-000001/apps",
+      page([
+        { id: "a", hrid: "APP-000001", name: "QC" },
+        { id: "b", hrid: "APP-000002", name: "QC" },
+        { id: "c", hrid: "APP-000003", name: "Maps" },
+      ]),
+    );
     await renderApp("/entities/DNA-000001/");
     const tabs = await screen.findByRole("navigation", { name: "Record" });
     expect(await within(tabs).findByRole("link", { name: "QC (APP-000001)" })).toBeInTheDocument();
@@ -526,7 +531,10 @@ describe("a project's dashboard", () => {
   it("is chosen in Settings from the project's apps, and can be removed", async () => {
     onProject();
     answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
-    answer(`GET ${DASHBOARD}/choices`, [CHOSEN, { id: "b", hrid: "APP-000002", name: "Maps" }]);
+    answer(
+      `GET ${DASHBOARD}/choices`,
+      page([CHOSEN, { id: "b", hrid: "APP-000002", name: "Maps" }]),
+    );
     answer(`PUT ${DASHBOARD}`, { app: CHOSEN, set_by: null, set_at: null });
     const { user } = await renderApp("/projects/kinase-atlas/settings/");
     const card = (await screen.findByRole("heading", { name: "Dashboard" })).closest("section");
@@ -556,7 +564,7 @@ describe("a project's dashboard", () => {
   it("says why it can't be chosen, and when its app is gone", async () => {
     onProject();
     answer(`GET ${DASHBOARD}`, { app: null, set_by: { id: "x", name: "Ada" }, set_at: null });
-    answer(`GET ${DASHBOARD}/choices`, [CHOSEN]);
+    answer(`GET ${DASHBOARD}/choices`, page([CHOSEN]));
     const refusal = "APP-000001 is archived. Restore it first.";
     answer(`PUT ${DASHBOARD}`, problem(409, "refused", refusal));
     const { user } = await renderApp("/projects/kinase-atlas/settings/");
@@ -582,10 +590,10 @@ describe("a project's dashboard", () => {
         properties: { name: { type: "string" }, spec: { type: "object", default: starter } },
       },
     };
-    answer("GET /api/v1/entity-types", [PROTEIN, PLASMID, typed]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, PLASMID, typed]));
     answer("GET /api/v1/projects", page([project()]));
     answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
-    answer(`GET ${DASHBOARD}/choices`, []);
+    answer(`GET ${DASHBOARD}/choices`, page([]));
     answer("GET /api/v1/entities", page([]));
     const { user, router } = await renderApp("/projects/kinase-atlas/settings/");
     await user.click(await screen.findByRole("link", { name: "make one" }));
@@ -597,8 +605,8 @@ describe("a project's dashboard", () => {
     answer("POST /api/v1/entities", respond(201, { ...made, reused: false, registered: false }));
     answer("GET /api/v1/entities/APP-000001", made);
     answer("GET /api/v1/entities/APP-000001/provenance", {});
-    answer("GET /api/v1/entities/APP-000001/projects", []);
-    answer(`GET ${DASHBOARD}/choices`, [{ id: made.id, hrid: "APP-000001", name: "Atlas" }]);
+    answer("GET /api/v1/entities/APP-000001/projects", page([]));
+    answer(`GET ${DASHBOARD}/choices`, page([{ id: made.id, hrid: "APP-000001", name: "Atlas" }]));
     await user.type(screen.getByRole("textbox", { name: /^Name/ }), "Atlas");
     await user.click(screen.getByRole("button", { name: "Create app" }));
     await waitFor(() => {
@@ -618,7 +626,7 @@ describe("a project's dashboard", () => {
   it("points to making an app when the project has none", async () => {
     onProject();
     answer(`GET ${DASHBOARD}`, { app: null, set_by: null, set_at: null });
-    answer(`GET ${DASHBOARD}/choices`, []);
+    answer(`GET ${DASHBOARD}/choices`, page([]));
     await renderApp("/projects/kinase-atlas/settings/");
     expect(await screen.findByRole("link", { name: "make one" })).toHaveAttribute(
       "href",
@@ -688,7 +696,7 @@ describe("previewing an app as it's written", () => {
     onTypes();
     answer("GET /api/v1/entities/APP-000001", app([{ ...TEXT, props: { text: "Hello." } }]));
     answer("GET /api/v1/entities/APP-000001/provenance", {});
-    answer("GET /api/v1/entities/APP-000001/projects", []);
+    answer("GET /api/v1/entities/APP-000001/projects", page([]));
   }
 
   it("checks it as saving would, then shows it without saving", async () => {

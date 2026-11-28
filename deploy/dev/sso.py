@@ -615,6 +615,23 @@ def seen(revision: int) -> dict[str, str]:
     return {"If-Match": f'"{revision}"'}
 
 
+def every(session: requests.Session, path: str) -> list[dict[str, Any]]:
+    """Every item of a list the API pages (ADR 0291), following its cursors."""
+    items: list[dict[str, Any]] = []
+    joined = "&" if "?" in path else "?"
+    cursor = ""
+    while True:
+        after = f"&cursor={quote(cursor)}" if cursor else ""
+        got = api_call(session, "GET", f"{path}{joined}limit=100{after}")
+        if got.status_code != 200:
+            fail(f"reading {path} answered HTTP {got.status_code}: {got.text[:300]}")
+        page = got.json()
+        items += page["items"]
+        cursor = page["next_cursor"] or ""
+        if not cursor:
+            return items
+
+
 def entry_of(entity: dict[str, Any]) -> str:
     """What a reference to an entity holds: for a type with an identity, its registry
     entry's ID (ADR 0115), which every project's record of it shares; otherwise its own."""
@@ -631,10 +648,8 @@ def supplier(session: requests.Session, project: dict[str, Any], name: str) -> s
 def option(session: requests.Session, project: dict[str, Any], listed: str, code: str) -> str:
     """The ID of a lab list's option (ADR 0270) a record names, found by its code among
     the options the project's registry offers."""
-    got = api_call(session, "GET", f"/lists/{listed}/options?project={project['id']}")
-    if got.status_code != 200:
-        fail(f"reading {listed}'s options answered HTTP {got.status_code}: {got.text[:300]}")
-    found = [o for o in got.json() if o["code"] == code]
+    options = every(session, f"/lists/{listed}/options?project={project['id']}")
+    found = [o for o in options if o["code"] == code]
     if not found:
         fail(f"{listed} offers no option {code}")
     return str(found[0]["id"])
@@ -1277,7 +1292,7 @@ def followed(session: requests.Session, run: dict[str, Any], within: int = 120) 
                     break
     if seen[:1] != ["ready"]:
         fail(f"{run['hrid']}'s live updates didn't start with ready: {seen}")
-    attempts = api_call(session, "GET", f"/runs/{run['id']}/attempts").json()
+    attempts = every(session, f"/runs/{run['id']}/attempts")
     last = attempts[-1]
     if not last["worker"] or last["finished_at"] is None:
         fail(f"{run['hrid']}'s attempts don't say which worker ran it: {attempts}")
@@ -1301,7 +1316,7 @@ def followed(session: requests.Session, run: dict[str, Any], within: int = 120) 
 
 def dna_actions(alice: requests.Session, project: dict[str, Any]) -> None:
     """The DNA plugin's actions, run by the cluster's backend worker in its built environment."""
-    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
+    listed = {a["name"]: a for a in every(alice, "/actions")}
     for name in ("iki/dna.compute_composition", "iki/dna.primer_properties"):
         if not listed.get(name, {}).get("available"):
             fail(f"{name} isn't available to run: {listed.get(name)}")
@@ -1545,7 +1560,7 @@ def reads_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{alignments[0]['hrid']} is {values}")
     # It keeps Iki's alignment, its file, and the same with `-` for every gap, which tools
     # reading aligned FASTA take (alignment-standard.fasta).
-    artifacts = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    artifacts = every(alice, f"/runs/{run['hrid']}/artifacts")
     kept = {a["name"]: a for a in artifacts}
     if set(kept) != {"alignment.fasta", "alignment-standard.fasta"}:
         fail(f"{run['hrid']} kept {sorted(kept)}, not its alignment and the standard one")
@@ -1693,7 +1708,7 @@ def sequences_aligned(alice: requests.Session, project: dict[str, Any]) -> None:
         {"sequences": [clone["id"]], "reference": designed["id"]},
         within=900,
     )
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != DNA_ALIGNMENT_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the dna plugin's alignment-tools image: {attempt}")
     if attempt["template"] != "container-alignments":
@@ -1743,7 +1758,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     run = launch(alice, project, action, {})
     if run["network"] != ["fake-lims.iki.svc"]:
         fail(f"{run['hrid']} may reach {run['network']}, not the host lims_host gives")
-    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    attempt = every(alice, f"/runs/{run['id']}/attempts")[-1]
     reached = [(e["host"], e["port"], e["refused"]) for e in attempt["network"]]
     if reached != [("fake-lims.iki.svc", 443, None)]:
         fail(f"{run['hrid']} reached {reached}, not the fake LIMS alone")
@@ -1752,7 +1767,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
     found = {}
     for record in LIMS_RECORDS:
         query = f"type=iki/protein.Protein&field=lims_id&value={record}&project={project['id']}"
-        matches = api_call(alice, "GET", f"/entities/lookup?{query}").json()
+        matches = every(alice, f"/entities/lookup?{query}")
         if len(matches) != 1:
             fail(f"looking {record} up found {matches}, not one protein")
         found[record] = matches[0]
@@ -1781,7 +1796,7 @@ def lims(alice: requests.Session, project: dict[str, Any]) -> None:
         if time.monotonic() > deadline:
             fail(f"{sent['hrid']} didn't write {first['hrid']} to {LIMS_RECORDS[0]}: {patched}")
         time.sleep(1)
-    kept = api_call(alice, "GET", f"/runs/{sent['hrid']}/artifacts").json()
+    kept = every(alice, f"/runs/{sent['hrid']}/artifacts")
     if [a["path"] for a in kept] != ["sent.json"]:
         fail(f"{sent['hrid']} kept {kept}, not what it sent")
     ok(f"{sent['hrid']} wrote {first['hrid']} to external record {LIMS_RECORDS[0]}")
@@ -1990,8 +2005,8 @@ def sequencing_analysis(alice: requests.Session, project: dict[str, Any]) -> Non
                 "column": "WTJ.1",
             },
         )
-        artifacts = api_call(alice, "GET", f"/runs/{imported['hrid']}/artifacts")
-        if [item["path"] for item in artifacts.json()] != ["selected.tsv"]:
+        artifacts = every(alice, f"/runs/{imported['hrid']}/artifacts")
+        if [item["path"] for item in artifacts] != ["selected.tsv"]:
             fail(f"{imported['hrid']} did not retain the selected sample rows")
         effect = next(
             e for e in imported["effects"] if e["type"] == prefix + "SequencingAnalysisResult"
@@ -2102,9 +2117,7 @@ def whole_plasmid(alice: requests.Session, project: dict[str, Any]) -> None:
             e for e in checked["effects"] if e["type"] == prefix + "WholePlasmidAlignment"
         )
         result = record(alice, effect["entity"])
-        kept = sorted(
-            a["path"] for a in api_call(alice, "GET", f"/runs/{checked['hrid']}/artifacts").json()
-        )
+        kept = sorted(a["path"] for a in every(alice, f"/runs/{checked['hrid']}/artifacts"))
         if kept != ["alignments.paf.gz", "consensus.fasta", "coverage.tsv", "differences.tsv"]:
             fail(f"{checked['hrid']} kept {kept}")
     values = result["values"]
@@ -2217,8 +2230,8 @@ def proteomics(alice: requests.Session, project: dict[str, Any]) -> None:
             {"dataset": dataset["id"]},
             {"format": "mztab_1_0", "version": "PRIDE 1.0 rc5", "reports": [report]},
         )
-        artifact = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts")
-        if [item["path"] for item in artifact.json()] != ["identifications.jsonl"]:
+        artifact = every(alice, f"/runs/{run['hrid']}/artifacts")
+        if [item["path"] for item in artifact] != ["identifications.jsonl"]:
             fail(f"{run['hrid']} did not retain the imported identifications")
         effect = next(e for e in run["effects"] if e["type"] == prefix + "ProteomicsResult")
         result = record(alice, effect["entity"])
@@ -2372,7 +2385,7 @@ def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
         fail(f"{certificate['hrid']} states the wrong results: {coa}")
     sign(certificate, "review", "signed_off")
     proofs = api_call(alice, "GET", f"/entities/{certificate['id']}/signatures?verify=true").json()
-    if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+    if len(proofs["signatures"]) != 1 or not proofs["signatures"][0]["verification"]["valid"]:
         fail(f"{certificate['hrid']} has no verifiable reviewer signature")
     # The certificate of analysis is issued, and signed, on its own: what's sent holds
     # only what it states, and the record keeps the evidence.
@@ -2773,7 +2786,7 @@ def signatures(alice: requests.Session, project: dict[str, Any]) -> None:
     if done["status"] != "signed" or not done["set"] or done["state"] != "in_review":
         fail(f"signing {sample['hrid']} at Keycloak gave {done}")
     listed = api_call(alice, "GET", f"/entities/{sample['id']}/signatures?verify=true").json()
-    [signature] = listed["items"]
+    [signature] = listed["signatures"]
     signed_in = datetime.fromisoformat(signature["authentication"]["authenticated_at"])
     if signed_in.timestamp() < started - 60:
         fail(f"Keycloak's auth_time {signed_in} is from before signing began: no fresh sign-in")
@@ -2970,7 +2983,7 @@ def analysis_result(
         fail(f"releasing {result['hrid']} gave {signed}")
     released = bearer_call(requester, "GET", result_path).json()
     signatures = bearer_call(requester, "GET", f"{result_path}/signatures?verify=true").json()[
-        "items"
+        "signatures"
     ]
     if len({s["signer"]["id"] for s in signatures}) != 3:
         fail(f"{result['hrid']} requires three distinct signers for authorship, review and release")
@@ -3225,7 +3238,7 @@ def moved(
 
 def moves_body(items: list[tuple[Any, Any, str | None]], reason: str) -> dict[str, Any]:
     return {
-        "items": [
+        "moves": [
             {"record": r["id"], "to": t["id"] if t else None, "position": p} for r, t, p in items
         ],
         "reason": reason,
@@ -3784,7 +3797,7 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
             time.sleep(0.5)
         else:
             fail(f"FoldCloud did not deliver the signed callback for {park['job']}")
-        attempts = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        attempts = every(alice, f"/runs/{run['id']}/attempts")
         if [(a["attempt"], a["state"]) for a in attempts] != [(1, "parked"), (2, "succeeded")]:
             fail(f"{run['hrid']}'s attempts did not park and resume: {attempts}")
         me = api_call(alice, "GET", "/me").json()
@@ -3808,7 +3821,7 @@ def foldcloud(alice: requests.Session, project: dict[str, Any]) -> None:
             or not values.get("structure")
         ):
             fail(f"{run['hrid']} made a structure with {values}")
-        origins = api_call(alice, "GET", f"/entities/{made[0]['entity']}/origins").json()
+        origins = every(alice, f"/entities/{made[0]['entity']}/origins")
         said = [o for o in origins if o["source"] == "FoldCloud"]
         # The API gives each software its version, empty here: the model's version is in the
         # run's call record, not on the structure.
@@ -3932,7 +3945,7 @@ def compounds(alice: requests.Session, project: dict[str, Any]) -> None:
     aspirin = entry_of(compound)
     if salts != [("", 180.159, aspirin), ("sodium", 202.141, aspirin)]:
         fail(f"{run['hrid']}'s batches of {compound['hrid']} are {salts}")
-    making = api_call(alice, "GET", f"/entities/{compound['id']}/making").json()
+    making = every(alice, f"/entities/{compound['id']}/makings")
     if not any(m["by"] == "iki" and m["software"] == "RDKit" for m in making):
         fail(f"{compound['hrid']}'s making is {making}, not RDKit's, recorded by Iki")
     ok(
@@ -4254,7 +4267,7 @@ def plate_assay(alice: requests.Session, project: dict[str, Any]) -> None:
             if signature["status"] != "signed" or not signature["set"]:
                 fail(f"signing the plate result {entity['hrid']} gave {signature}")
         proofs = api_call(alice, "GET", f"/entities/{entity['id']}/signatures?verify=true").json()
-        if len(proofs["items"]) != 1 or not proofs["items"][0]["verification"]["valid"]:
+        if len(proofs["signatures"]) != 1 or not proofs["signatures"][0]["verification"]["valid"]:
             fail(f"{entity['hrid']} has no verifiable research sign-off")
     ok(f"{plate['hrid']}: 72 measured wells and two signed flavonoid IC50s")
     linked_experiment(
@@ -4436,7 +4449,9 @@ def sign_tutorial_result(
         if signed["status"] != "signed" or not signed["set"]:
             fail(f"signing {result['hrid']} as {target} gave {signed}")
     delivered = bearer_call(requester, "GET", result_path).json()
-    proofs = bearer_call(requester, "GET", f"{result_path}/signatures?verify=true").json()["items"]
+    proofs = bearer_call(requester, "GET", f"{result_path}/signatures?verify=true").json()[
+        "signatures"
+    ]
     receipts = bearer_call(requester, "GET", f"/entities/{request}/request").json()[
         "result_releases"
     ]
@@ -4602,7 +4617,7 @@ def linked_experiment(
         if not signed["set"]:
             fail(f"witnessing {experiment['hrid']} failed: {signed}")
     path = f"/entities/{experiment['id']}"
-    [proof] = api_call(witness, "GET", path + "/signatures?verify=true").json()["items"]
+    [proof] = api_call(witness, "GET", path + "/signatures?verify=true").json()["signatures"]
     snapshot = api_call(witness, "GET", f"{path}/revisions/{proof['revision']}").json()
     values = snapshot["values"]
     [pin] = values["result_pins"]
@@ -4749,7 +4764,7 @@ def reagent_stock(alice: requests.Session, project: dict[str, Any]) -> None:
     movements = api_call(alice, "GET", lot_path + "/movements").json()["items"]
     used = [move for move in movements if move["used_in"] == experiment["id"]]
     if not used:
-        [before] = [row for row in rows(stock) if row["id"] == item["id"]]
+        [before] = [row for row in rows(stock + "/items") if row["id"] == item["id"]]
         if Decimal(before["available"]) != 100 or before["low"]:
             fail(f"two released racks should provide 100 tubes: {before}")
         drawn = api_call(
@@ -4782,10 +4797,10 @@ def reagent_stock(alice: requests.Session, project: dict[str, Any]) -> None:
         or Decimal(receipt["amount"]) != 3
     ):
         fail(f"{experiment['hrid']} should record the three-tube withdrawal: {receipt}")
-    [now] = [row for row in rows(stock) if row["id"] == item["id"]]
+    [now] = [row for row in rows(stock + "/items") if row["id"] == item["id"]]
     locations = {
         row["container_id"]: (row["id"], Decimal(row["amount"]))
-        for row in rows(f"{stock}/{item['id']}/lots")
+        for row in rows(f"{stock}/items/{item['id']}/lots")
     }
     if (
         not now["low"]
@@ -4969,7 +4984,7 @@ def equipment_calibration(
         disposition["status"] != "signed"
         or not disposition["set"]
         or original["revision"] != result["revision"]
-        or not proofs["items"][0]["verification"]["valid"]
+        or not proofs["signatures"][0]["verification"]["valid"]
     ):
         fail(f"{impact['hrid']} did not preserve {result['hrid']}'s signed revision")
     ok(f"{use['hrid']} pins the calibration; {impact['hrid']} keeps QA's repeat decision")
@@ -5188,7 +5203,7 @@ def plasmids(alice: requests.Session, project: dict[str, Any]) -> None:
     ):
         fail(f"{plasmid['hrid']}'s parts say {values}, not ampicillin from a pMB1/pUC origin")
     # The trigger did it, not something else that writes those fields.
-    listed = api_call(alice, "GET", f"/projects/{project['id']}/triggers").json()
+    listed = every(alice, f"/projects/{project['id']}/triggers")
     fired = next(t for t in listed if t["name"] == annotating)
     if not fired["last_fired_at"]:
         fail(f"{plasmid['hrid']} was annotated, but {annotating} says it never fired")
@@ -5710,7 +5725,7 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     run = launch(alice, project, action, {}, {"identifiers": "caffeine"}, within=300)
     if run["network"] != ["pubchem.ncbi.nlm.nih.gov"]:
         fail(f"{run['hrid']} may reach {run['network']}, not PubChem alone")
-    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    attempt = every(alice, f"/runs/{run['id']}/attempts")[-1]
     reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
     if reached != {("pubchem.ncbi.nlm.nih.gov", 443, None)}:
         fail(f"{run['hrid']} reached {reached}, not PubChem alone")
@@ -5727,7 +5742,7 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     }
     if {k: values.get(k) for k in expected} != expected:
         fail(f"{run['hrid']} registered caffeine as {values}")
-    origins = api_call(alice, "GET", f"/entities/{compound['id']}/origins").json()
+    origins = every(alice, f"/entities/{compound['id']}/origins")
     if not any(
         o["source"] == "PubChem"
         and o["id"] == "2519"
@@ -5819,7 +5834,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
         or metrics.get("length") != 149
     ):
         fail(f"{run['hrid']} measured {metrics}, not 65/149 identical columns (43.6%)")
-    kept = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    kept = every(alice, f"/runs/{run['hrid']}/artifacts")
     if sorted((k["path"], k["state"]) for k in kept) != [
         ("alignment.fasta", "kept"),
         ("alignment.txt", "kept"),
@@ -6056,7 +6071,7 @@ def dashboard(alice: requests.Session, project: dict[str, Any], relatives: str) 
     """The project's page opens with Globins (ADR 0090), which Alice, its Admin, chooses.
     An app about one protein can't be the dashboard: it's a tab on their pages."""
     path = f"/projects/{project['id']}/dashboard"
-    choices = {a["name"]: a["hrid"] for a in api_call(alice, "GET", f"{path}/choices").json()}
+    choices = {a["name"]: a["hrid"] for a in every(alice, f"{path}/choices")}
     if "Globins" not in choices or "Relatives" in choices:
         fail(f"the dashboard's choices are {sorted(choices)}, not Globins and no Relatives")
     refused = api_call(alice, "PUT", path, {"app": relatives})
@@ -6143,7 +6158,7 @@ def relatives_app(alice: requests.Session, project: dict[str, Any]) -> str:
     found = api_call(alice, "POST", "/entities/search", search).json()["items"]
     if not found:
         fail("HBB_HUMAN wasn't found for its app")
-    tabs = api_call(alice, "GET", f"/entities/{found[0]['id']}/apps").json()
+    tabs = every(alice, f"/entities/{found[0]['id']}/apps")
     if made.json()["hrid"] not in [t["hrid"] for t in tabs]:
         fail(f"HBB_HUMAN's page doesn't list its app: {tabs}")
     ok(f"{made.json()['hrid']}: an app about a protein, a tab on {found[0]['hrid']}'s page")
@@ -6179,7 +6194,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
         run = launch(
             alice, project, "iki/antibody.number_chains", {"protein": chain["id"]}, within=900
         )
-        (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
         if attempt["environment_build"] != NUMBERING_TOOLS.rpartition("@")[2]:
             fail(f"{run['hrid']} didn't run in the numbering-tools image: {attempt}")
         if attempt["template"] != "container-numbering":
@@ -6457,7 +6472,7 @@ def predicted(
         {"antibody": antibody},
         within=1800,
     )
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != IMMUNEBUILDER_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the ImmuneBuilder structure-tools image: {attempt}")
     if attempt["template"] != "container-antibody-structures":
@@ -6525,7 +6540,7 @@ def aligned_many(
         {"proteins": [beta["id"], myoglobin["id"]], "reference": alpha["id"]},
         within=900,
     )
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != ALIGNMENT_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the alignment-tools image: {attempt}")
     if attempt["template"] != "container-alignments":
@@ -6540,7 +6555,7 @@ def aligned_many(
         or not values["method"].startswith("MAFFT v7.505")
     ):
         fail(f"{created[0]['hrid']} is {values}")
-    (kept,) = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    (kept,) = every(alice, f"/runs/{run['hrid']}/artifacts")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
     if kept["path"] != "alignment.fasta" or stored["sha256"] != kept["sha256"]:
         fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
@@ -6705,7 +6720,7 @@ def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
     run = launch(alice, project, action, {}, {"accessions": "P01542"}, within=300)
     if run["network"] != ["alphafold.ebi.ac.uk"]:
         fail(f"{run['hrid']} may reach {run['network']}, not AlphaFold DB alone")
-    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    attempt = every(alice, f"/runs/{run['id']}/attempts")[-1]
     reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
     if reached != {("alphafold.ebi.ac.uk", 443, None)}:
         fail(f"{run['hrid']} reached {reached}, not AlphaFold DB alone")
@@ -6730,7 +6745,7 @@ def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
         or not values.get("structure")
     ):
         fail(f"{run['hrid']} made {structure['hrid']} as {values}")
-    origins = api_call(alice, "GET", f"/entities/{ref}/origins").json()
+    origins = every(alice, f"/entities/{ref}/origins")
     stated = [o for o in origins if o["source"] == "AlphaFold DB" and o["id"] == "AF-P01542-F1"]
     made_by = stated[-1]["made"] if stated else None
     if (
@@ -6741,7 +6756,7 @@ def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
         or not stated[-1]["version"]
     ):
         fail(f"{structure['hrid']}'s origins are {origins}, not AlphaFold DB's model saying so")
-    making = api_call(alice, "GET", f"/entities/{ref}/making").json()
+    making = every(alice, f"/entities/{ref}/makings")
     if not any(
         m["by"] == "source"
         and m["kind"] == "computational"
@@ -6770,7 +6785,7 @@ def secondary(alice: requests.Session, project: dict[str, Any], structure: dict[
     action = "iki/protein.assign_secondary_structure"
     # A pod of its own pulls the image (about 1 GB) first.
     run = launch(alice, project, action, {"structure": structure["id"]}, within=900)
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != STRUCTURE_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the structure-tools image: {attempt}")
     if attempt["template"] != "container-structures" or not attempt["worker"].startswith(
@@ -6860,7 +6875,7 @@ def _contained(
     if run["status"] != "succeeded":
         fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
     got = api_call(alice, "GET", f"/entities/{sample['id']}").json()["values"]
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != TOOLS_IMAGE.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't record its image: {attempt}")
     if not attempt["worker"].startswith("iki-run-"):
@@ -6872,7 +6887,7 @@ def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     """The execution fixture's actions on the container tier (ADR 0061, 0062): the provisioner
     starts a pod of its own in iki-runs for one, running the environment's image with
     iki-worker copied in; the other, persistent, runs one after another on a warm pod."""
-    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
+    listed = {a["name"]: a for a in every(alice, "/actions")}
     for action in (
         "fixtures/worker_execution.assign_storage",
         "fixtures/worker_execution.tidy_storage",
@@ -7025,11 +7040,7 @@ def setup_builds(project: dict[str, Any]) -> None:
             fail(f"{me['email']} couldn't be made a Compute Admin")
     try:
         environment = "fixtures/worker_execution.reference"
-        (listed,) = [
-            e
-            for e in api_call(bob, "GET", "/compute/volumes").json()
-            if e["environment"] == environment
-        ]
+        (listed,) = [e for e in every(bob, "/compute/volumes") if e["environment"] == environment]
         if [v["name"] for v in listed["volumes"]] != ["storage-codes"]:
             fail(f"{environment}'s volumes aren't listed: {listed}")
         made = api_call(

@@ -110,7 +110,7 @@ def test_compute_admins_manage_quotas(world: World) -> None:
     changed = admin.patch(f"/compute/quotas/{made['id']}", {"max_running": 8})
     assert changed.status_code == 200, changed.content
     assert (changed.json()["max_running"], changed.json()["max_queued"]) == (8, None)
-    assert [q["id"] for q in admin.get("/compute/quotas").json()] == [made["id"]]
+    assert [q["id"] for q in admin.every("/compute/quotas")] == [made["id"]]
     assert admin.delete(f"/compute/quotas/{made['id']}").status_code == 204
     assert not RunQuota.objects.exists()
     actions = list(
@@ -134,17 +134,19 @@ def test_compute_admins_find_any_team_or_project_to_limit(world: World) -> None:
         project=hidden, user=world.users["compute_admin"]
     ).exists()
 
-    projects = admin.get("/compute/quota-scopes", kind="project", search=" cryo ")
+    projects = admin.get("/compute/quota-scopes", kind="project", q=" cryo ")
     assert projects.status_code == 200, projects.content
-    assert projects.json() == [
+    assert projects.json()["items"] == [
         {"id": str(hidden.pk), "name": hidden.name, "team": team.name, "team_id": str(team.pk)}
     ]
-    teams = admin.get("/compute/quota-scopes", kind="team", search="CRYO").json()
+    teams = admin.every("/compute/quota-scopes", kind="team", q="CRYO")
     assert teams == [
         {"id": str(other_team.pk), "name": "Cryo-EM core", "team": None, "team_id": None}
     ]
-    every = admin.get("/compute/quota-scopes", kind="project", limit=1).json()
-    assert len(every) == 1
+    first = admin.get("/compute/quota-scopes", kind="project", limit=1).json()
+    assert len(first["items"]) == 1 and first["next_cursor"]
+    rest = admin.every("/compute/quota-scopes", kind="project", cursor=first["next_cursor"])
+    assert first["items"][0] not in rest and len(rest) >= 1
 
     made = quota(world, project=str(hidden.pk), max_running=2)
     assert made["project"] == {"id": str(hidden.pk), "name": hidden.name}

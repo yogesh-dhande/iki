@@ -122,7 +122,7 @@ class SignatureOut(Schema):
 
 
 class SignaturesOut(Schema):
-    items: list[SignatureOut]
+    signatures: list[SignatureOut]
     missing: list[str] = Field(
         description="Signatures the record's states were set with that are gone from "
         "the database. Empty, unless something outside Iki deleted them."
@@ -393,7 +393,10 @@ def list_signatures(
         .select_related("signer", "entity")
         .order_by("-signed_at")
     )
-    return {"items": _out(me, found, verify=params.verify), "missing": services.missing(entity)}
+    return {
+        "signatures": _out(me, found, verify=params.verify),
+        "missing": services.missing(entity),
+    }
 
 
 def _signature(me: User, signature_id: UUID) -> Signature:

@@ -18,7 +18,7 @@ from ninja import Field, Query, Router, Schema
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project
 from iki_server.api.graph import FollowedName
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, page, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.runs import Tier
 from iki_server.api.schemas import Page, PersonRef
@@ -128,10 +128,16 @@ def _trigger_out(spec: Trigger) -> dict[str, Any]:
     }
 
 
-@router.get("/triggers", response=list[TriggerOut], summary="Installed triggers")
-def list_triggers(request: HttpRequest) -> list[dict[str, Any]]:
+def _page(params: PageParams) -> dict[str, Any]:
+    return page_sorted(triggers.triggers().items(), params, by=("name",), key=lambda t: (t[0],))
+
+
+@router.get("/triggers", response=Page[TriggerOut], summary="Installed triggers")
+def list_triggers(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """By name."""
     caller(request)
-    return [_trigger_out(t) for t in triggers.triggers().values()]
+    found = _page(params)
+    return {**found, "items": [_trigger_out(t) for _, t in found["items"]]}
 
 
 # --- In a project ------------------------------------------------------------------------------
@@ -179,13 +185,15 @@ class ProjectTriggerOut(TriggerOut):
     can: ProjectTriggerCan
 
 
-def _project_triggers_out(me: User, found: Project) -> list[dict[str, Any]]:
+def _project_triggers_out(
+    me: User, found: Project, specs: list[tuple[str, Trigger]]
+) -> list[dict[str, Any]]:
     rows = triggers.in_project(found)
     last = _last_fired(found)
     web = permissions.token_limits(me) is None
     admin = permissions.can(me, permissions.Action.PROJECT_TRIGGERS_MANAGE, found)
     out = []
-    for name, spec in triggers.triggers().items():
+    for name, spec in specs:
         row = rows.get(name)
         why = triggers.why_not_enable(me, found, spec) if admin else None
         # One run as a service account can be turned on again to choose another account.
@@ -252,18 +260,24 @@ def _state(row: ProjectTrigger | None) -> dict[str, Any]:
 
 @router.get(
     "/projects/{project_id}/triggers",
-    response=list[ProjectTriggerOut],
+    response=Page[ProjectTriggerOut],
     summary="Triggers in a project",
 )
-def project_triggers(request: HttpRequest, project_id: UUID) -> list[dict[str, Any]]:
-    """Every installed trigger, and whether it's on in the project, as whom."""
+def project_triggers(
+    request: HttpRequest, project_id: UUID, params: Query[PageParams]
+) -> dict[str, Any]:
+    """Every installed trigger, by name, and whether it's on in the project, as whom."""
     me = caller(request)
     found = project(me, project_id, permissions.Action.PROJECT_READ)
-    return _project_triggers_out(me, found)
+    paged = _page(params)
+    return {**paged, "items": _project_triggers_out(me, found, paged["items"])}
 
 
 def _one(me: User, found: Project, name: str) -> dict[str, Any]:
-    return next(t for t in _project_triggers_out(me, found) if t["name"] == name)
+    spec = triggers.trigger(name)
+    if spec is None:
+        raise Problem(404, f"There’s no trigger {name}.")
+    return _project_triggers_out(me, found, [(name, spec)])[0]
 
 
 def _installed(name: str) -> Trigger:

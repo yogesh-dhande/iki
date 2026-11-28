@@ -65,7 +65,7 @@ def test_the_trail_narrows_to_a_person_or_a_field(world: World) -> None:
 
 def test_who_changed_it_is_everyone_who_made_a_revision(world: World) -> None:
     ref = edited(world)
-    people = api_as(world, "viewer").get(f"/entities/{ref}/contributors").json()
+    people = api_as(world, "viewer").every(f"/entities/{ref}/contributors")
     assert [p["email"] for p in people] == ["admin@example.com", "editor@example.com"]
     problem(api_as(world, "outsider").get(f"/entities/{ref}/contributors"), 404, "not_found")
 
@@ -151,7 +151,7 @@ def test_a_records_trail_has_its_entrys_revisions_as_its_reader_is_told_them(
     narrowed = outsider.get(f"/entries/{entry_id}/revisions", person=editor_id).json()
     assert narrowed["items"] == []
     assert editor.get(f"/entries/{entry_id}/revisions", person=editor_id).json()["items"]
-    people = outsider.get(f"/entities/{theirs['id']}/contributors").json()
+    people = outsider.every(f"/entities/{theirs['id']}/contributors")
     assert [p["email"] for p in people] == ["outsider@example.com"]
 
 

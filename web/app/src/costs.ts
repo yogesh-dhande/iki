@@ -6,7 +6,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 
 export type CostSummary = Schemas["CostSummaryOut"];
 export type OrgCostsBy = "project" | "team" | "template" | "action" | "tier";
@@ -98,7 +98,10 @@ export type BudgetStatus = Schemas["BudgetStatusOut"];
 
 export const budgetsQuery = queryOptions({
   queryKey: ["costs", "budgets"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/compute/budgets", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/compute/budgets", { params: { query: page }, signal })),
+    ),
 });
 
 /** "50, 80 and 100%" for a budget's warning levels. */

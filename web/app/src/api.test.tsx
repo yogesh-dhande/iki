@@ -3,7 +3,7 @@
  * has gone: what they refresh often replaces it.
  */
 
-import { ApiError } from "@ikisci/sdk";
+import { ApiError, unwrap } from "@ikisci/sdk";
 import { QueryClientProvider, QueryObserver } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   chooseWatch,
+  everyPage,
   iki,
   markAllNotifications,
   projectPagesQuery,
@@ -23,7 +24,7 @@ import {
 } from "./api";
 import { entitiesQuery } from "./entities";
 import { intakeQuery, ownsRequestsQuery, queuedQuery, sentToQuery } from "./requests";
-import { answer, calls } from "./test-server";
+import { answer, calls, page } from "./test-server";
 
 function Starter({
   run,
@@ -78,6 +79,24 @@ function later<T>(): {
   return { promise, resolve, reject };
 }
 
+describe("everyPage", () => {
+  it("reads a whole collection, the largest page at a time, by each page's cursor", async () => {
+    answer("GET /api/v1/project-roles", ({ query }: { query: URLSearchParams }) =>
+      query.get("cursor") === "two"
+        ? page([{ name: "admin", label: "Admin", description: "" }])
+        : { items: [{ name: "viewer", label: "Viewer", description: "" }], next_cursor: "two" },
+    );
+    const roles = await everyPage(async (query) =>
+      unwrap(await iki.GET("/api/v1/project-roles", { params: { query } })),
+    );
+    expect(roles.map((r) => r.name)).toEqual(["viewer", "admin"]);
+    expect(calls("GET", "/api/v1/project-roles").map((c) => Object.fromEntries(c.query))).toEqual([
+      { limit: "100" },
+      { limit: "100", cursor: "two" },
+    ]);
+  });
+});
+
 describe("useApiMutation", () => {
   it("calls back after the component that started it is gone", async () => {
     const pending = later<string>();
@@ -120,7 +139,7 @@ describe("queries belonging to the current page", () => {
     answer(`GET ${watch}`, { mode: "watching" });
     answer(`PUT ${watch}`, { mode: "watching" });
     answer(`GET ${intake}`, { types: [] });
-    answer(`GET ${sentTo}`, []);
+    answer(`GET ${sentTo}`, { items: [], next_cursor: null });
     answer(`POST ${search}`, { items: [] });
     answer(`GET ${projects}`, { items: [] });
     transition("pagehide");
@@ -207,7 +226,7 @@ describe("queries belonging to the current page", () => {
     {
       method: "GET",
       path: "/api/v1/project-roles",
-      response: [],
+      response: { items: [], next_cursor: null },
       read: () => queryClient.query(rolesQuery),
     },
     {

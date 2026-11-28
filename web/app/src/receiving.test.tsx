@@ -97,7 +97,7 @@ function event(changes: Partial<ObservationEvent>): ObservationEvent {
 
 async function openReceipt(open: Receipt, types?: Schemas["EntityTypeOut"][]) {
   withTypes();
-  if (types) answer("GET /api/v1/entity-types", types);
+  if (types) answer("GET /api/v1/entity-types", page(types));
   answer(`GET /api/v1/entities/${ask}/receipts`, {
     receipts: [open],
     expected: open.lines.length,
@@ -114,7 +114,7 @@ async function openReceipt(open: Receipt, types?: Schemas["EntityTypeOut"][]) {
       done: false,
       operation: null,
       plan: "a".repeat(64),
-      items: places.map((p) => ({
+      moves: places.map((p) => ({
         record: { hrid: p.line, id: open.lines.find((l) => l.id === p.line)?.entity },
         to: { id: BOX_ID, position: p.position ?? free.shift() },
         problems: [],
@@ -378,7 +378,7 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
   expect(alert.closest("[role=alert]")).toHaveTextContent(
     "TUB-000001: Now rejected · note “Thawed”, checked by Ada Lovelace, 12 Jan 2026, 09:30 UTC.",
   );
-  expect(calls("GET", `${api}/history`)).toHaveLength(0);
+  expect(calls("GET", `${api}/observations`)).toHaveLength(0);
   expect(dialog.getByText("Rejected")).toBeVisible();
   // Said once, in the note: not again as the refusal's own words.
   expect(dialog.queryByText("This receipt line changed.")).toBeNull();
@@ -488,7 +488,7 @@ it("shows a line’s history: who, when, before and after, and why", async () =>
   const first = tube(1, { outcome: "damaged", note: "Cap cracked", checked_by: ADA });
   const { user } = await openReceipt(receipt(3, [first]));
   answer(
-    `GET ${api}/history`,
+    `GET ${api}/observations`,
     page([
       event({
         id: "00000000-0000-7000-8000-0000000000e2",
@@ -520,7 +520,7 @@ it("shows a line’s history: who, when, before and after, and why", async () =>
   expect(corrected).toHaveTextContent("Reason: “Looked again under the lamp”");
   expect(recorded).toHaveTextContent("Outcome recorded");
   expect(recorded).toHaveTextContent("Rosalind");
-  expect(calls("GET", `${api}/history`)[0]?.query.get("line_id")).toBe(first.id);
+  expect(calls("GET", `${api}/observations`)[0]?.query.get("line_id")).toBe(first.id);
 });
 
 it("asks why only when handover text that was recorded changes", async () => {
@@ -718,7 +718,7 @@ it("shows the scanner’s exact text in the history, and how it identified the t
   const first = tube(1, { outcome: "matched", checked_by: ME });
   const { user } = await openReceipt(receipt(2, [first]));
   answer(
-    `GET ${api}/history`,
+    `GET ${api}/observations`,
     page([
       event({
         line_id: first.id,
@@ -1047,7 +1047,7 @@ it("shows changed put-away positions and waits for another review before complet
   });
   const current = {
     plan: "b".repeat(64),
-    items: [{ record: { hrid: "TUB-000001" }, to: { position: "A3" }, problems: [] }],
+    moves: [{ record: { hrid: "TUB-000001" }, to: { position: "A3" }, problems: [] }],
   };
   answer(
     `POST ${api}/complete`,
@@ -1163,8 +1163,8 @@ it("says which tubes were received without a location, and which are still waiti
 
 it("lists what was received without a location on the Storage page", async () => {
   withTypes();
-  answer("GET /api/v1/storage/places", []);
-  answer("GET /api/v1/storage/checked-out", []);
+  answer("GET /api/v1/storage/places", page([]));
+  answer("GET /api/v1/storage/checked-out", page([]));
   const held = (n: number) => ({
     id: `tube-00000${String(n)}`,
     hrid: `TUB-00000${String(n)}`,

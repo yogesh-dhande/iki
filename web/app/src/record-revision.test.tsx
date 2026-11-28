@@ -183,8 +183,8 @@ const PROTEIN_R: Schemas["EntityTypeOut"] = {
 
 function onEntry(): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [PROTEIN_R]);
-  answer("GET /api/v1/components", []);
+  answer("GET /api/v1/entity-types", page([PROTEIN_R]));
+  answer("GET /api/v1/components", page([]));
   answer(`GET /api/v1/entries/${ENTRY_ID}`, {
     id: ENTRY_ID,
     hrid: "PRT-000001",

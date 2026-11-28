@@ -88,7 +88,7 @@ afterEach(() => {
 
 function onSequence(types = [PROTEIN, SEQUENCE_TYPE]) {
   withTypes();
-  answer("GET /api/v1/entity-types", types);
+  answer("GET /api/v1/entity-types", page(types));
   answer(
     "GET /api/v1/entities/DNA-000001",
     entity({

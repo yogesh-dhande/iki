@@ -107,7 +107,7 @@ def configure(
     reviewer: str,
     qa: str | None,
 ) -> None:
-    catalogue = api.request("GET", f"/starters?project={core}")
+    catalogue = pages(api, "/starters", project=core)
     starter = next((s for s in catalogue if s["id"] == "dose-response"), None)
     if not starter or starter["version"] != VERSION:
         raise ValueError(f"Install dose-response {VERSION} before loading this tutorial.")

@@ -242,7 +242,7 @@ def test_one_file_rereads_the_previous_slot_and_adds_a_new_label_match(world: Wo
     assert set(at) == {"A1", "A2"} and all(line["entity"] is None for line in at.values())
     assert at["A1"]["id"] == old["id"] and at["A2"]["id"] != old["id"]
     reread, additional = (
-        api.get(f"{path}/history", line_id=at[slot]["id"]).json()["items"][0]
+        api.get(f"{path}/observations", line_id=at[slot]["id"]).json()["items"][0]
         for slot in ("A1", "A2")
     )
     assert reread["previous"] == old["observation"]["id"] and additional["previous"] is None

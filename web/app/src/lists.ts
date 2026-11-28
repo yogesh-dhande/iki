@@ -9,7 +9,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import { iki, projectsQuery, type Project } from "./api";
+import { everyPage, iki, projectsQuery, type Project } from "./api";
 import { ENTITIES, SAVED_SEARCHES, validateEntitySearch, type EntitySearch } from "./entities";
 
 export type Counts = Schemas["CountsOut"];
@@ -53,7 +53,10 @@ export function countOf(
  * those shared with projects they read. */
 export const everySavedSearchQuery = queryOptions({
   queryKey: [...SAVED_SEARCHES, "everywhere"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/saved-searches", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/saved-searches", { params: { query: page }, signal })),
+    ),
 });
 
 /** The projects whose records the reader can read, by name: what a list's Project filter

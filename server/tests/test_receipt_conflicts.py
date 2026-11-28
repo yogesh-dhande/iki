@@ -31,7 +31,7 @@ def test_a_stale_line_command_names_only_its_current_line_including_a_removed_ex
     extra_path = f"{path}/lines/{extra['line']}"
     removed = change(first, "DELETE", extra_path, old_extra, reason="Duplicated on the waybill")
     retired = removed["removed_lines"][0]
-    history = read(first, path + "/history")
+    history = read(first, path + "/observations")
 
     for method, url, line, fields, latest in (
         ("PATCH", target, original, {"outcome": None, "reason": "Review check"}, current),
@@ -41,7 +41,7 @@ def test_a_stale_line_command_names_only_its_current_line_including_a_removed_ex
         error = change(second, method, url, line, status=412, **fields)
         assert error["code"] == "stale"
         assert error["affected_lines"] == [version(latest)]
-    assert read(second, path) == removed and read(second, path + "/history") == history
+    assert read(second, path) == removed and read(second, path + "/observations") == history
 
 
 def test_parent_conflicts_name_each_line_changed_since_review_at_its_latest_revision(
@@ -71,7 +71,7 @@ def test_parent_conflicts_name_each_line_changed_since_review_at_its_latest_revi
         reason="Different delivery",
     )
     current = change(first, "PATCH", path, removed, handed_over_by="Courier")
-    history = read(first, path + "/history")
+    history = read(first, path + "/observations")
     expected = sorted(
         [version(row(corrected, line["id"])), version(removed["removed_lines"][0])],
         key=lambda item: item["line_id"],
@@ -87,7 +87,7 @@ def test_parent_conflicts_name_each_line_changed_since_review_at_its_latest_revi
             refused = second.call(method, url, payload, headers=seen(since["revision"]))
             assert problem(refused, 412, "stale")["affected_lines"] == affected
             assert refused["ETag"] == f'"{current["revision"]}"'
-    assert read(second, path) == current and read(second, path + "/history") == history
+    assert read(second, path) == current and read(second, path + "/observations") == history
 
 
 @pytest.mark.django_db(transaction=True)

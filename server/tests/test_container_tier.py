@@ -281,7 +281,7 @@ def test_customer_image_runs_at_its_pinned_digest_and_uses_pull_secret_reference
     assert start_pod(cluster, name).lease().status_code == 200
     response = api_as(world, "runner").get(f"/runs/{run['id']}/attempts")
     assert response.status_code == 200, response.content
-    (attempt,) = response.json()
+    (attempt,) = response.json()["items"]
     assert attempt["environment_build"] == "sha256:" + "a" * 64
     assert "licensed-registry" not in response.content.decode()
 

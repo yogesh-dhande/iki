@@ -144,7 +144,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
     listed = (await rpc(token, "tools/list")).json()["result"]["tools"]
     assert [t["name"] for t in listed] == [
         "whoami",
-        "my_work",
+        "list_work_items",
         "list_projects",
         "list_lab_roles",
         "list_lab_lists",
@@ -180,10 +180,10 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "draw_amount",
         "transfer_amount",
         "adjust_amount",
-        "split_into_aliquots",
+        "create_aliquots",
         "describe_apps",
         "check_app",
-        "read_helm",
+        "parse_helm",
         "create_app",
         "create_view",
         "preview_app",
@@ -220,7 +220,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "draw_amount",
         "transfer_amount",
         "adjust_amount",
-        "split_into_aliquots",
+        "create_aliquots",
         "run_action",
         "run_batch",
         "cancel_run",
@@ -323,7 +323,7 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     assert [p["name"] for p in projects["items"]] == ["Kinase Atlas"]
     types = data(await tool(token, "list_entity_types"))
     assert {"name": "acme/protein.Protein", "label": "Protein"}.items() <= next(
-        t for t in types if t["name"] == "acme/protein.Protein"
+        t for t in types["items"] if t["name"] == "acme/protein.Protein"
     ).items()
     described = data(await tool(token, "describe_entity_type", name="acme/protein.Protein"))
     assert "sequence" in {f["name"] for f in described["fields"]}
@@ -340,15 +340,19 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     assert [e["hrid"] for e in found["items"]] == [abl["hrid"]]
     looked_up = data(
         await tool(
-            token, "lookup_entities", type="acme/protein.Protein", field="lims_id", value="LIMS-ABL"
+            token,
+            "lookup_entities",
+            type=["acme/protein.Protein"],
+            field="lims_id",
+            value="LIMS-ABL",
         )
     )
-    assert [e["hrid"] for e in looked_up] == [abl["hrid"]]
+    assert [e["hrid"] for e in looked_up["items"]] == [abl["hrid"]]
     entity = data(await tool(token, "get_entity", ref=abl["hrid"]))
     assert entity["entity"]["id"] == abl["id"]
     assert entity["provenance"]["sequence"]["user"]["email"] == "editor@example.com"
     assert entity["origins"] == []  # made by hand, not imported
-    assert entity["making"] == []  # by hand: no run made it, and no source says how
+    assert entity["makings"] == []  # by hand: no run made it, and no source says how
     history = data(await tool(token, "get_entity_history", ref=abl["hrid"]))
     assert [r["number"] for r in history["items"]] == [2, 1]  # created, then tagged
     lineage = data(await tool(token, "get_lineage", ref=abl["hrid"], depth=2))
@@ -361,7 +365,7 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     assert (impact["direction"], impact["items"], impact["hidden"]) == ("downstream", [], 0)
 
     actions = data(await tool(token, "list_actions", takes=["acme/protein.Protein"]))
-    assert "acme/protein.compute_properties" in {a["name"] for a in actions}
+    assert "acme/protein.compute_properties" in {a["name"] for a in actions["items"]}
     action = data(await tool(token, "describe_action", name="acme/protein.compute_properties"))
     assert action["tier"] == "backend"
     runs = data(await tool(token, "list_runs", project=str(world.project.pk), status="queued"))
@@ -858,7 +862,7 @@ async def test_agents_draw_and_split_amounts_naming_the_person_and_themselves(
     split = data(
         await tool(
             token,
-            "split_into_aliquots",
+            "create_aliquots",
             ref=ref,
             count=2,
             each={"value": 20, "unit": "uL"},
@@ -1075,7 +1079,7 @@ async def test_agents_send_requests_to_services(world: World) -> None:
     core = await sync_to_async(service)()
     token = await token_for(world)
     listed = data(await tool(token, "list_services", project=str(world.project.pk)))
-    assert [s["project"]["name"] for s in listed] == ["Protein Core"]
+    assert [s["project"]["name"] for s in listed["items"]] == ["Protein Core"]
     made = data(
         await tool(
             token,
@@ -1130,7 +1134,7 @@ async def test_agent_reads_request_references_with_its_persons_access(world: Wor
 
 
 async def test_agents_read_their_persons_work_and_name_people(world: World) -> None:
-    """ADR 0122: my_work is the person's own, read-only; records name people by email
+    """ADR 0122: list_work_items is the person's own, read-only; records name people by email
     address or ID, and their state fields say whose work they are."""
     from test_lab_roles import give, membership
 
@@ -1150,7 +1154,7 @@ async def test_agents_read_their_persons_work_and_name_people(world: World) -> N
             reason="",
         )
     )
-    open_ = data(await tool(token, "my_work", open_to_my_roles=True))
+    open_ = data(await tool(token, "list_work_items", open_to_my_roles=True))
     assert [(i["entity"]["hrid"], i["fields"]) for i in open_["items"]] == [
         (nobodys["hrid"], ["analyst"])
     ]
@@ -1171,7 +1175,7 @@ async def test_agents_read_their_persons_work_and_name_people(world: World) -> N
     )
     assert made["values"]["analyst"] == str(world.users["editor"].pk)
     assert made["people"][made["values"]["reviewer"]]["name"] == "Admin"
-    mine = data(await tool(token, "my_work"))
+    mine = data(await tool(token, "list_work_items"))
     assert [(i["entity"]["hrid"], i["due"]) for i in mine["items"]] == [
         (made["hrid"], "2026-12-01")
     ]
@@ -1186,9 +1190,9 @@ async def test_agents_read_their_persons_work_and_name_people(world: World) -> N
             reason="Bench 4",
         )
     # Its status is In review: the reviewer's now, not the analyst's.
-    assert data(await tool(token, "my_work"))["items"] == []
-    assert data(await tool(token, "my_work", state=["status.in_testing"]))["items"] == []
-    theirs = data(await tool(await token_for(world, "admin"), "my_work"))
+    assert data(await tool(token, "list_work_items"))["items"] == []
+    assert data(await tool(token, "list_work_items", state=["status.in_testing"]))["items"] == []
+    theirs = data(await tool(await token_for(world, "admin"), "list_work_items"))
     assert [i["entity"]["hrid"] for i in theirs["items"]] == [made["hrid"]]
 
 
@@ -1352,7 +1356,7 @@ async def test_agents_run_workflows_and_are_told_what_waits_for_people(world: Wo
     token = await token_for(world, "editor", scope="read write run")
     project = str(world.project.pk)
     listed = data(await tool(token, "list_workflows"))
-    assert "acme/protein.review_then_weigh" in [w["name"] for w in listed]
+    assert "acme/protein.review_then_weigh" in [w["name"] for w in listed["items"]]
     described = data(await tool(token, "describe_workflow", name="acme/protein.review_then_weigh"))
     assert described["steps"][1]["approval"]["role"] == "runner"
 
@@ -1413,7 +1417,7 @@ async def test_agents_read_and_verify_signatures_but_cant_give_them(world: World
     hrid, unsigned = await sync_to_async(_signed_lot)(world)
     token = await token_for(world, "viewer")
     listed = data(await tool(token, "get_signatures", ref=hrid, verify=True))
-    [signature] = listed["items"]
+    [signature] = listed["signatures"]
     assert signature["manifestation"].startswith("Authored by Editor on ")
     assert signature["verification"]["valid"] is True
     checked = data(await tool(token, "verify_signature", signature=signature["id"]))

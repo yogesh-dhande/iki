@@ -82,7 +82,7 @@ def options(api: Api, project: Project | None, **query: Any) -> list[dict[str, A
     at = {"project": str(project.pk)} if project is not None else scope()
     response = api.get(OPTIONS, **at, **query)
     assert response.status_code == 200, response.content
-    found: list[dict[str, Any]] = response.json()
+    found: list[dict[str, Any]] = response.json()["items"]
     return found
 
 
@@ -115,7 +115,7 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     editor = api_as(world, "editor")
     listed = editor.get("/lists", project=str(world.project.pk))
     assert listed.status_code == 200, listed.content
-    by_type = {item["type"]: item for item in listed.json()}
+    by_type = {item["type"]: item for item in listed.json()["items"]}
     assert by_type[METHOD]["options"] == 3 and by_type[CATEGORY]["options"] == 1
     assert by_type[METHOD]["label_plural"] == "Purification methods"
     assert not by_type[METHOD]["can"]["curate"]
@@ -127,13 +127,13 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     ]
     assert found[0]["description"].startswith("Captured on a Protein A column")
     # A starting option's reference to another list names that list's option by its ID.
-    category = editor.get(f"/lists/{CATEGORY}/options", project=str(world.project.pk)).json()
+    category = editor.every(f"/lists/{CATEGORY}/options", project=str(world.project.pk))
     assert found[0]["values"]["category"] == category[0]["id"]
     assert found[2]["values"].get("category") is None
     # Members don't see how often each is used: that's for its curators.
     assert all(o["uses"] is None for o in found)
     # The entity types say it's a list, for forms to show a dropdown.
-    types = {t["name"]: t for t in editor.get("/entity-types").json()}
+    types = {t["name"]: t for t in editor.every("/entity-types")}
     assert types[METHOD]["lab_list"] and not types[PREP]["lab_list"]
     # A list spends no HRID prefix: its options are numbered in the sequence every list's
     # options share, which only gives their pages an address (ADR 0295).
@@ -145,6 +145,20 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     first = editor.get(f"/entries/{found[0]['id']}/revisions").json()["items"][-1]
     assert first["kind"] == "created" and first["user"] is None
     assert first["reason"] == "A starting option of acme/protein 3.0.0."
+
+
+def test_a_lists_options_page_in_order_and_are_found_by_code_or_label(world: World) -> None:
+    editor = api_as(world, "editor")
+    at = {"project": str(world.project.pk)}
+    first = editor.get(OPTIONS, **at, limit=2).json()
+    assert [o["code"] for o in first["items"]] == ["protein_a", "sec"]
+    rest = editor.get(OPTIONS, **at, limit=2, cursor=first["next_cursor"]).json()
+    assert ([o["code"] for o in rest["items"]], rest["next_cursor"]) == (["dialysis"], None)
+    assert [o["code"] for o in options(editor, world.project, q="EXCLU")] == ["sec"]
+    assert [o["code"] for o in options(editor, world.project, q="dialy")] == ["dialysis"]
+    # A project is named by its ID: a slug is the web app's.
+    body = problem(editor.get(OPTIONS, project=world.project.slug), 422, "validation_failed")
+    assert [e["parameter"] for e in body["errors"]] == ["project"]
 
 
 def test_asking_for_no_ones_lists_names_the_parameter_to_give(world: World) -> None:
@@ -350,13 +364,13 @@ def test_registrars_and_the_lists_curators_curate_it(world: World) -> None:
     body = added.json()
     assert (body["position"], body["values"]["sop"]) == (4, "https://sop.example/12")
     # They see how often each option is used, and curate only their own list.
-    assert all(o["uses"] == 0 for o in lead.get(OPTIONS, **scope(world)).json())
+    assert all(o["uses"] == 0 for o in lead.every(OPTIONS, **scope(world)))
     problem(
         lead.post(f"/lists/{CATEGORY}/options", {"code": "x", "label": "X"}, **scope(world)),
         403,
         "forbidden",
     )
-    listed = lead.get("/lists", **scope(world)).json()
+    listed = lead.every("/lists", **scope(world))
     assert {i["type"]: i["can"]["curate"] for i in listed} == {METHOD: True, CATEGORY: False}
     roles = f"/registries/{Registry.default().pk}/roles"
     curators = org_admin.get(roles, role="list_curator").json()["items"]
@@ -1060,7 +1074,9 @@ def test_what_a_record_names_from_a_list_is_upstream_of_it_and_readable(world: W
     assert drawn.json()["hidden"] == 0
     shown = {e["id"]: e for e in drawn.json()["entities"]}
     # The method, and the category the method names, as they read.
-    category = editor.get(f"/lists/{CATEGORY}/options", project=str(world.project.pk)).json()[0]
+    category = editor.get(f"/lists/{CATEGORY}/options", project=str(world.project.pk)).json()[
+        "items"
+    ][0]
     assert {found["protein_a"]["id"], found["sec"]["id"], category["id"]} <= set(shown)
     assert shown[found["protein_a"]["id"]]["title"] == "Protein A affinity"
     # Whoever reads only another registry's project reads its options, and not these.

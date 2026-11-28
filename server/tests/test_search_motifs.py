@@ -200,7 +200,7 @@ def test_a_motif_on_an_indexed_sequence_uses_its_trigram_index(world: World, mot
 
 def test_a_type_says_which_of_its_fields_are_sequences(world: World) -> None:
     api: Api = api_as(world, "viewer")
-    types = {t["name"]: t for t in api.get("/entity-types").json()}
+    types = {t["name"]: t for t in api.every("/entity-types")}
     fields = {f["name"]: f for f in types[PLASMID]["fields"]}
     assert fields["bases"]["format"] == "dna_sequence"
     assert fields["topology"]["format"] is None

@@ -162,7 +162,7 @@ export const savedViewsQuery = queryOptions({
         params: { query: { mine: true, limit: SPEC.projects.shown } },
         signal,
       }),
-    ),
+    ).items,
 });
 
 /** The active projects they have a role in, as Home lists them: the same request. */

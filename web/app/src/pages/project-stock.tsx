@@ -35,7 +35,7 @@ function stockPage(
   signal: AbortSignal,
 ) {
   return iki
-    .GET("/api/v1/projects/{project_id}/stock", {
+    .GET("/api/v1/projects/{project_id}/stock/items", {
       params: {
         path: { project_id: project },
         query: { ...pageParams(cursor), low_only: lowOnly },
@@ -47,7 +47,7 @@ function stockPage(
 
 function lotsPage(project: string, item: string, cursor: string | undefined, signal: AbortSignal) {
   return iki
-    .GET("/api/v1/projects/{project_id}/stock/{item_id}/lots", {
+    .GET("/api/v1/projects/{project_id}/stock/items/{item_id}/lots", {
       params: { path: { project_id: project, item_id: item }, query: pageParams(cursor) },
       signal,
     })

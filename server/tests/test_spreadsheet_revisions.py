@@ -248,7 +248,7 @@ def test_replacing_a_template_reviews_both_import_and_template_independently(wor
     audits = AuditEvent.objects.filter(action__startswith="spreadsheet_mapping.")
     saved = alice.post(f"{path_a}/mappings", {"name": "Layout A"}, headers=seen(source_a))
     assert saved.status_code == 201, saved.content
-    (target,) = bob.get(listing).json()
+    (target,) = bob.every(listing)
     assert target == saved.json() and target["revision"] == 1
     template = f"/spreadsheet-mappings/{target['id']}"
     reviewed_a = alice.get(path_a).json()
@@ -271,11 +271,11 @@ def test_replacing_a_template_reviews_both_import_and_template_independently(wor
     obsolete = alice.put(template, from_import("Late A", reviewed_a), headers=seen(target))
     assert "Layout B" in problem(obsolete, 412, "stale")["detail"]
     assert obsolete["ETag"] == seen(latest)["If-Match"]
-    assert alice.get(listing).json() == [latest] and audits.count() == 2
+    assert alice.every(listing) == [latest] and audits.count() == 2
     assert SpreadsheetImport.objects.filter(pk=source_a["id"]).values().get() == before
 
     # Conversely, changing the import can't be hidden by a current template precondition.
-    current_target = alice.get(listing).json()[0]
+    current_target = alice.every(listing)[0]
     updated = alice.patch(
         path_a, {"columns": [{"index": 0, "field": "label"}]}, headers=seen(reviewed_a)
     )
@@ -292,7 +292,7 @@ def test_replacing_a_template_reviews_both_import_and_template_independently(wor
     problem(late_replace, 412, "stale")
     # The import is named in the body: the ETag answered is the template's, so none is.
     assert "ETag" not in late_replace.headers
-    assert alice.get(listing).json() == [latest] and audits.count() == 2
+    assert alice.every(listing) == [latest] and audits.count() == 2
 
     fresh = alice.put(
         template, from_import("Reviewed again", current_a), headers=seen(current_target)
@@ -336,7 +336,7 @@ def test_a_template_replacement_requires_the_reviewed_template_and_import(
         api.post(f"{path}/mappings", old_way, headers=seen(source)), 422, "validation_failed"
     )
     assert {e["pointer"] for e in refused["errors"]} == {"#/replace", "#/target_revision"}
-    assert api.get(f"/projects/{world.project.pk}/spreadsheet-mappings").json() == [template]
+    assert api.every(f"/projects/{world.project.pk}/spreadsheet-mappings") == [template]
     assert AuditEvent.objects.filter(action__startswith="spreadsheet_mapping.").count() == 1
     assert api.get(path).json() == source
 
@@ -387,7 +387,7 @@ def test_competing_creates_of_a_template_name_leave_the_losing_source_untouched(
         error = losing.result(timeout=15)
     assert error["errors"][0]["pointer"] == "#/name"
     assert SpreadsheetImport.objects.filter(pk=b["id"]).values().get() == before
-    assert first.get(f"/projects/{world.project.pk}/spreadsheet-mappings").json() == [saved.json()]
+    assert first.every(f"/projects/{world.project.pk}/spreadsheet-mappings") == [saved.json()]
     assert AuditEvent.objects.filter(action="spreadsheet_mapping.saved").count() == 1
 
 

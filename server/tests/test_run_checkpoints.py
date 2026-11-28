@@ -131,7 +131,7 @@ def test_an_interrupted_attempt_resumes_from_its_checkpoint(world: World) -> Non
     assert restored.status_code == 204, restored.content
     assert Job.objects.get(pk=second["job"]["id"]).resumed_from_id == found.pk
 
-    attempts = api_as(world, "viewer").get(f"/runs/{run['hrid']}/attempts").json()
+    attempts = api_as(world, "viewer").every(f"/runs/{run['hrid']}/attempts")
     assert attempts[0]["checkpoint"]["attempt"] == 1
     assert attempts[0]["checkpoint"]["kept"] is True
     assert attempts[1]["checkpoint"] is None
@@ -143,7 +143,7 @@ def test_an_interrupted_attempt_resumes_from_its_checkpoint(world: World) -> Non
     found.refresh_from_db()
     assert found.deleted_at is not None
     assert not storage.exists(storage.checkpoint_key(found.upload_id))
-    attempts = api_as(world).get(f"/runs/{run['hrid']}/attempts").json()
+    attempts = api_as(world).every(f"/runs/{run['hrid']}/attempts")
     assert attempts[1]["resumed_from"]["kept"] is False
 
 

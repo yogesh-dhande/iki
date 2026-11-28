@@ -66,7 +66,7 @@ def on(world: World, name: str = NEW, who: str = "admin") -> dict[str, Any]:
 
 
 def listed(world: World, who: str = "viewer") -> dict[str, dict[str, Any]]:
-    found = api_as(world, who).get(f"/projects/{world.project.pk}/triggers").json()
+    found = api_as(world, who).every(f"/projects/{world.project.pk}/triggers")
     return {t["name"]: t for t in found}
 
 
@@ -94,7 +94,7 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 
 
 def test_lists_installed_triggers(world: World) -> None:
-    found = api_as(world, "viewer").get("/triggers").json()
+    found = api_as(world, "viewer").every("/triggers")
     assert [t["name"] for t in found] == [NIGHTLY, FLAG, IN_TESTING, RANK, CHANGED, NEW]
     assert found[2]["on"] == "entity.state_changed"
     assert (found[2]["field"], found[2]["states"]) == ("status", ["in_testing"])

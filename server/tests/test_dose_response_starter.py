@@ -125,7 +125,7 @@ def configure_empty_project() -> None:
     api = Api(world.browser("admin"))
     listed = api.get("/starters", project=str(project.pk))
     assert listed.status_code == 200, listed.content
-    [recipe] = [s for s in listed.json() if s["id"] == "dose-response"]
+    [recipe] = [s for s in listed.json()["items"] if s["id"] == "dose-response"]
     assert recipe["version"] == "2.0.0"
     roles = {
         PREFIX + "analyst": [project.memberships.get(user=world.users["editor"]).pk],

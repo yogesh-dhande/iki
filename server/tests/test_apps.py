@@ -474,7 +474,7 @@ def test_a_new_app_starts_from_one_that_saves_and_shows_the_projects_records(
     grid of what changed in the project, and text that reads it. It saves in any
     deployment, since it names only Iki's own types."""
     api = api_as(world)
-    found = api.get("/entity-types").json()
+    found = api.every("/entity-types")
     app_type = next(t for t in found if t["name"] == "iki/core.App")
     spec = app_type["values_schema"]["properties"]["spec"]
     starter = spec["default"]
@@ -614,7 +614,7 @@ def test_an_entitys_page_lists_the_apps_about_it_in_its_projects(world: World) -
     def tabs(principal: str) -> list[tuple[str, str]]:
         found = api_as(world, principal).get(f"/entities/{abl_hrid}/apps")
         assert found.status_code == 200, found.content
-        return [(a["hrid"], a["name"]) for a in found.json()]
+        return [(a["hrid"], a["name"]) for a in found.json()["items"]]
 
     assert tabs("viewer") == [(ours, "Variants")]
     assert tabs("outsider") == [(their_app, "Their notes")]
@@ -654,8 +654,8 @@ def test_a_projects_admins_choose_the_app_its_page_opens_with(world: World) -> N
     theirs = app(api_as(world, "admin"), elsewhere, NOTE).json()["hrid"]
 
     # Its Admins choose among the project's apps that could be one.
-    choices = admin.get(f"{path}/choices")
-    assert [a["hrid"] for a in choices.json()] == [second, first]
+    choices = admin.every(f"{path}/choices")
+    assert [a["hrid"] for a in choices] == [second, first]
     assert viewer.get(f"{path}/choices").status_code == 403
     assert viewer.put(path, {"app": first}).status_code == 403
 

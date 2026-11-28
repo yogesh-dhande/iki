@@ -19,7 +19,7 @@ from ninja import Field, Query, Router, Schema, Status
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
 from iki_server.api.entities import FieldOut, RunRefOut, field_out
-from iki_server.api.pagination import PageParams, cursor_after, page
+from iki_server.api.pagination import PageParams, cursor_after, page, page_by, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, FileScanOut, Page, PersonRef, agent_out
 from iki_server.audit.models import Via
@@ -330,7 +330,7 @@ def _action(name: str) -> Action:
     return found
 
 
-class ActionFilters(Schema):
+class ActionFilters(PageParams):
     takes: list[str] = Field(
         default_factory=list,
         description="Only actions with an input that takes entities of each of these types, "
@@ -339,15 +339,21 @@ class ActionFilters(Schema):
     )
 
 
-@router.get("/actions", response=list[ActionOut], summary="Installed actions")
-def list_actions(request: HttpRequest, filters: Query[ActionFilters]) -> list[dict[str, Any]]:
+@router.get("/actions", response=Page[ActionOut], summary="Installed actions")
+def list_actions(request: HttpRequest, filters: Query[ActionFilters]) -> dict[str, Any]:
     """Every action installed plugins provide, in name order, with whether it can run here."""
     caller(request)
-    return [
-        _action_out(a)
-        for a in catalog.actions().values()
-        if not filters.takes or services.input_taking(a, filters.takes) is not None
-    ]
+    found = page_sorted(
+        (
+            a
+            for a in catalog.actions().values()
+            if not filters.takes or services.input_taking(a, filters.takes) is not None
+        ),
+        filters,
+        by=("name",),
+        key=lambda a: (a.qualified_name,),
+    )
+    return {**found, "items": [_action_out(a) for a in found["items"]]}
 
 
 @router.get("/actions/{qualified:name}", response=ActionOut, summary="An action")
@@ -696,7 +702,7 @@ class RunImportedOut(Schema):
         description="Who approved it there, when an agent asked for it."
     )
     batch: str | None = Field(description="The batch it was launched in there, by HRID.")
-    workflow: str | None = Field(description="The workflow run it was a step of there.")
+    workflow_run: str | None = Field(description="The workflow run it was a step of there.")
     inputs_elsewhere: list[ImportedInputOut] = Field(
         description="What it read there that didn't come with it."
     )
@@ -738,7 +744,7 @@ class RunOut(Schema):
     )
     reason: str
     batch: BatchRefOut | None = Field(description="The batch it was launched in, if any.")
-    workflow: WorkflowStepRefOut | None = Field(
+    workflow_run: WorkflowStepRefOut | None = Field(
         description="The workflow run it's a step of, if any (ADR 0079)."
     )
     trigger: TriggerFiredOut | None = Field(
@@ -1208,7 +1214,7 @@ def _runs_out(me: User, runs: list[ActionRun]) -> list[dict[str, Any]]:
             "requested_by": run.requested_by,
             "approval": held.get(run.approval_id) if run.approval_id else None,
             "batch": batches.get(run.batch_id) if run.batch_id else None,
-            "workflow": {
+            "workflow_run": {
                 "id": run.workflow_id,
                 "hrid": flows[run.workflow_id],
                 "step": run.workflow_step,
@@ -1312,7 +1318,7 @@ def _imported(me: User, run: ActionRun, hidden: set[UUID]) -> dict[str, Any] | N
         ),
         "approval": found.get("approval"),
         "batch": (linked.get("batch") or {}).get("hrid"),
-        "workflow": (linked.get("workflow") or {}).get("hrid"),
+        "workflow_run": (linked.get("workflow") or {}).get("hrid"),
         "inputs_elsewhere": pins("inputs"),
         "included_elsewhere": pins("included"),
         "workers": found.get("workers") or {},
@@ -1671,7 +1677,7 @@ class RunFilters(PageParams):
     )
     action: str | None = Field(None, description="Only runs of this action.")
     status: RunStatus | None = None
-    workflow: str | None = Field(
+    workflow_run: str | None = Field(
         None, description="Only the runs of this workflow run (its ID or HRID), in launch order."
     )
 
@@ -1689,11 +1695,11 @@ def list_runs(request: HttpRequest, filters: Query[RunFilters]) -> dict[str, Any
         runs = runs.filter(status=filters.status)
     if filters.batch is not None:
         runs = runs.filter(batch=_find_batch(me, filters.batch))
-    if filters.workflow is not None:
+    if filters.workflow_run is not None:
         from iki_server.api.workflows import find as find_workflow_run
 
-        runs = runs.filter(workflow=find_workflow_run(me, filters.workflow))
-    in_order = filters.batch is not None or filters.workflow is not None
+        runs = runs.filter(workflow=find_workflow_run(me, filters.workflow_run))
+    in_order = filters.batch is not None or filters.workflow_run is not None
     result = page(runs, filters, newest_first=not in_order)
     result["items"] = _runs_out(me, result["items"])
     return result
@@ -2084,18 +2090,20 @@ def _slurm_out(job: Job) -> dict[str, Any] | None:
     }
 
 
-@router.get("/runs/{ref}/attempts", response=list[RunAttemptOut], summary="A run's attempts")
-def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+@router.get("/runs/{ref}/attempts", response=Page[RunAttemptOut], summary="A run's attempts")
+def list_attempts(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
     """Oldest first. A run is attempted again when its machine goes away."""
     run = _find(caller(request), ref)
-    jobs = list(
+    found = page(
         Job.objects.filter(run=run)
         .select_related(
             "worker", "packed_into__worker", "packed_into__run", "slurm", "packed_into__slurm"
         )
-        .prefetch_related("egress", "packed_into__egress")
-        .order_by("attempt")
+        .prefetch_related("egress", "packed_into__egress"),
+        params,
+        key="attempt",
     )
+    jobs = found["items"]
     bulk = {i.job_id: i for i in RunImport.objects.filter(job__in=jobs)}
     saved = _checkpoints(run)
     carriers = {job.packed_into_id or job.pk for job in jobs}
@@ -2158,7 +2166,7 @@ def list_attempts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
                 else None,
             }
         )
-    return out
+    return {**found, "items": out}
 
 
 def _checkpoints(run: ActionRun) -> dict[str, dict[Any, RunCheckpoint]]:
@@ -2336,20 +2344,22 @@ def _artifact_out(artifact: RunArtifact, scan: scan_state.ScanStatus | None) -> 
     }
 
 
-@router.get("/runs/{ref}/artifacts", response=list[RunArtifactOut], summary="A run's artifacts")
-def list_artifacts(request: HttpRequest, ref: str) -> list[dict[str, Any]]:
+@router.get("/runs/{ref}/artifacts", response=Page[RunArtifactOut], summary="A run's artifacts")
+def list_artifacts(request: HttpRequest, ref: str, params: Query[PageParams]) -> dict[str, Any]:
     """Files its command wrote besides its results, that its action keeps (ADR 0068): each
     attempt's, by attempt then path. At most 1,000 an attempt."""
     run = _find(caller(request), ref)
-    found = (
-        RunArtifact.objects.filter(run=run)
-        .select_related("upload", "job")
-        .order_by("job__attempt", "path")
+    found = page_by(
+        RunArtifact.objects.filter(run=run).select_related("upload", "job"),
+        params,
+        by=("job__attempt", "path", "pk"),
     )
     scans = scan_state.statuses_for_uploads(
-        a.upload_id for a in found if a.upload.state in (UploadState.READY, UploadState.SCANNING)
+        a.upload_id
+        for a in found["items"]
+        if a.upload.state in (UploadState.READY, UploadState.SCANNING)
     )
-    return [_artifact_out(a, scans.get(a.upload_id)) for a in found]
+    return {**found, "items": [_artifact_out(a, scans.get(a.upload_id)) for a in found["items"]]}
 
 
 @router.get(

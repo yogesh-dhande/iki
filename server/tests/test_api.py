@@ -332,6 +332,81 @@ def test_forged_cursors_are_refused(world: World) -> None:
     assert body["errors"] == [{"parameter": "cursor", "detail": "Not a cursor from this API."}]
 
 
+#: Lists that ADR 0292's registry roles replace; until they do, the two answer arrays.
+def test_every_collection_is_a_page() -> None:
+    """ADR 0291: no GET answers a bare array. Every answer with ``items`` is a page: its
+    ``next_cursor`` beside it, ``limit`` (1-100, 50 by default) and ``cursor`` taken. A
+    page may say more about the whole list (a walk's ``root`` and ``total``)."""
+    document = Api().get("/openapi.json").json()
+    schemas = document["components"]["schemas"]
+
+    def resolved(schema: dict[str, Any]) -> dict[str, Any]:
+        ref = schema.get("$ref")
+        return schemas[ref.rsplit("/", 1)[-1]] if ref else schema
+
+    arrays, not_pages, pages = [], [], 0
+    for path, operations in document["paths"].items():
+        get = operations.get("get")
+        answer = get and get["responses"].get("200", {}).get("content", {})
+        schema = answer and answer.get("application/json", {}).get("schema")
+        if not schema:
+            continue
+        schema = resolved(schema)
+        if schema.get("type") == "array":
+            arrays.append(path)
+            continue
+        if "items" not in schema.get("properties", {}):
+            continue
+        pages += 1
+        params = {p["name"]: p["schema"] for p in get.get("parameters", []) if p["in"] == "query"}
+        limit = params.get("limit", {})
+        if (
+            "next_cursor" in schema["properties"]
+            and "cursor" in params
+            and (limit.get("default"), limit.get("minimum"), limit.get("maximum")) == (50, 1, 100)
+        ):
+            continue
+        not_pages.append(path)
+    assert arrays == []
+    assert not_pages == []
+    assert pages > 90
+    # ``items`` is a page's and nothing else's: a list inside another answer says what
+    # it holds. (A field's or parameter's ``items`` declares a list's item type.)
+    assert {
+        name
+        for name, schema in schemas.items()
+        if "items" in schema.get("properties", {}) and "next_cursor" not in schema["properties"]
+    } == {"FieldOut", "ParamOut"}
+
+
+def test_a_list_held_in_memory_pages_by_its_sort_key(world: World) -> None:
+    api = api_as(world, "viewer")
+    first = api.get("/project-roles", limit=3).json()
+    assert [r["name"] for r in first["items"]] == ["viewer", "editor", "runner"]
+    rest = api.get("/project-roles", limit=3, cursor=first["next_cursor"]).json()
+    assert ([r["name"] for r in rest["items"]], rest["next_cursor"]) == (["admin"], None)
+    # A cursor names the list and order it came from.
+    teams = api_as(world, "org_admin").get("/teams", limit=1).json()["next_cursor"]
+    body = problem(api.get("/project-roles", cursor=teams), 422, "validation_failed")
+    assert [e["parameter"] for e in body["errors"]] == ["cursor"]
+
+
+def test_a_keyset_pages_newest_first_when_a_field_descends(world: World) -> None:
+    from iki_server.api.pagination import PageParams, page_by
+
+    for n in range(5):
+        Team.objects.create(name=f"Assay {n}")
+    teams = Team.objects.filter(name__startswith="Assay ")
+    seen: list[str] = []
+    cursor = None
+    while True:
+        found = page_by(teams, PageParams(limit=2, cursor=cursor), by=("-name", "pk"))
+        seen += [team.name for team in found["items"]]
+        if not (cursor := found["next_cursor"]):
+            break
+    assert seen == [f"Assay {n}" for n in reversed(range(5))]
+
+
 # --- Endpoints -----------------------------------------------------------------
 
 
@@ -639,7 +714,7 @@ def test_team_grants_say_how_many_people_they_cover(world: World) -> None:
 
 
 def test_project_roles_are_described_lowest_first(world: World) -> None:
-    roles = api_as(world, "viewer").get("/project-roles").json()
+    roles = api_as(world, "viewer").every("/project-roles")
     assert [r["name"] for r in roles] == ["viewer", "editor", "runner", "admin"]
     assert roles[0] == {
         "name": "viewer",

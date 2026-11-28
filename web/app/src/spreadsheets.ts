@@ -19,7 +19,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 
-import { fieldErrors, iki, problemOf, signInAgain } from "./api";
+import { everyPage, fieldErrors, iki, problemOf, signInAgain } from "./api";
 
 export type SheetImport = Schemas["SpreadsheetImportOut"];
 export type SheetColumn = Schemas["SheetColumnOut"];
@@ -193,11 +193,13 @@ export async function discardImport(id: string, revision: number) {
 }
 
 export async function savedMappings(project: string, type: string, signal: AbortSignal) {
-  return unwrap(
-    await iki.GET("/api/v1/projects/{project_id}/spreadsheet-mappings", {
-      params: { path: { project_id: project }, query: { type } },
-      signal,
-    }),
+  return everyPage(async (page) =>
+    unwrap(
+      await iki.GET("/api/v1/projects/{project_id}/spreadsheet-mappings", {
+        params: { path: { project_id: project }, query: { type: [type], ...page } },
+        signal,
+      }),
+    ),
   );
 }
 

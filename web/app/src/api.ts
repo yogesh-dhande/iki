@@ -167,14 +167,37 @@ queryClient.getQueryCache().subscribe((event) => {
   }
 });
 
-/** Every page of a list, following `next_cursor`. */
-async function everything<T>(
-  fetchPage: (cursor: string | undefined) => Promise<{ items: T[]; next_cursor?: string | null }>,
+/** The query {@link everyPage} sends for each page: the largest page the API serves, from
+ * the previous page's cursor. */
+export interface EveryPageQuery {
+  limit: number;
+  cursor?: string;
+}
+
+/** The most items a page holds (ADR 0291): what {@link everyPage} asks for. */
+const MOST_PER_PAGE = 100;
+
+/**
+ * Every item of a collection, each page fetched in turn by following `next_cursor`, for
+ * a screen that needs the whole collection: a dropdown, a catalog of what's installed, an
+ * admin table. `fetchPage` sends `page` as (part of) its request's query:
+ *
+ * ```ts
+ * everyPage(async (page) => unwrap(await iki.GET("/api/v1/actions", { params: { query: page } })));
+ * ```
+ *
+ * A list people browse open-ended reads a page at a time instead (`infiniteQueryOptions`,
+ * "Show more"), as {@link projectPagesQuery} does.
+ */
+export async function everyPage<T>(
+  fetchPage: (page: EveryPageQuery) => Promise<{ items: T[]; next_cursor?: string | null }>,
 ): Promise<T[]> {
   const items: T[] = [];
   let cursor: string | undefined;
   do {
-    const page = await fetchPage(cursor);
+    const page = await fetchPage(
+      cursor ? { limit: MOST_PER_PAGE, cursor } : { limit: MOST_PER_PAGE },
+    );
     items.push(...page.items);
     cursor = page.next_cursor ?? undefined;
   } while (cursor);
@@ -191,14 +214,20 @@ export const meQuery = queryOptions({
 
 export const rolesQuery = queryOptions({
   queryKey: ["project-roles"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/project-roles", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/project-roles", { params: { query: page }, signal })),
+    ),
   staleTime: Infinity,
 });
 
 /** The lab roles installed plugins declare (ADR 0116); none unless a plugin declares some. */
 export const labRolesQuery = queryOptions({
   queryKey: ["lab-roles"],
-  queryFn: async ({ signal }) => unwrap(await iki.GET("/api/v1/lab-roles", { signal })),
+  queryFn: ({ signal }) =>
+    everyPage(async (page) =>
+      unwrap(await iki.GET("/api/v1/lab-roles", { params: { query: page }, signal })),
+    ),
   staleTime: Infinity,
 });
 
@@ -207,10 +236,10 @@ export const labRolesQuery = queryOptions({
 export const projectsQuery = queryOptions({
   queryKey: ["projects"],
   queryFn: ({ signal }) =>
-    everything(async (cursor) =>
+    everyPage(async (page) =>
       unwrap(
         await iki.GET("/api/v1/projects", {
-          params: { query: { limit: 100, ...(cursor ? { cursor } : {}) } },
+          params: { query: page },
           signal,
         }),
       ),
@@ -308,12 +337,12 @@ export function membersQuery(projectId: string) {
   return queryOptions({
     queryKey: ["projects", projectId, "members"],
     queryFn: ({ signal }) =>
-      everything(async (cursor) =>
+      everyPage(async (page) =>
         unwrap(
           await iki.GET("/api/v1/projects/{project_id}/members", {
             params: {
               path: { project_id: projectId },
-              query: { limit: 100, ...(cursor ? { cursor } : {}) },
+              query: page,
             },
             signal,
           }),
@@ -327,12 +356,12 @@ export function grantableTeamsQuery(projectId: string) {
     queryKey: ["projects", projectId, "grantable-teams"],
     queryFn: async ({ signal }) =>
       (
-        await everything(async (cursor) =>
+        await everyPage(async (page) =>
           unwrap(
             await iki.GET("/api/v1/projects/{project_id}/grantable-teams", {
               params: {
                 path: { project_id: projectId },
-                query: { limit: 100, ...(cursor ? { cursor } : {}) },
+                query: page,
               },
               signal,
             }),
@@ -346,11 +375,11 @@ export const creatableTeamsQuery = queryOptions({
   queryKey: ["teams", "can-create-projects"],
   queryFn: async ({ signal }) =>
     (
-      await everything(async (cursor) =>
+      await everyPage(async (page) =>
         unwrap(
           await iki.GET("/api/v1/teams", {
             params: {
-              query: { can_create_projects: true, limit: 100, ...(cursor ? { cursor } : {}) },
+              query: { can_create_projects: true, ...page },
             },
             signal,
           }),
@@ -464,8 +493,15 @@ export const WEBHOOKS = ["webhooks"] as const;
 export function webhookEventsQuery(scope: WebhookScope) {
   return queryOptions({
     queryKey: ["webhook-events", scope],
-    queryFn: async ({ signal }) =>
-      unwrap(await iki.GET("/api/v1/webhook-events", { params: { query: { scope } }, signal })),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/webhook-events", {
+            params: { query: { scope, ...page } },
+            signal,
+          }),
+        ),
+      ),
     staleTime: Infinity,
   });
 }
@@ -480,16 +516,15 @@ export function webhooksQuery(projectId: string | undefined) {
   return queryOptions({
     queryKey: [...WEBHOOKS, "list", projectId ?? "org"],
     queryFn: ({ signal }) =>
-      everything(async (cursor) => {
-        const query = { limit: 100, ...(cursor ? { cursor } : {}) };
+      everyPage(async (page) => {
         return projectId
           ? unwrap(
               await iki.GET("/api/v1/projects/{project_id}/webhooks", {
-                params: { path: { project_id: projectId }, query },
+                params: { path: { project_id: projectId }, query: page },
                 signal,
               }),
             )
-          : unwrap(await iki.GET("/api/v1/webhooks", { params: { query }, signal }));
+          : unwrap(await iki.GET("/api/v1/webhooks", { params: { query: page }, signal }));
       }),
   });
 }
@@ -497,10 +532,10 @@ export function webhooksQuery(projectId: string | undefined) {
 export const inventoryQuery = queryOptions({
   queryKey: [...WEBHOOKS, "inventory"],
   queryFn: ({ signal }) =>
-    everything(async (cursor) =>
+    everyPage(async (page) =>
       unwrap(
         await iki.GET("/api/v1/project-webhooks", {
-          params: { query: { limit: 100, ...(cursor ? { cursor } : {}) } },
+          params: { query: page },
           signal,
         }),
       ),

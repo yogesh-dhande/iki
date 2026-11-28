@@ -161,11 +161,11 @@ function lot(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityOut"
 
 function onLab(): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [PROTEIN, LOT]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, LOT]));
   answer("GET /api/v1/projects", page([KINASE]));
   answer("GET /api/v1/entities/LOT-000001", lot());
   answer("GET /api/v1/entities/LOT-000001/provenance", {});
-  answer("GET /api/v1/entities/LOT-000001/projects", []);
+  answer("GET /api/v1/entities/LOT-000001/projects", page([]));
 }
 
 describe("rules in forms", () => {
@@ -268,31 +268,34 @@ describe("rules in forms", () => {
       locks: true,
       on_edit: "draft",
     };
-    answer("GET /api/v1/entity-types", [
-      {
-        ...LOT,
-        fields: [
-          ...LOT.fields,
-          field({ name: "review", label: "Review", type: "state", states: [draft, reviewed] }),
-        ],
-        rules: [
-          rule({
-            name: "draft_purity",
-            check: 'record.review != "draft" || record.purity >= 98.0',
-            message: "A draft needs purity of at least 98%.",
-            fields: ["purity"],
-            reads: ["review", "purity"],
-          }),
-        ],
-        rule_variables: {
-          record: {
-            type: "object",
-            label: "Lot",
-            fields: { review: { type: "string" }, purity: { type: "double" } },
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...LOT,
+          fields: [
+            ...LOT.fields,
+            field({ name: "review", label: "Review", type: "state", states: [draft, reviewed] }),
+          ],
+          rules: [
+            rule({
+              name: "draft_purity",
+              check: 'record.review != "draft" || record.purity >= 98.0',
+              message: "A draft needs purity of at least 98%.",
+              fields: ["purity"],
+              reads: ["review", "purity"],
+            }),
+          ],
+          rule_variables: {
+            record: {
+              type: "object",
+              label: "Lot",
+              fields: { review: { type: "string" }, purity: { type: "double" } },
+            },
           },
         },
-      },
-    ]);
+      ]),
+    );
     answer(
       "GET /api/v1/entities/LOT-000001",
       lot({
@@ -485,7 +488,10 @@ describe("guards", () => {
 
   it("says a guard's refusal by the state, and Iki's if it refuses at the save", async () => {
     onLab();
-    answer("GET /api/v1/entity-types", [PROTEIN, { ...LOT, fields: [...LOT.fields, STATUS] }]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([PROTEIN, { ...LOT, fields: [...LOT.fields, STATUS] }]),
+    );
     answer(
       "GET /api/v1/entities/LOT-000001",
       lot({

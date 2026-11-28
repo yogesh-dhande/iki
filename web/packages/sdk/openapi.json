@@ -130,6 +130,26 @@
       },
       "ActionFilters": {
         "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
           "takes": {
             "description": "Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it.",
             "items": {
@@ -2888,22 +2908,17 @@
         "title": "ChangedOut",
         "type": "object"
       },
-      "ChangesParams": {
-        "properties": {
-          "limit": {
-            "default": 10,
-            "description": "How many, newest first.",
-            "maximum": 50,
-            "minimum": 1,
-            "title": "Limit",
-            "type": "integer"
-          }
-        },
-        "title": "ChangesParams",
-        "type": "object"
-      },
       "CheckInIn": {
         "properties": {
+          "check_ins": {
+            "items": {
+              "$ref": "#/components/schemas/CheckInItemIn"
+            },
+            "maxItems": 1536,
+            "minItems": 1,
+            "title": "Check Ins",
+            "type": "array"
+          },
           "confirmations": {
             "additionalProperties": {
               "anyOf": [
@@ -2919,15 +2934,6 @@
             "title": "Confirmations",
             "type": "object"
           },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/CheckInItemIn"
-            },
-            "maxItems": 1536,
-            "minItems": 1,
-            "title": "Items",
-            "type": "array"
-          },
           "reason": {
             "default": "",
             "maxLength": 2000,
@@ -2936,7 +2942,7 @@
           }
         },
         "required": [
-          "items"
+          "check_ins"
         ],
         "title": "CheckInIn",
         "type": "object"
@@ -3034,6 +3040,45 @@
           "records"
         ],
         "title": "CheckOutIn",
+        "type": "object"
+      },
+      "CheckedOutFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "custodian": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose: yours, if left out.",
+            "title": "Custodian"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "CheckedOutFilters",
         "type": "object"
       },
       "CheckedOutOut": {
@@ -4203,6 +4248,45 @@
           "sha256"
         ],
         "title": "ContentUrlOut",
+        "type": "object"
+      },
+      "ContributorParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose record, as for reading it.",
+            "title": "Project"
+          }
+        },
+        "title": "ContributorParams",
         "type": "object"
       },
       "CostGroupOut": {
@@ -5565,7 +5649,7 @@
           },
           "exact_type": {
             "default": false,
-            "description": "Only the type itself, not its subtypes.",
+            "description": "Only the types themselves, not subtypes.",
             "title": "Exact Type",
             "type": "boolean"
           },
@@ -5617,32 +5701,13 @@
             "title": "Run"
           },
           "type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "This type and its subtypes.",
-            "title": "Type"
-          },
-          "types": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "maxItems": 20,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.",
-            "title": "Types"
+            "description": "Only these types and their subtypes: repeat it for several.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Type",
+            "type": "array"
           }
         },
         "title": "EntityFilters",
@@ -6738,6 +6803,42 @@
           "timeout_cost"
         ],
         "title": "EstimateOut",
+        "type": "object"
+      },
+      "EventFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "scope": {
+            "default": "project",
+            "description": "A project's webhooks', or the organization's.",
+            "enum": [
+              "project",
+              "org"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "title": "EventFilters",
         "type": "object"
       },
       "EventOut": {
@@ -9082,6 +9183,127 @@
         "title": "FlowTransitionOut",
         "type": "object"
       },
+      "FormatFacetParams": {
+        "properties": {
+          "accepts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Accepts",
+            "type": "array"
+          },
+          "acquired_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquired From"
+          },
+          "acquired_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acquired To"
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "format": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Format",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "max_size": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Size"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          },
+          "q": {
+            "default": "",
+            "description": "Part of its name, or of what it states (its instrument, serial number, operator, software, protocol or read groups), in any case.",
+            "maxLength": 255,
+            "title": "Q",
+            "type": "string"
+          },
+          "run": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run"
+          },
+          "sample": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample"
+          }
+        },
+        "title": "FormatFacetParams",
+        "type": "object"
+      },
       "FormatOut": {
         "properties": {
           "count": {
@@ -11089,24 +11311,24 @@
             "title": "Count",
             "type": "integer"
           },
-          "here": {
-            "description": "How many of them are here.",
-            "title": "Here",
-            "type": "integer"
-          },
-          "items": {
+          "first": {
             "description": "The first 200.",
             "items": {
               "$ref": "#/components/schemas/OutsideRef"
             },
-            "title": "Items",
+            "title": "First",
             "type": "array"
+          },
+          "here": {
+            "description": "How many of them are here.",
+            "title": "Here",
+            "type": "integer"
           }
         },
         "required": [
           "count",
           "here",
-          "items"
+          "first"
         ],
         "title": "ImportOutside",
         "type": "object"
@@ -12554,6 +12776,58 @@
         "title": "ListOut",
         "type": "object"
       },
+      "ListsParams": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
+            "title": "Project"
+          },
+          "registry": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
+            "title": "Registry"
+          }
+        },
+        "title": "ListsParams",
+        "type": "object"
+      },
       "LocationOut": {
         "properties": {
           "custodian": {
@@ -12621,23 +12895,6 @@
         "title": "LocationOut",
         "type": "object"
       },
-      "LocationsOut": {
-        "properties": {
-          "locations": {
-            "description": "Where files may be registered, such as s3://lab/.",
-            "items": {
-              "type": "string"
-            },
-            "title": "Locations",
-            "type": "array"
-          }
-        },
-        "required": [
-          "locations"
-        ],
-        "title": "LocationsOut",
-        "type": "object"
-      },
       "LogParams": {
         "properties": {
           "offset": {
@@ -12653,10 +12910,30 @@
       },
       "LookupParams": {
         "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
           "field": {
-            "description": "One of the type's unique fields, such as `lims_id`.",
+            "description": "A unique field of each type, such as `lims_id`.",
             "title": "Field",
             "type": "string"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
           },
           "project": {
             "anyOf": [
@@ -12672,9 +12949,14 @@
             "title": "Project"
           },
           "type": {
-            "description": "The entity type, such as `iki/protein.Protein`; subtypes count.",
+            "description": "The entity types, such as `iki/protein.Protein`, each with its subtypes: repeat it for several.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
             "title": "Type",
-            "type": "string"
+            "type": "array"
           },
           "value": {
             "maxLength": 600,
@@ -12871,6 +13153,41 @@
           "url"
         ],
         "title": "MakingSourceOut",
+        "type": "object"
+      },
+      "MappingFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Only mappings into these types: repeat it for several.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Type",
+            "type": "array"
+          }
+        },
+        "title": "MappingFilters",
         "type": "object"
       },
       "MarkAllIn": {
@@ -13701,13 +14018,13 @@
             "title": "Confirmations",
             "type": "object"
           },
-          "items": {
+          "moves": {
             "items": {
               "$ref": "#/components/schemas/MoveItemIn"
             },
             "maxItems": 1536,
             "minItems": 1,
-            "title": "Items",
+            "title": "Moves",
             "type": "array"
           },
           "plan": {
@@ -13738,7 +14055,7 @@
           }
         },
         "required": [
-          "items"
+          "moves"
         ],
         "title": "MovesIn",
         "type": "object"
@@ -13750,11 +14067,11 @@
             "title": "Done",
             "type": "boolean"
           },
-          "items": {
+          "moves": {
             "items": {
               "$ref": "#/components/schemas/PlannedOut"
             },
-            "title": "Items",
+            "title": "Moves",
             "type": "array"
           },
           "operation": {
@@ -13784,7 +14101,7 @@
           }
         },
         "required": [
-          "items",
+          "moves",
           "done",
           "operation",
           "plan"
@@ -13850,6 +14167,30 @@
       },
       "NameableFilters": {
         "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "entity_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With `field`: only those that field of this entity type can name.",
+            "title": "Entity Type"
+          },
           "field": {
             "anyOf": [
               {
@@ -13859,11 +14200,13 @@
                 "type": "null"
               }
             ],
+            "description": "With `entity_type`: one of its person fields.",
             "title": "Field"
           },
           "limit": {
-            "default": 20,
-            "maximum": 50,
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
@@ -13886,18 +14229,6 @@
             ],
             "description": "Only those holding this lab role in the project, qualified.",
             "title": "Role"
-          },
-          "type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "With `field`: only those that field of this type can name.",
-            "title": "Type"
           }
         },
         "title": "NameableFilters",
@@ -14493,7 +14824,7 @@
             "title": "Archived",
             "type": "boolean"
           },
-          "project": {
+          "cursor": {
             "anyOf": [
               {
                 "type": "string"
@@ -14502,7 +14833,28 @@
                 "type": "null"
               }
             ],
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "title": "Project"
           },
           "q": {
@@ -14581,7 +14933,8 @@
       "OptionMoveIn": {
         "properties": {
           "project": {
-            "description": "The project whose records move, by ID or slug.",
+            "description": "The project whose records move, by ID.",
+            "format": "uuid",
             "title": "Project",
             "type": "string"
           },
@@ -15319,6 +15672,35 @@
         "title": "PageParams",
         "type": "object"
       },
+      "Page_ActionOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ActionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ActionOut]",
+        "type": "object"
+      },
       "Page_ApiCallOut_": {
         "properties": {
           "items": {
@@ -15406,6 +15788,122 @@
         "title": "Page[BatchOut]",
         "type": "object"
       },
+      "Page_BudgetOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BudgetOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[BudgetOut]",
+        "type": "object"
+      },
+      "Page_BundleOriginOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BundleOriginOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[BundleOriginOut]",
+        "type": "object"
+      },
+      "Page_CheckedOutOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CheckedOutOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[CheckedOutOut]",
+        "type": "object"
+      },
+      "Page_ComponentOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ComponentOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ComponentOut]",
+        "type": "object"
+      },
       "Page_DeliverySummary_": {
         "properties": {
           "items": {
@@ -15464,6 +15962,35 @@
         "title": "Page[EffectOut]",
         "type": "object"
       },
+      "Page_EntityAppOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityAppOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[EntityAppOut]",
+        "type": "object"
+      },
       "Page_EntityOut_": {
         "properties": {
           "items": {
@@ -15491,6 +16018,122 @@
           "next_cursor"
         ],
         "title": "Page[EntityOut]",
+        "type": "object"
+      },
+      "Page_EntityProjectOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityProjectOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[EntityProjectOut]",
+        "type": "object"
+      },
+      "Page_EntityTypeOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EntityTypeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[EntityTypeOut]",
+        "type": "object"
+      },
+      "Page_EnvironmentVolumesOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EnvironmentVolumesOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[EnvironmentVolumesOut]",
+        "type": "object"
+      },
+      "Page_EventTypeOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/EventTypeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[EventTypeOut]",
         "type": "object"
       },
       "Page_ExportOut_": {
@@ -15549,6 +16192,35 @@
           "next_cursor"
         ],
         "title": "Page[FiringOut]",
+        "type": "object"
+      },
+      "Page_FormatOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FormatOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[FormatOut]",
         "type": "object"
       },
       "Page_HoldingRecordOut_": {
@@ -15667,6 +16339,35 @@
         "title": "Page[ImportPersonOut]",
         "type": "object"
       },
+      "Page_InstalledFormatOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InstalledFormatOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[InstalledFormatOut]",
+        "type": "object"
+      },
       "Page_InventoryOut_": {
         "properties": {
           "items": {
@@ -15694,6 +16395,122 @@
           "next_cursor"
         ],
         "title": "Page[InventoryOut]",
+        "type": "object"
+      },
+      "Page_LabRoleOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LabRoleOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[LabRoleOut]",
+        "type": "object"
+      },
+      "Page_ListOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ListOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ListOut]",
+        "type": "object"
+      },
+      "Page_MakingOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MakingOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[MakingOut]",
+        "type": "object"
+      },
+      "Page_NameableOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NameableOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[NameableOut]",
         "type": "object"
       },
       "Page_NotificationOut_": {
@@ -15754,6 +16571,122 @@
         "title": "Page[OpenOrder]",
         "type": "object"
       },
+      "Page_OptionOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OptionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[OptionOut]",
+        "type": "object"
+      },
+      "Page_OriginOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OriginOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[OriginOut]",
+        "type": "object"
+      },
+      "Page_OutsideApiOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OutsideApiOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[OutsideApiOut]",
+        "type": "object"
+      },
+      "Page_PlaceOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PlaceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[PlaceOut]",
+        "type": "object"
+      },
       "Page_PreviewRowOut_": {
         "properties": {
           "items": {
@@ -15781,6 +16714,35 @@
           "next_cursor"
         ],
         "title": "Page[PreviewRowOut]",
+        "type": "object"
+      },
+      "Page_ProjectChangeOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectChangeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ProjectChangeOut]",
         "type": "object"
       },
       "Page_ProjectMemberOut_": {
@@ -15841,6 +16803,93 @@
         "title": "Page[ProjectOut]",
         "type": "object"
       },
+      "Page_ProjectRef_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ProjectRef]",
+        "type": "object"
+      },
+      "Page_ProjectRoleOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRoleOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ProjectRoleOut]",
+        "type": "object"
+      },
+      "Page_ProjectTriggerOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectTriggerOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ProjectTriggerOut]",
+        "type": "object"
+      },
       "Page_QuarantineOut_": {
         "properties": {
           "items": {
@@ -15870,6 +16919,93 @@
         "title": "Page[QuarantineOut]",
         "type": "object"
       },
+      "Page_QuotaOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[QuotaOut]",
+        "type": "object"
+      },
+      "Page_QuotaScopeOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/QuotaScopeOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[QuotaScopeOut]",
+        "type": "object"
+      },
+      "Page_ReconciliationOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReconciliationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ReconciliationOut]",
+        "type": "object"
+      },
       "Page_RecordExportOut_": {
         "properties": {
           "items": {
@@ -15897,6 +17033,35 @@
           "next_cursor"
         ],
         "title": "Page[RecordExportOut]",
+        "type": "object"
+      },
+      "Page_RegistrationLocationOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegistrationLocationOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RegistrationLocationOut]",
         "type": "object"
       },
       "Page_RegistrationOut_": {
@@ -16051,6 +17216,64 @@
         "title": "Page[RevisionOut]",
         "type": "object"
       },
+      "Page_RunArtifactOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunArtifactOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RunArtifactOut]",
+        "type": "object"
+      },
+      "Page_RunAttemptOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunAttemptOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RunAttemptOut]",
+        "type": "object"
+      },
       "Page_RunOut_": {
         "properties": {
           "items": {
@@ -16080,6 +17303,64 @@
         "title": "Page[RunOut]",
         "type": "object"
       },
+      "Page_SavedMappingOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedMappingOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[SavedMappingOut]",
+        "type": "object"
+      },
+      "Page_SavedSearchOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SavedSearchOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[SavedSearchOut]",
+        "type": "object"
+      },
       "Page_ServiceAccountOut_": {
         "properties": {
           "items": {
@@ -16107,6 +17388,35 @@
           "next_cursor"
         ],
         "title": "Page[ServiceAccountOut]",
+        "type": "object"
+      },
+      "Page_ServiceOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ServiceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[ServiceOut]",
         "type": "object"
       },
       "Page_SetupBuildOut_": {
@@ -16167,6 +17477,35 @@
         "title": "Page[SlurmAccountOut]",
         "type": "object"
       },
+      "Page_SlurmClusterOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SlurmClusterOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[SlurmClusterOut]",
+        "type": "object"
+      },
       "Page_SpreadsheetImportOut_": {
         "properties": {
           "items": {
@@ -16194,6 +17533,35 @@
           "next_cursor"
         ],
         "title": "Page[SpreadsheetImportOut]",
+        "type": "object"
+      },
+      "Page_StarterOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StarterOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[StarterOut]",
         "type": "object"
       },
       "Page_StockLot_": {
@@ -16339,6 +17707,35 @@
           "next_cursor"
         ],
         "title": "Page[TeamRef]",
+        "type": "object"
+      },
+      "Page_TriggerOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[TriggerOut]",
         "type": "object"
       },
       "Page_UploadOut_": {
@@ -16549,6 +17946,35 @@
           "next_cursor"
         ],
         "title": "Page[WorkerRegistrationOut]",
+        "type": "object"
+      },
+      "Page_WorkflowOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[WorkflowOut]",
         "type": "object"
       },
       "Page_WorkflowRunOut_": {
@@ -17242,6 +18668,45 @@
           "name"
         ],
         "title": "PersonRef",
+        "type": "object"
+      },
+      "PlaceFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only this project's.",
+            "title": "Project"
+          }
+        },
+        "title": "PlaceFilters",
         "type": "object"
       },
       "PlaceOut": {
@@ -19179,6 +20644,12 @@
             "title": "Q",
             "type": "string"
           },
+          "released": {
+            "default": false,
+            "description": "Infected findings released as false positives, rather than what's held now.",
+            "title": "Released",
+            "type": "boolean"
+          },
           "state": {
             "anyOf": [
               {
@@ -19194,16 +20665,6 @@
             ],
             "description": "Only malware findings, or only inspections that couldn't finish.",
             "title": "State"
-          },
-          "status": {
-            "default": "held",
-            "description": "Held now, or infected findings released as false positives.",
-            "enum": [
-              "held",
-              "released"
-            ],
-            "title": "Status",
-            "type": "string"
           }
         },
         "title": "QuarantineFilters",
@@ -20995,6 +22456,20 @@
         "title": "RegistrationIn",
         "type": "object"
       },
+      "RegistrationLocationOut": {
+        "properties": {
+          "uri": {
+            "description": "Where files may be registered, such as s3://lab/.",
+            "title": "Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uri"
+        ],
+        "title": "RegistrationLocationOut",
+        "type": "object"
+      },
       "RegistrationOut": {
         "properties": {
           "created_at": {
@@ -21207,16 +22682,13 @@
             "title": "Superseded"
           },
           "type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Only this type's entries (and its subtypes').",
-            "title": "Type"
+            "description": "Only these types' entries (and their subtypes'): repeat it for several.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Type",
+            "type": "array"
           }
         },
         "title": "RegistryEntryFilters",
@@ -23622,7 +25094,7 @@
               }
             ]
           },
-          "workflow": {
+          "workflow_run": {
             "anyOf": [
               {
                 "type": "string"
@@ -23632,7 +25104,7 @@
               }
             ],
             "description": "Only the runs of this workflow run (its ID or HRID), in launch order.",
-            "title": "Workflow"
+            "title": "Workflow Run"
           }
         },
         "title": "RunFilters",
@@ -23715,7 +25187,7 @@
             "title": "Workers",
             "type": "object"
           },
-          "workflow": {
+          "workflow_run": {
             "anyOf": [
               {
                 "type": "string"
@@ -23725,7 +25197,7 @@
               }
             ],
             "description": "The workflow run it was a step of there.",
-            "title": "Workflow"
+            "title": "Workflow Run"
           }
         },
         "required": [
@@ -23734,7 +25206,7 @@
           "bundle_import",
           "approval",
           "batch",
-          "workflow",
+          "workflow_run",
           "inputs_elsewhere",
           "included_elsewhere",
           "workers",
@@ -24351,7 +25823,7 @@
             ],
             "description": "While files it reads are being scanned for malware (ADR 0234): no worker takes it until they're found usable, and it fails, saying why, if one is held. Its attempts' `scan_wait` say when it waited."
           },
-          "workflow": {
+          "workflow_run": {
             "anyOf": [
               {
                 "$ref": "#/components/schemas/WorkflowStepRefOut"
@@ -24377,7 +25849,7 @@
           "approval",
           "reason",
           "batch",
-          "workflow",
+          "workflow_run",
           "trigger",
           "tier",
           "environment",
@@ -24718,19 +26190,25 @@
       },
       "SavedSearchFilters": {
         "properties": {
-          "limit": {
+          "cursor": {
             "anyOf": [
               {
-                "maximum": 100,
-                "minimum": 1,
-                "type": "integer"
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "At most this many.",
-            "title": "Limit"
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
           },
           "mine": {
             "default": false,
@@ -25198,18 +26676,18 @@
             "title": "Code",
             "type": "string"
           },
-          "items": {
+          "matches": {
             "description": "Every record the code names that you can read: usually one.",
             "items": {
               "$ref": "#/components/schemas/ScanMatchOut"
             },
-            "title": "Items",
+            "title": "Matches",
             "type": "array"
           }
         },
         "required": [
           "code",
-          "items"
+          "matches"
         ],
         "title": "ScanOut",
         "type": "object"
@@ -25427,13 +26905,14 @@
           "project": {
             "anyOf": [
               {
+                "format": "uuid",
                 "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "title": "Project"
           },
           "registry": {
@@ -25474,6 +26953,18 @@
       },
       "ScopeSearch": {
         "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
           "kind": {
             "enum": [
               "team",
@@ -25483,17 +26974,18 @@
             "type": "string"
           },
           "limit": {
-            "default": 20,
-            "maximum": 50,
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
             "minimum": 1,
             "title": "Limit",
             "type": "integer"
           },
-          "search": {
+          "q": {
             "default": "",
             "description": "Part of the name.",
             "maxLength": 100,
-            "title": "Search",
+            "title": "Q",
             "type": "string"
           },
           "team": {
@@ -25554,7 +27046,7 @@
           },
           "exact_type": {
             "default": false,
-            "description": "Only the type itself, not its subtypes.",
+            "description": "Only the types themselves, not subtypes.",
             "title": "Exact Type",
             "type": "boolean"
           },
@@ -25620,16 +27112,13 @@
             "type": "array"
           },
           "type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "This type and its subtypes.",
-            "title": "Type"
+            "description": "Only these types and their subtypes: repeat it for several. With one, ``where`` and ``columns`` may name its fields; with several, only those every entity has.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Type",
+            "type": "array"
           },
           "where": {
             "anyOf": [
@@ -25714,7 +27203,7 @@
             "description": "Only this kind, with more of it.",
             "title": "Kind"
           },
-          "limit": {
+          "per_kind": {
             "anyOf": [
               {
                 "maximum": 50,
@@ -25725,8 +27214,8 @@
                 "type": "null"
               }
             ],
-            "description": "Results per kind: 5 by default, 20 for one `kind`.",
-            "title": "Limit"
+            "description": "Results of each kind: 5 by default, 20 for one `kind`. Each group's `href` is its full list.",
+            "title": "Per Kind"
           },
           "q": {
             "default": "",
@@ -25753,13 +27242,6 @@
             "description": "Their full list, when there is one.",
             "title": "Href"
           },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/SearchResultOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
           "kind": {
             "enum": [
               "entities",
@@ -25782,6 +27264,14 @@
             "title": "More Than Total",
             "type": "boolean"
           },
+          "results": {
+            "description": "The first `per_kind`, best first.",
+            "items": {
+              "$ref": "#/components/schemas/SearchResultOut"
+            },
+            "title": "Results",
+            "type": "array"
+          },
           "total": {
             "anyOf": [
               {
@@ -25801,7 +27291,7 @@
           "total",
           "more_than_total",
           "href",
-          "items"
+          "results"
         ],
         "title": "SearchGroupOut",
         "type": "object"
@@ -26314,7 +27804,7 @@
       },
       "ServicesFilters": {
         "properties": {
-          "type": {
+          "cursor": {
             "anyOf": [
               {
                 "type": "string"
@@ -26323,8 +27813,25 @@
                 "type": "null"
               }
             ],
-            "description": "Only services taking this request type (qualified), or a parent.",
-            "title": "Type"
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "type": {
+            "description": "Only services taking one of these request types (qualified), or a parent of one: repeat it for several.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "title": "Type",
+            "type": "array"
           }
         },
         "title": "ServicesFilters",
@@ -28490,13 +29997,6 @@
       },
       "SignaturesOut": {
         "properties": {
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/SignatureOut"
-            },
-            "title": "Items",
-            "type": "array"
-          },
           "missing": {
             "description": "Signatures the record's states were set with that are gone from the database. Empty, unless something outside Iki deleted them.",
             "items": {
@@ -28504,10 +30004,17 @@
             },
             "title": "Missing",
             "type": "array"
+          },
+          "signatures": {
+            "items": {
+              "$ref": "#/components/schemas/SignatureOut"
+            },
+            "title": "Signatures",
+            "type": "array"
           }
         },
         "required": [
-          "items",
+          "signatures",
           "missing"
         ],
         "title": "SignaturesOut",
@@ -29909,6 +31416,45 @@
           "plan"
         ],
         "title": "StarterApplyIn",
+        "type": "object"
+      },
+      "StarterFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A project you read: each starter's flow and version applied there.",
+            "title": "Project"
+          }
+        },
+        "title": "StarterFilters",
         "type": "object"
       },
       "StarterFlowOut": {
@@ -33472,6 +35018,7 @@
           },
           "limit": {
             "default": 50,
+            "description": "Items per page.",
             "maximum": 100,
             "minimum": 1,
             "title": "Limit",
@@ -35072,6 +36619,38 @@
         "operationId": "iki_server_api_runs_list_actions",
         "parameters": [
           {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
             "description": "Only actions with an input that takes entities of each of these types, such as `takes=iki/dna.Primer`. An input takes its own type and every type that extends it.",
             "in": "query",
             "name": "takes",
@@ -35091,11 +36670,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ActionOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ActionOut_"
                 }
               }
             },
@@ -35875,18 +37450,48 @@
     },
     "/api/v1/components": {
       "get": {
+        "description": "By qualified name.",
         "operationId": "iki_server_api_components_list_components",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ComponentOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ComponentOut_"
                 }
               }
             },
@@ -35966,19 +37571,48 @@
     },
     "/api/v1/compute/budgets": {
       "get": {
-        "description": "Every budget, the organization's first, with what's been spent this month.",
+        "description": "Every budget, the organization's first, then teams', then projects', with what's been\nspent this month.",
         "operationId": "iki_server_api_costs_list_budgets",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/BudgetOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_BudgetOut_"
                 }
               }
             },
@@ -36364,9 +37998,41 @@
     },
     "/api/v1/compute/quota-scopes": {
       "get": {
-        "description": "The teams or projects with `search` in their names, by name, archived ones left out.\nCompute Admins set quotas on any of them, member or not, and give self-hosted workers\nto them, so this gives names only.",
+        "description": "The teams or projects with `q` in their names, by name, archived ones left out.\nCompute Admins set quotas on any of them, member or not, and give self-hosted workers\nto them, so this gives names only.",
         "operationId": "iki_server_api_compute_quota_scopes",
         "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "kind",
@@ -36383,13 +38049,13 @@
           {
             "description": "Part of the name.",
             "in": "query",
-            "name": "search",
+            "name": "q",
             "required": false,
             "schema": {
               "default": "",
               "description": "Part of the name.",
               "maxLength": 100,
-              "title": "Search",
+              "title": "Q",
               "type": "string"
             }
           },
@@ -36407,18 +38073,6 @@
               "title": "Team",
               "type": "array"
             }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 50,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
           }
         ],
         "responses": {
@@ -36426,11 +38080,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/QuotaScopeOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_QuotaScopeOut_"
                 }
               }
             },
@@ -36456,19 +38106,48 @@
     },
     "/api/v1/compute/quotas": {
       "get": {
-        "description": "Every quota, the organization's first, with how much of each is in use.",
+        "description": "Every quota, the organization's first, then teams', then projects', with how much of\neach is in use.",
         "operationId": "iki_server_api_compute_list_quotas",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/QuotaOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_QuotaOut_"
                 }
               }
             },
@@ -37174,21 +38853,50 @@
         ]
       }
     },
-    "/api/v1/compute/slurm": {
+    "/api/v1/compute/slurm-clusters": {
       "get": {
-        "description": "The clusters the deployment's Slurm templates name, from its compute.yaml, which is\nreviewed like code (ADR 0041): each one's templates, workers and accounts.",
+        "description": "The clusters the deployment's Slurm templates name, from its compute.yaml, which is\nreviewed like code (ADR 0041), by name: each one's templates, workers and accounts.",
         "operationId": "iki_server_api_compute_list_slurm_clusters",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SlurmClusterOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_SlurmClusterOut_"
                 }
               }
             },
@@ -37212,7 +38920,7 @@
         ]
       }
     },
-    "/api/v1/compute/slurm/{cluster}/accounts": {
+    "/api/v1/compute/slurm-clusters/{cluster}/accounts": {
       "get": {
         "description": "The projects given their own account on the cluster. The rest are charged to their\ntemplate's.",
         "operationId": "iki_server_api_compute_list_slurm_accounts",
@@ -37288,7 +38996,7 @@
         ]
       }
     },
-    "/api/v1/compute/slurm/{cluster}/accounts/{project_id}": {
+    "/api/v1/compute/slurm-clusters/{cluster}/accounts/{project_id}": {
       "delete": {
         "description": "Its runs on the cluster are charged to their template's account again.",
         "operationId": "iki_server_api_compute_clear_slurm_account",
@@ -37399,19 +39107,48 @@
     },
     "/api/v1/compute/volumes": {
       "get": {
-        "description": "Each installed environment that declares volumes.",
+        "description": "Each installed environment that declares volumes, by qualified name.",
         "operationId": "iki_server_api_setups_list_volumes",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EnvironmentVolumesOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EnvironmentVolumesOut_"
                 }
               }
             },
@@ -37674,53 +39411,28 @@
             }
           },
           {
-            "description": "This type and its subtypes.",
+            "description": "Only these types and their subtypes: repeat it for several.",
             "in": "query",
             "name": "type",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "This type and its subtypes.",
-              "title": "Type"
+              "description": "Only these types and their subtypes: repeat it for several.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
             }
           },
           {
-            "description": "Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.",
-            "in": "query",
-            "name": "types",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "items": {
-                    "type": "string"
-                  },
-                  "maxItems": 20,
-                  "type": "array"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Any one of these types, and their subtypes, as a reference to several types names them (ADR 0136). Not with `type`.",
-              "title": "Types"
-            }
-          },
-          {
-            "description": "Only the type itself, not its subtypes.",
+            "description": "Only the types themselves, not subtypes.",
             "in": "query",
             "name": "exact_type",
             "required": false,
             "schema": {
               "default": false,
-              "description": "Only the type itself, not its subtypes.",
+              "description": "Only the types themselves, not subtypes.",
               "title": "Exact Type",
               "type": "boolean"
             }
@@ -38029,23 +39741,60 @@
         "operationId": "iki_server_api_entities_lookup_entities",
         "parameters": [
           {
-            "description": "The entity type, such as `iki/protein.Protein`; subtypes count.",
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The entity types, such as `iki/protein.Protein`, each with its subtypes: repeat it for several.",
             "in": "query",
             "name": "type",
             "required": true,
             "schema": {
-              "description": "The entity type, such as `iki/protein.Protein`; subtypes count.",
+              "description": "The entity types, such as `iki/protein.Protein`, each with its subtypes: repeat it for several.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "minItems": 1,
               "title": "Type",
-              "type": "string"
+              "type": "array"
             }
           },
           {
-            "description": "One of the type's unique fields, such as `lims_id`.",
+            "description": "A unique field of each type, such as `lims_id`.",
             "in": "query",
             "name": "field",
             "required": true,
             "schema": {
-              "description": "One of the type's unique fields, such as `lims_id`.",
+              "description": "A unique field of each type, such as `lims_id`.",
               "title": "Field",
               "type": "string"
             }
@@ -38086,11 +39835,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EntityOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EntityOut_"
                 }
               }
             },
@@ -38164,31 +39909,28 @@
         "operationId": "iki_server_api_entities_search_csv",
         "parameters": [
           {
-            "description": "This type and its subtypes.",
+            "description": "Only these types and their subtypes: repeat it for several. With one, ``where`` and ``columns`` may name its fields; with several, only those every entity has.",
             "in": "query",
             "name": "type",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "This type and its subtypes.",
-              "title": "Type"
+              "description": "Only these types and their subtypes: repeat it for several. With one, ``where`` and ``columns`` may name its fields; with several, only those every entity has.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
             }
           },
           {
-            "description": "Only the type itself, not its subtypes.",
+            "description": "Only the types themselves, not subtypes.",
             "in": "query",
             "name": "exact_type",
             "required": false,
             "schema": {
               "default": false,
-              "description": "Only the type itself, not its subtypes.",
+              "description": "Only the types themselves, not subtypes.",
               "title": "Exact Type",
               "type": "boolean"
             }
@@ -39012,6 +40754,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -39019,11 +40793,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EntityAppOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EntityAppOut_"
                 }
               }
             },
@@ -39050,7 +40820,7 @@
     "/api/v1/entities/{ref}/bundles": {
       "get": {
         "description": "The imports from other deployments that made it here, or added to its history,\nnewest first (ADR 0096).",
-        "operationId": "iki_server_api_entities_get_bundle_origins",
+        "operationId": "iki_server_api_entities_list_bundle_origins",
         "parameters": [
           {
             "in": "path",
@@ -39060,6 +40830,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -39067,11 +40869,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/BundleOriginOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_BundleOriginOut_"
                 }
               }
             },
@@ -39110,6 +40908,39 @@
             }
           },
           {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Whose record, as for reading it.",
             "in": "query",
             "name": "project",
             "required": false,
@@ -39123,6 +40954,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Whose record, as for reading it.",
               "title": "Project"
             }
           }
@@ -39132,11 +40964,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/UserOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_UserOut_"
                 }
               }
             },
@@ -39975,10 +41803,10 @@
         ]
       }
     },
-    "/api/v1/entities/{ref}/making": {
+    "/api/v1/entities/{ref}/makings": {
       "get": {
-        "description": "How it was made, and who says so (ADR 0106), one tool at a time, Iki's own records\nfirst: a run of an action that lists its software, or what a record it was imported\nfrom says. Empty when it was made by hand, or its source doesn't say.",
-        "operationId": "iki_server_api_entities_get_making",
+        "description": "How it was made, and who says so (ADR 0106), one making (a tool) at a time, Iki's own\nrecords first: a run of an action that lists its software, or what a record it was\nimported from says. Empty when it was made by hand, or its source doesn't say.",
+        "operationId": "iki_server_api_entities_list_makings",
         "parameters": [
           {
             "in": "path",
@@ -39988,6 +41816,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -39995,11 +41855,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/MakingOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_MakingOut_"
                 }
               }
             },
@@ -40134,7 +41990,7 @@
     "/api/v1/entities/{ref}/origins": {
       "get": {
         "description": "The records runs imported it from, newest first: a public database's, or one in a\nfile. An entity found again by a later import lists each.",
-        "operationId": "iki_server_api_entities_get_origins",
+        "operationId": "iki_server_api_entities_list_origins",
         "parameters": [
           {
             "in": "path",
@@ -40144,6 +42000,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -40151,11 +42039,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/OriginOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_OriginOut_"
                 }
               }
             },
@@ -40181,7 +42065,7 @@
     },
     "/api/v1/entities/{ref}/projects": {
       "get": {
-        "description": "Only the projects you can see.",
+        "description": "Only the projects you can see, in the order it joined them.",
         "operationId": "iki_server_api_entities_list_entity_projects",
         "parameters": [
           {
@@ -40192,6 +42076,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -40199,11 +42115,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EntityProjectOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EntityProjectOut_"
                 }
               }
             },
@@ -42016,17 +43928,46 @@
       "get": {
         "description": "Every type the deployment's plugins define, abstract ones included, by name.",
         "operationId": "iki_server_api_entities_list_types",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EntityTypeOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EntityTypeOut_"
                 }
               }
             },
@@ -43096,9 +45037,41 @@
     },
     "/api/v1/files/formats": {
       "get": {
-        "description": "Format labels and counts for readable files matching the other filters. Aliases\ncount together. A file of an undeclared type keeps its media type as its label.",
+        "description": "Format labels and counts for readable files matching the other filters, the most\ncommon first. Aliases count together. A file of an undeclared type keeps its media type\nas its label.",
         "operationId": "iki_server_api_files_file_formats",
         "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
           {
             "in": "query",
             "name": "project",
@@ -43246,11 +45219,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/FormatOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_FormatOut_"
                 }
               }
             },
@@ -43560,17 +45529,46 @@
       "get": {
         "description": "Core and plugin formats, in recognition order for shared filename extensions.",
         "operationId": "iki_server_api_files_installed_formats",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/InstalledFormatOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_InstalledFormatOut_"
                 }
               }
             },
@@ -44105,17 +46103,46 @@
       "get": {
         "description": "Named roles such as QA (ADR 0116), which a project's Admins give its members beside\ntheir project role, and what each lets its holders do. A lab role grants nothing by\nitself.",
         "operationId": "iki_server_api_projects_list_lab_roles",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/LabRoleOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_LabRoleOut_"
                 }
               }
             },
@@ -44145,9 +46172,9 @@
         "operationId": "iki_server_api_lists_list_lists",
         "parameters": [
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "From the previous page's next_cursor.",
             "in": "query",
-            "name": "project",
+            "name": "cursor",
             "required": false,
             "schema": {
               "anyOf": [
@@ -44158,7 +46185,40 @@
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -44187,11 +46247,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ListOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ListOut_"
                 }
               }
             },
@@ -44229,20 +46285,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -44310,9 +46367,9 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "From the previous page's next_cursor.",
             "in": "query",
-            "name": "project",
+            "name": "cursor",
             "required": false,
             "schema": {
               "anyOf": [
@@ -44323,7 +46380,40 @@
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -44383,11 +46473,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/OptionOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_OptionOut_"
                 }
               }
             },
@@ -44424,20 +46510,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -44523,20 +46610,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -44619,20 +46707,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -44773,20 +46862,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -44990,20 +47080,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -45144,20 +47235,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -45289,20 +47381,21 @@
             }
           },
           {
-            "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+            "description": "A project you read, by ID: its registry's lists, which its records pick from.",
             "in": "query",
             "name": "project",
             "required": false,
             "schema": {
               "anyOf": [
                 {
+                  "format": "uuid",
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "description": "A project you read, by ID or slug: its registry's lists, which its records pick from.",
+              "description": "A project you read, by ID: its registry's lists, which its records pick from.",
               "title": "Project"
             }
           },
@@ -45505,6 +47598,132 @@
         ]
       }
     },
+    "/api/v1/me/open-work-items": {
+      "get": {
+        "description": "Records nobody is assigned that one of your lab roles could take (ADR 0122): an\nassignment field limited to a role you hold in the record's project counts in its\nstates, and names nobody who can be named there now. Take one with `POST\n/entities/{ref}/take`, or simply do it: a locked record's people can't change.",
+        "operationId": "iki_server_api_work_list_open_work_items",
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only these projects'.",
+            "in": "query",
+            "name": "project",
+            "required": false,
+            "schema": {
+              "description": "Only these projects'.",
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "title": "Project",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only these types' records (and their subtypes').",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Only these types' records (and their subtypes').",
+              "items": {
+                "type": "string"
+              },
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
+              "items": {
+                "type": "string"
+              },
+              "title": "State",
+              "type": "array"
+            }
+          },
+          {
+            "description": "`due`: soonest due first, undated ones last; `updated`: latest changed first.",
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "due",
+              "description": "`due`: soonest due first, undated ones last; `updated`: latest changed first.",
+              "enum": [
+                "due",
+                "updated"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_WorkItemOut_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Work open to your lab roles",
+        "tags": [
+          "work"
+        ]
+      }
+    },
     "/api/v1/me/signing": {
       "get": {
         "operationId": "iki_server_api_signatures_my_signing",
@@ -45538,11 +47757,43 @@
         ]
       }
     },
-    "/api/v1/me/work": {
+    "/api/v1/me/work-items": {
       "get": {
         "description": "Everything assigned to you now (ADR 0122), across the projects you read: records an\nassignment field names you in, while their state fields are in states it counts in. You\ndrop off a record's work when you can't be named in it any more (you left its project,\nsay).",
-        "operationId": "iki_server_api_work_my_work",
+        "operationId": "iki_server_api_work_list_work_items",
         "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
           {
             "description": "Only these projects'.",
             "in": "query",
@@ -45600,36 +47851,6 @@
               ],
               "title": "Sort",
               "type": "string"
-            }
-          },
-          {
-            "description": "From the previous page's next_cursor.",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "From the previous page's next_cursor.",
-              "title": "Cursor"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
             }
           }
         ],
@@ -45657,130 +47878,6 @@
           }
         ],
         "summary": "What's assigned to you",
-        "tags": [
-          "work"
-        ]
-      }
-    },
-    "/api/v1/me/work/open": {
-      "get": {
-        "description": "Records nobody is assigned that one of your lab roles could take (ADR 0122): an\nassignment field limited to a role you hold in the record's project counts in its\nstates, and names nobody who can be named there now. Take one with `POST\n/entities/{ref}/take`, or simply do it: a locked record's people can't change.",
-        "operationId": "iki_server_api_work_open_work",
-        "parameters": [
-          {
-            "description": "Only these projects'.",
-            "in": "query",
-            "name": "project",
-            "required": false,
-            "schema": {
-              "description": "Only these projects'.",
-              "items": {
-                "format": "uuid",
-                "type": "string"
-              },
-              "title": "Project",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Only these types' records (and their subtypes').",
-            "in": "query",
-            "name": "type",
-            "required": false,
-            "schema": {
-              "description": "Only these types' records (and their subtypes').",
-              "items": {
-                "type": "string"
-              },
-              "title": "Type",
-              "type": "array"
-            }
-          },
-          {
-            "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "description": "Only records whose state fields (ADR 0125) are in these states, each `field.state` such as `status.in_review`: in any of a field's, and of every field named. Types without those state fields have none.",
-              "items": {
-                "type": "string"
-              },
-              "title": "State",
-              "type": "array"
-            }
-          },
-          {
-            "description": "`due`: soonest due first, undated ones last; `updated`: latest changed first.",
-            "in": "query",
-            "name": "sort",
-            "required": false,
-            "schema": {
-              "default": "due",
-              "description": "`due`: soonest due first, undated ones last; `updated`: latest changed first.",
-              "enum": [
-                "due",
-                "updated"
-              ],
-              "title": "Sort",
-              "type": "string"
-            }
-          },
-          {
-            "description": "From the previous page's next_cursor.",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "From the previous page's next_cursor.",
-              "title": "Cursor"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_WorkItemOut_"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "Work open to your lab roles",
         "tags": [
           "work"
         ]
@@ -46003,19 +48100,48 @@
     },
     "/api/v1/outside-apis": {
       "get": {
-        "description": "Every outside API installed plugins call, with where data goes, why, the actions that\nsend it and what each sends, the key's state, the price, and each project's approval.\nOrg Admins see every project's approvals.",
+        "description": "Every outside API installed plugins call, by name, with where data goes, why, the\nactions that send it and what each sends, the key's state, the price, and each project's\napproval. Org Admins see every project's approvals.",
         "operationId": "iki_server_api_outside_apis_list_outside_apis",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/OutsideApiOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_OutsideApiOut_"
                 }
               }
             },
@@ -46198,17 +48324,46 @@
       "get": {
         "description": "Each role includes everything the roles before it can do.",
         "operationId": "iki_server_api_projects_project_roles",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectRoleOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ProjectRoleOut_"
                 }
               }
             },
@@ -46735,14 +48890,32 @@
             }
           },
           {
-            "description": "How many, newest first.",
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 10,
-              "description": "How many, newest first.",
-              "maximum": 50,
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
@@ -46754,11 +48927,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectChangeOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ProjectChangeOut_"
                 }
               }
             },
@@ -47027,6 +49196,38 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -47034,11 +49235,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EntityAppOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EntityAppOut_"
                 }
               }
             },
@@ -47688,7 +49885,7 @@
     },
     "/api/v1/projects/{project_id}/outside-apis": {
       "get": {
-        "description": "Every installed outside API, with the project's approval if it has one: what its\nmembers see before launching an action that sends data outside.",
+        "description": "Every installed outside API, by name, with the project's approval if it has one: what\nits members see before launching an action that sends data outside.",
         "operationId": "iki_server_api_outside_apis_list_project_outside_apis",
         "parameters": [
           {
@@ -47700,6 +49897,38 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -47707,11 +49936,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/OutsideApiOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_OutsideApiOut_"
                 }
               }
             },
@@ -47737,7 +49962,7 @@
     },
     "/api/v1/projects/{project_id}/people": {
       "get": {
-        "description": "The people its records' fields can name (ADR 0122), for a picker: active people\nwho can read it, holding the field's lab role if it has one. Service accounts and\nplaceholders can't be named. Best matches first. It needs you to read the project.",
+        "description": "The people its records' fields can name (ADR 0122), for a picker: active people\nwho can read it, holding the field's lab role if it has one. Service accounts and\nplaceholders can't be named. Best matches first: those whose name, a word of it, or\nemail address starts with ``q``, then the rest, each by name. It needs you to read the\nproject.",
         "operationId": "iki_server_api_work_nameable",
         "parameters": [
           {
@@ -47748,6 +49973,38 @@
               "format": "uuid",
               "title": "Project Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
             }
           },
           {
@@ -47782,9 +50039,9 @@
             }
           },
           {
-            "description": "With `field`: only those that field of this type can name.",
+            "description": "With `field`: only those that field of this entity type can name.",
             "in": "query",
-            "name": "type",
+            "name": "entity_type",
             "required": false,
             "schema": {
               "anyOf": [
@@ -47795,11 +50052,12 @@
                   "type": "null"
                 }
               ],
-              "description": "With `field`: only those that field of this type can name.",
-              "title": "Type"
+              "description": "With `field`: only those that field of this entity type can name.",
+              "title": "Entity Type"
             }
           },
           {
+            "description": "With `entity_type`: one of its person fields.",
             "in": "query",
             "name": "field",
             "required": false,
@@ -47812,19 +50070,8 @@
                   "type": "null"
                 }
               ],
+              "description": "With `entity_type`: one of its person fields.",
               "title": "Field"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 50,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
             }
           }
         ],
@@ -47833,11 +50080,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/NameableOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_NameableOut_"
                 }
               }
             },
@@ -47875,6 +50118,38 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -47882,11 +50157,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectRef"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ProjectRef_"
                 }
               }
             },
@@ -47924,6 +50195,38 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -47931,11 +50234,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectRef"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ProjectRef_"
                 }
               }
             },
@@ -47961,7 +50260,7 @@
     },
     "/api/v1/projects/{project_id}/services": {
       "get": {
-        "description": "Each project that takes requests from this one (ADR 0132), of `type` if given, with\nthe request types it takes. Its members can read them: a service's name and description\nare what it shows those it serves.",
+        "description": "Each project that takes requests from this one (ADR 0132), by name, of one of `type`\nif given, with the request types it takes. Its members can read them: a service's name\nand description are what it shows those it serves.",
         "operationId": "iki_server_api_requests_list_services",
         "parameters": [
           {
@@ -47975,9 +50274,9 @@
             }
           },
           {
-            "description": "Only services taking this request type (qualified), or a parent.",
+            "description": "From the previous page's next_cursor.",
             "in": "query",
-            "name": "type",
+            "name": "cursor",
             "required": false,
             "schema": {
               "anyOf": [
@@ -47988,8 +50287,37 @@
                   "type": "null"
                 }
               ],
-              "description": "Only services taking this request type (qualified), or a parent.",
-              "title": "Type"
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only services taking one of these request types (qualified), or a parent of one: repeat it for several.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Only services taking one of these request types (qualified), or a parent of one: repeat it for several.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
             }
           }
         ],
@@ -47998,11 +50326,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ServiceOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ServiceOut_"
                 }
               }
             },
@@ -48296,6 +50620,7 @@
     },
     "/api/v1/projects/{project_id}/spreadsheet-mappings": {
       "get": {
+        "description": "By type, then name.",
         "operationId": "iki_server_api_spreadsheets_list_mappings",
         "parameters": [
           {
@@ -48309,8 +50634,9 @@
             }
           },
           {
+            "description": "From the previous page's next_cursor.",
             "in": "query",
-            "name": "type",
+            "name": "cursor",
             "required": false,
             "schema": {
               "anyOf": [
@@ -48321,7 +50647,37 @@
                   "type": "null"
                 }
               ],
-              "title": "Type"
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only mappings into these types: repeat it for several.",
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "description": "Only mappings into these types: repeat it for several.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
             }
           }
         ],
@@ -48330,11 +50686,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SavedMappingOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_SavedMappingOut_"
                 }
               }
             },
@@ -48358,7 +50710,7 @@
         ]
       }
     },
-    "/api/v1/projects/{project_id}/stock": {
+    "/api/v1/projects/{project_id}/stock/items": {
       "get": {
         "description": "All active catalogue items owned by the project, including items with no lots.\nPhysical is the amount on hand. Stored excludes unplaced and checked-out material.\nAvailable counts stored material eligible for routine use. Amounts are exact decimal\nstrings in the item's unit. A low-only page can be empty and have a next cursor.",
         "operationId": "iki_server_api_stock_project_stock",
@@ -48445,83 +50797,7 @@
         ]
       }
     },
-    "/api/v1/projects/{project_id}/stock/orders": {
-      "get": {
-        "operationId": "iki_server_api_stock_stock_orders",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Project Id",
-              "type": "string"
-            }
-          },
-          {
-            "description": "From the previous page's next_cursor.",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "From the previous page's next_cursor.",
-              "title": "Cursor"
-            }
-          },
-          {
-            "description": "Items per page.",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "description": "Items per page.",
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Page_OpenOrder_"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "Outstanding stock reorders",
-        "tags": [
-          "stock"
-        ]
-      }
-    },
-    "/api/v1/projects/{project_id}/stock/{item_id}/lots": {
+    "/api/v1/projects/{project_id}/stock/items/{item_id}/lots": {
       "get": {
         "operationId": "iki_server_api_stock_stock_lots",
         "parameters": [
@@ -48602,6 +50878,82 @@
           }
         ],
         "summary": "A catalogue item's lots and storage positions",
+        "tags": [
+          "stock"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/stock/orders": {
+      "get": {
+        "operationId": "iki_server_api_stock_stock_orders",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_OpenOrder_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Outstanding stock reorders",
         "tags": [
           "stock"
         ]
@@ -48702,7 +51054,7 @@
     },
     "/api/v1/projects/{project_id}/triggers": {
       "get": {
-        "description": "Every installed trigger, and whether it's on in the project, as whom.",
+        "description": "Every installed trigger, by name, and whether it's on in the project, as whom.",
         "operationId": "iki_server_api_triggers_project_triggers",
         "parameters": [
           {
@@ -48714,6 +51066,38 @@
               "title": "Project Id",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -48721,11 +51105,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ProjectTriggerOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ProjectTriggerOut_"
                 }
               }
             },
@@ -49020,9 +51400,9 @@
         ]
       }
     },
-    "/api/v1/quarantine": {
+    "/api/v1/quarantine-decisions": {
       "get": {
-        "description": "For Quarantine Admins. Newest first, across the deployment: what's held now, or with\n``status=released``, the infected findings released as false positives. Each entry\nidentifies the held bytes, the finding, and where the bytes are: several project files\ncan share one source, and so its scan.",
+        "description": "For Quarantine Admins. Newest first, across the deployment: what's held now, or with\n``released``, the infected findings released as false positives. Each entry\nidentifies the held bytes, the finding, and where the bytes are: several project files\ncan share one source, and so its scan.",
         "operationId": "iki_server_api_files_list_quarantine",
         "parameters": [
           {
@@ -49058,19 +51438,15 @@
             }
           },
           {
-            "description": "Held now, or infected findings released as false positives.",
+            "description": "Infected findings released as false positives, rather than what's held now.",
             "in": "query",
-            "name": "status",
+            "name": "released",
             "required": false,
             "schema": {
-              "default": "held",
-              "description": "Held now, or infected findings released as false positives.",
-              "enum": [
-                "held",
-                "released"
-              ],
-              "title": "Status",
-              "type": "string"
+              "default": false,
+              "description": "Infected findings released as false positives, rather than what's held now.",
+              "title": "Released",
+              "type": "boolean"
             }
           },
           {
@@ -49138,7 +51514,7 @@
         ]
       }
     },
-    "/api/v1/quarantine/{decision_id}": {
+    "/api/v1/quarantine-decisions/{decision_id}": {
       "get": {
         "description": "For Quarantine Admins: a held decision, or a released one, with every place its\nbytes are.",
         "operationId": "iki_server_api_files_read_quarantine",
@@ -49183,7 +51559,7 @@
         ]
       }
     },
-    "/api/v1/quarantine/{decision_id}/release": {
+    "/api/v1/quarantine-decisions/{decision_id}/release": {
       "post": {
         "description": "For Quarantine Admins. The given reason and the reviewer are recorded with the\nrelease and in the audit log. Every file covered by this decision becomes usable and\nkeeps its original finding. An incomplete inspection can't be released.",
         "operationId": "iki_server_api_files_release_quarantine",
@@ -49616,100 +51992,6 @@
         ]
       }
     },
-    "/api/v1/receipts/{receipt_id}/history": {
-      "get": {
-        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
-        "operationId": "iki_server_api_storage_receipt_history",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "receipt_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Receipt Id",
-              "type": "string"
-            }
-          },
-          {
-            "description": "From the previous page's next_cursor.",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "From the previous page's next_cursor.",
-              "title": "Cursor"
-            }
-          },
-          {
-            "description": "Items per page.",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "description": "Items per page.",
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "line_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Line Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ObservationEventsOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "A receipt's observation history",
-        "tags": [
-          "storage"
-        ]
-      }
-    },
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
       "delete": {
         "description": "From the line's revision you reviewed (If-Match), with a reason.",
@@ -50036,6 +52318,100 @@
           }
         ],
         "summary": "Restore a removed extra on an open receipt",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/receipts/{receipt_id}/observations": {
+      "get": {
+        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
+        "operationId": "iki_server_api_storage_receipt_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "receipt_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Receipt Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationEventsOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A receipt's observation history",
         "tags": [
           "storage"
         ]
@@ -50573,100 +52949,6 @@
         ]
       }
     },
-    "/api/v1/reconciliations/{reconciliation_id}/history": {
-      "get": {
-        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
-        "operationId": "iki_server_api_storage_reconciliation_history",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "reconciliation_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Reconciliation Id",
-              "type": "string"
-            }
-          },
-          {
-            "description": "From the previous page's next_cursor.",
-            "in": "query",
-            "name": "cursor",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "From the previous page's next_cursor.",
-              "title": "Cursor"
-            }
-          },
-          {
-            "description": "Items per page.",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 50,
-              "description": "Items per page.",
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "line_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "uuid",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Line Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ObservationEventsOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "A reconciliation's observation history",
-        "tags": [
-          "storage"
-        ]
-      }
-    },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
         "description": "Save or clear the decision for the line's revision you reviewed (If-Match). A\nchanged finding, supporting scan, or decision on this line answers 412. Superseding a\ndecision requires a reason in addition to any note supporting the new decision.",
@@ -50773,6 +53055,100 @@
           }
         ],
         "summary": "Resolve a reconciliation's line",
+        "tags": [
+          "storage"
+        ]
+      }
+    },
+    "/api/v1/reconciliations/{reconciliation_id}/observations": {
+      "get": {
+        "description": "Newest first. Supply a line ID to follow its observations, even after it was removed.",
+        "operationId": "iki_server_api_storage_reconciliation_history",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "reconciliation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Reconciliation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "line_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Line Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationEventsOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "A reconciliation's observation history",
         "tags": [
           "storage"
         ]
@@ -50982,15 +53358,48 @@
     },
     "/api/v1/registrations/locations": {
       "get": {
-        "description": "The approved buckets and prefixes, set by your administrators.",
+        "description": "The approved buckets and prefixes, set by your administrators, by URI.",
         "operationId": "iki_server_api_files_registration_locations",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LocationsOut"
+                  "$ref": "#/components/schemas/Page_RegistrationLocationOut_"
                 }
               }
             },
@@ -51338,21 +53747,18 @@
             }
           },
           {
-            "description": "Only this type's entries (and its subtypes').",
+            "description": "Only these types' entries (and their subtypes'): repeat it for several.",
             "in": "query",
             "name": "type",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "Only this type's entries (and its subtypes').",
-              "title": "Type"
+              "description": "Only these types' entries (and their subtypes'): repeat it for several.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 20,
+              "title": "Type",
+              "type": "array"
             }
           },
           {
@@ -51972,7 +54378,7 @@
           {
             "description": "Only the runs of this workflow run (its ID or HRID), in launch order.",
             "in": "query",
-            "name": "workflow",
+            "name": "workflow_run",
             "required": false,
             "schema": {
               "anyOf": [
@@ -51984,7 +54390,7 @@
                 }
               ],
               "description": "Only the runs of this workflow run (its ID or HRID), in launch order.",
-              "title": "Workflow"
+              "title": "Workflow Run"
             }
           }
         ],
@@ -52150,6 +54556,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -52157,11 +54595,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/RunArtifactOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_RunArtifactOut_"
                 }
               }
             },
@@ -52245,6 +54679,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -52252,11 +54718,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/RunAttemptOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_RunAttemptOut_"
                 }
               }
             },
@@ -52606,6 +55068,38 @@
         "operationId": "iki_server_api_searches_list_saved_searches",
         "parameters": [
           {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
             "description": "Only this project's. Without one, every search you see: your own, and those shared with projects you can read.",
             "in": "query",
             "name": "project",
@@ -52635,26 +55129,6 @@
               "title": "Mine",
               "type": "boolean"
             }
-          },
-          {
-            "description": "At most this many.",
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maximum": 100,
-                  "minimum": 1,
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "At most this many.",
-              "title": "Limit"
-            }
           }
         ],
         "responses": {
@@ -52662,11 +55136,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SavedSearchOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_SavedSearchOut_"
                 }
               }
             },
@@ -52911,9 +55381,9 @@
             }
           },
           {
-            "description": "Results per kind: 5 by default, 20 for one `kind`.",
+            "description": "Results of each kind: 5 by default, 20 for one `kind`. Each group's `href` is its full list.",
             "in": "query",
-            "name": "limit",
+            "name": "per_kind",
             "required": false,
             "schema": {
               "anyOf": [
@@ -52926,8 +55396,8 @@
                   "type": "null"
                 }
               ],
-              "description": "Results per kind: 5 by default, 20 for one `kind`.",
-              "title": "Limit"
+              "description": "Results of each kind: 5 by default, 20 for one `kind`. Each group's `href` is its full list.",
+              "title": "Per Kind"
             }
           }
         ],
@@ -54347,10 +56817,43 @@
     },
     "/api/v1/starters": {
       "get": {
-        "description": "Include the current flow and version when the caller supplies a readable project.",
+        "description": "By ID. Include the current flow and version when the caller supplies a readable\nproject.",
         "operationId": "iki_server_api_starters_list_starters",
         "parameters": [
           {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "A project you read: each starter's flow and version applied there.",
             "in": "query",
             "name": "project",
             "required": false,
@@ -54364,6 +56867,7 @@
                   "type": "null"
                 }
               ],
+              "description": "A project you read: each starter's flow and version applied there.",
               "title": "Project"
             }
           }
@@ -54373,11 +56877,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/StarterOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_StarterOut_"
                 }
               }
             },
@@ -54670,6 +57170,39 @@
         "operationId": "iki_server_api_storage_list_checked_out",
         "parameters": [
           {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Whose: yours, if left out.",
             "in": "query",
             "name": "custodian",
             "required": false,
@@ -54683,6 +57216,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Whose: yours, if left out.",
               "title": "Custodian"
             }
           }
@@ -54692,11 +57226,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/CheckedOutOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_CheckedOutOut_"
                 }
               }
             },
@@ -54777,6 +57307,38 @@
               "title": "Ref",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -54784,11 +57346,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReconciliationOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_ReconciliationOut_"
                 }
               }
             },
@@ -55019,10 +57577,43 @@
     },
     "/api/v1/storage/places": {
       "get": {
-        "description": "The containers you can read that aren't in another you can read: freezers, rooms,\nshelves. ``project`` narrows them to one project's.",
+        "description": "The containers you can read that aren't in another you can read: freezers, rooms,\nshelves, by HRID. ``project`` narrows them to one project's.",
         "operationId": "iki_server_api_storage_list_places",
         "parameters": [
           {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only this project's.",
             "in": "query",
             "name": "project",
             "required": false,
@@ -55036,6 +57627,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Only this project's.",
               "title": "Project"
             }
           }
@@ -55045,11 +57637,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PlaceOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_PlaceOut_"
                 }
               }
             },
@@ -55581,18 +58169,48 @@
     },
     "/api/v1/triggers": {
       "get": {
+        "description": "By name.",
         "operationId": "iki_server_api_triggers_list_triggers",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/TriggerOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_TriggerOut_"
                 }
               }
             },
@@ -56345,14 +58963,49 @@
     },
     "/api/v1/webhook-events": {
       "get": {
+        "description": "By type.",
         "operationId": "iki_server_api_webhooks_webhook_events",
         "parameters": [
           {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "A project's webhooks', or the organization's.",
             "in": "query",
             "name": "scope",
             "required": false,
             "schema": {
               "default": "project",
+              "description": "A project's webhooks', or the organization's.",
               "enum": [
                 "project",
                 "org"
@@ -56367,11 +59020,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/EventTypeOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_EventTypeOut_"
                 }
               }
             },
@@ -57007,7 +59656,7 @@
     },
     "/api/v1/workflow-runs": {
       "get": {
-        "description": "Newest first. `GET /runs?workflow=` lists a workflow run's runs.",
+        "description": "Newest first. `GET /runs?workflow_run=` lists a workflow run's runs.",
         "operationId": "iki_server_api_workflows_list_workflow_runs",
         "parameters": [
           {
@@ -57413,17 +60062,46 @@
       "get": {
         "description": "Every workflow installed plugins provide, in name order.",
         "operationId": "iki_server_api_workflows_list_workflows",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/WorkflowOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_WorkflowOut_"
                 }
               }
             },

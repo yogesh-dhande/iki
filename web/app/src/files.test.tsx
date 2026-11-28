@@ -71,9 +71,10 @@ function answerUpload(name: string) {
 function answerFiles(items: Row[]) {
   answer("GET /api/v1/files", page(items));
   answer("GET /api/v1/files/count", { total: items.length, more_than_total: false });
-  answer("GET /api/v1/files/formats", [
-    { id: "iki/core.pdb", label: "PDB", media_type: "chemical/x-pdb", count: items.length },
-  ]);
+  answer(
+    "GET /api/v1/files/formats",
+    page([{ id: "iki/core.pdb", label: "PDB", media_type: "chemical/x-pdb", count: items.length }]),
+  );
 }
 
 describe("the file picker", () => {
@@ -96,7 +97,7 @@ describe("the file picker", () => {
         },
       },
     };
-    answer("GET /api/v1/entity-types", [PROTEIN, traces]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, traces]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answerFiles([A, B, C]);
@@ -145,7 +146,7 @@ describe("the file picker", () => {
 
   it("searches as its Files tab does, and says when nothing matches", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answerFiles([A]);
@@ -176,7 +177,7 @@ describe("the file picker", () => {
       fields: [field({ name: "reading", label: "Reading", type: "file" })],
       values_schema: { properties: { reading: { type: "string" } } },
     };
-    answer("GET /api/v1/entity-types", [PROTEIN, plate]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, plate]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answerFiles([A]);
@@ -212,7 +213,7 @@ describe("the file picker", () => {
 describe("a project's Files", () => {
   it("lists its files, keeps its search and filters in the address, and links what uses each", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     const acquired = file("4", "A01_clone-17-F.ab1", {
       media_type: "application/x-abi",
@@ -304,7 +305,7 @@ describe("a project's Files", () => {
 
   it("uploads files to the project, each said to be acquired on the day given", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answerFiles([A]);
     answerUpload("plate-7.csv");
@@ -345,7 +346,7 @@ describe("a project's Files", () => {
   it("offers no upload to someone who can only read the project", async () => {
     signedIn();
     const reader = project({ can: { ...KINASE.can, edit: false } });
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([reader]));
     answerFiles([A]);
     await renderApp("/projects/kinase-atlas/files/");
@@ -355,7 +356,7 @@ describe("a project's Files", () => {
 
   it("shows that a pending file is scanning with no download action", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/files/${A.id}`, {
       ...A,
@@ -385,7 +386,7 @@ describe("a project's Files", () => {
   };
 
   function onHeldFile(scan: Schemas["FileScanOut"]) {
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/files/${A.id}`, {
       ...A,
@@ -443,7 +444,7 @@ describe("a project's Files", () => {
 
   it("marks held and scanning files in a picker, which can’t choose them", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answerFiles([
@@ -471,7 +472,7 @@ describe("a project's Files", () => {
 
   it("shows a file: what it is, when its data was acquired, and what uses it", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(`GET /api/v1/files/${A.id}`, {
       ...A,
@@ -550,7 +551,7 @@ describe("a project's Files", () => {
 
   it("shows what a file states of its instrument, and where it states it", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     const fcs = file("6", "Tube_003.fcs", {
       media_type: "application/vnd.isac.fcs",
@@ -583,7 +584,7 @@ describe("a project's Files", () => {
 
   it("shows an alignment's read groups as its header gives them", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     const bam = file("7", "NA12878.bam", { media_type: "application/x-bam" });
     answer(`GET /api/v1/files/${bam.id}`, {

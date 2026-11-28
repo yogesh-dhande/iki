@@ -106,7 +106,7 @@ def supply_catalogue(page: Page, world: World) -> None:
 
     def stock(route: Route) -> None:
         url = urlsplit(route.request.url)
-        if url.path == base:
+        if url.path == f"{base}/items":
             query = parse_qs(url.query)
             low_only = query.get("low_only") == ["true"]
             if low_only and "cursor" not in query:
@@ -116,7 +116,7 @@ def supply_catalogue(page: Page, world: World) -> None:
             rows = [ITEM] if low_only else [ITEM, OTHER]
         elif url.path == f"{base}/orders":
             rows = [ORDER]
-        elif url.path == f"{base}/{ITEM['id']}/lots":
+        elif url.path == f"{base}/items/{ITEM['id']}/lots":
             rows = LOTS
         else:
             route.fallback()
@@ -125,13 +125,13 @@ def supply_catalogue(page: Page, world: World) -> None:
 
     def installed_actions(route: Route) -> None:
         actions = route.fetch().json()
-        template = next(action for action in actions if action["tier"] == "backend")
+        template = next(action for action in actions["items"] if action["tier"] == "backend")
         for name, label in [
             ("place_order", "Place order"),
             ("receive_delivery", "Receive delivery"),
             ("receive_stock", "Receive stock without an order"),
         ]:
-            actions.append(
+            actions["items"].append(
                 {
                     **template,
                     "name": f"iki/reagents.{name}",
@@ -144,8 +144,8 @@ def supply_catalogue(page: Page, world: World) -> None:
 
     def installed_types(route: Route) -> None:
         types = route.fetch().json()
-        template = next(t for t in types if t["name"] == "acme/protein.Sample")
-        types.append(
+        template = next(t for t in types["items"] if t["name"] == "acme/protein.Sample")
+        types["items"].append(
             {
                 **template,
                 "name": "iki/reagents.StockItem",
@@ -156,8 +156,8 @@ def supply_catalogue(page: Page, world: World) -> None:
         route.fulfill(json=types)
 
     page.route(f"**{base}**", stock)
-    page.route("**/api/v1/actions", installed_actions)
-    page.route("**/api/v1/entity-types", installed_types)
+    page.route(re.compile(r"/api/v1/actions(\?[^/]*)?$"), installed_actions)
+    page.route(re.compile(r"/api/v1/entity-types(\?[^/]*)?$"), installed_types)
 
 
 def check_action(link: Locator, slug: str, action: str, hrid: str) -> None:
@@ -283,7 +283,7 @@ def test_direct_stock_url_without_project_read(
 ) -> None:
     page: Page = open_as(principal, "/projects/")
     stock_requests: list[str] = []
-    stock_path = f"/api/v1/projects/{world.project.pk}/stock"
+    stock_path = f"/api/v1/projects/{world.project.pk}/stock/items"
 
     def observe(request: Request) -> None:
         path = urlsplit(request.url).path

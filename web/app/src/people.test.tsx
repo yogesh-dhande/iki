@@ -101,10 +101,10 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
 
 function onSample(found: Schemas["EntityOut"] = sample()): void {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
   answer("GET /api/v1/entities/SMP-000001", found);
   answer("GET /api/v1/entities/SMP-000001/provenance", {});
-  answer("GET /api/v1/entities/SMP-000001/projects", []);
+  answer("GET /api/v1/entities/SMP-000001/projects", page([]));
 }
 
 describe("whom a record names", () => {
@@ -178,10 +178,11 @@ describe("naming someone", () => {
   it("picks from the project's people with the field's role", async () => {
     onSample();
     answer(`GET /api/v1/entities/SMP-000001/provenance`, {});
-    answer(`GET /api/v1/entities/SMP-000001/projects`, []);
-    answer(`GET /api/v1/projects/${KINASE.id}/people`, [
-      { id: BO, name: "Bo Chen", email: "bo@example.com" },
-    ]);
+    answer(`GET /api/v1/entities/SMP-000001/projects`, page([]));
+    answer(
+      `GET /api/v1/projects/${KINASE.id}/people`,
+      page([{ id: BO, name: "Bo Chen", email: "bo@example.com" }]),
+    );
     answer(`PATCH /api/v1/entities/${SAMPLE_ID}`, sample({ revision: 3 }));
     const { user } = await renderApp("/entities/SMP-000001/edit/");
     const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
@@ -206,23 +207,19 @@ describe("suggesting people as they're typed", () => {
 
   it("works out the server's answer from a whole earlier one, in its order", () => {
     // Those starting with the text first ("Bolt" starts a word), then by name.
-    expect(narrowNameable([ana, bo, cy], "", "bo")).toEqual([bo, cy]);
-    expect(narrowNameable([cy, bo], "b", "BO ")).toEqual([bo, cy]);
-    expect(narrowNameable([ana, bo, cy], "", "lima")).toEqual([ana]);
-    expect(narrowNameable([ana, bo, cy], "", "example")).toEqual([ana, bo, cy]);
-    expect(narrowNameable([ana, bo, cy], "", "zed")).toEqual([]);
+    expect(narrowNameable(page([ana, bo, cy]), "", "bo")).toEqual(page([bo, cy]));
+    expect(narrowNameable(page([cy, bo]), "b", "BO ")).toEqual(page([bo, cy]));
+    expect(narrowNameable(page([ana, bo, cy]), "", "lima")).toEqual(page([ana]));
+    expect(narrowNameable(page([ana, bo, cy]), "", "example")).toEqual(page([ana, bo, cy]));
+    expect(narrowNameable(page([ana, bo, cy]), "", "zed")).toEqual(page([]));
   });
 
   it("doesn't guess when the earlier answer can't hold everyone who matches", () => {
     // Other text, not more of it: people it left out may match.
-    expect(narrowNameable([bo], "bo", "b")).toBeUndefined();
-    expect(narrowNameable([bo], "bo", "ana")).toBeUndefined();
-    // Cut at the limit: others may match too.
-    const many = Array.from({ length: 20 }, (_, i) => ({
-      ...bo,
-      id: `${BO.slice(0, -2)}${String(10 + i)}`,
-    }));
-    expect(narrowNameable(many, "", "bo")).toBeUndefined();
+    expect(narrowNameable(page([bo]), "bo", "b")).toBeUndefined();
+    expect(narrowNameable(page([bo]), "bo", "ana")).toBeUndefined();
+    // Not the last page: others may match too, however few this one holds.
+    expect(narrowNameable({ items: [bo], next_cursor: "more" }, "", "bo")).toBeUndefined();
   });
 
   it("shows only those matching what's typed, which stay put when the server answers", async () => {
@@ -232,9 +229,9 @@ describe("suggesting people as they're typed", () => {
       release = resolve;
     });
     answer(`GET /api/v1/projects/${KINASE.id}/people`, async (call: Sent) => {
-      if (!call.query.get("q")) return [ana, bo, cy];
+      if (!call.query.get("q")) return page([ana, bo, cy]);
       await held;
-      return narrowNameable([ana, bo, cy], "", call.query.get("q") ?? "");
+      return narrowNameable(page([ana, bo, cy]), "", call.query.get("q") ?? "");
     });
     const { user } = await renderApp("/entities/SMP-000001/edit/");
     const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
@@ -267,7 +264,7 @@ describe("suggesting people as they're typed", () => {
   it("closes on Escape, keeping what's typed, and clears it on leaving if nobody's chosen", async () => {
     onSample();
     answer(`GET /api/v1/projects/${KINASE.id}/people`, (call: Sent) =>
-      narrowNameable([ana, bo, cy], "", call.query.get("q") ?? ""),
+      narrowNameable(page([ana, bo, cy]), "", call.query.get("q") ?? ""),
     );
     const { user } = await renderApp("/entities/SMP-000001/edit/");
     const picker = await screen.findByRole("combobox", { name: /^Reviewer/ });
@@ -290,7 +287,7 @@ describe("suggesting people as they're typed", () => {
       email: `p${String(10 + i)}@example.com`,
     }));
     answer(`GET /api/v1/projects/${KINASE.id}/people`, async (call: Sent) => {
-      if (!call.query.get("q")) return many;
+      if (!call.query.get("q")) return { items: many, next_cursor: "more" };
       return new Promise(() => undefined);
     });
     const { user } = await renderApp("/entities/SMP-000001/edit/");
@@ -306,10 +303,10 @@ describe("suggesting people as they're typed", () => {
 describe("My work", () => {
   it("lists what's assigned to you, soonest due first, and filters it", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
-      "GET /api/v1/me/work",
+      "GET /api/v1/me/work-items",
       page([
         { entity: sample(), fields: ["analyst"], due: "2020-01-02" },
         {
@@ -338,7 +335,7 @@ describe("My work", () => {
         state: "status.in_testing",
       });
     });
-    const sent = calls("GET", "/api/v1/me/work");
+    const sent = calls("GET", "/api/v1/me/work-items");
     expect(sent.at(-1)?.query.getAll("type")).toEqual(["iki/lims.Sample"]);
     expect(sent.at(-1)?.query.getAll("state")).toEqual(["status.in_testing"]);
     expect(sent.at(-1)?.query.get("sort")).toBe("due");
@@ -346,10 +343,10 @@ describe("My work", () => {
 
   it("offers work open to your lab roles to take", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
-      "GET /api/v1/me/work/open",
+      "GET /api/v1/me/open-work-items",
       page([
         {
           entity: sample({
@@ -379,10 +376,10 @@ describe("My work", () => {
         FakeEventSource.opened = [];
         vi.stubGlobal("EventSource", FakeEventSource);
         withTypes();
-        answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+        answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
         answer("GET /api/v1/projects", page([KINASE]));
         let work = [{ entity: sample(), fields: ["analyst"], due: null }];
-        answer("GET /api/v1/me/work", () => page(work));
+        answer("GET /api/v1/me/work-items", () => page(work));
         await renderApp("/work/");
         const list = await screen.findByRole("list", { name: "Your work" });
         expect(within(list).getAllByRole("listitem")).toHaveLength(1);
@@ -405,7 +402,7 @@ describe("My work", () => {
   it("says when nothing is yours", async () => {
     withTypes();
     answer("GET /api/v1/projects", page([KINASE]));
-    answer("GET /api/v1/me/work", page([]));
+    answer("GET /api/v1/me/work-items", page([]));
     await renderApp("/work/");
     expect(
       await screen.findByRole("heading", { name: "Nothing’s assigned to you" }),
@@ -456,7 +453,7 @@ describe("reassigning from the grid", () => {
 
   it("names someone in the picked records, and says what it left as it was", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
     answer("GET /api/v1/projects", page([KINASE]));
     const second = sample({ id: `${SAMPLE_ID.slice(0, -1)}2`, hrid: "SMP-000002", revision: 4 });
     answer(
@@ -466,9 +463,10 @@ describe("reassigning from the grid", () => {
         second,
       ]),
     );
-    answer(`GET /api/v1/projects/${KINASE.id}/people`, [
-      { id: BO, name: "Bo Chen", email: "bo@example.com" },
-    ]);
+    answer(
+      `GET /api/v1/projects/${KINASE.id}/people`,
+      page([{ id: BO, name: "Bo Chen", email: "bo@example.com" }]),
+    );
     answer("POST /api/v1/entities/assign", {
       changed: [SAMPLE_ID],
       skipped: [{ entity: second.id, hrid: "SMP-000002", why: "Its state locks it." }],
@@ -501,14 +499,15 @@ describe("reassigning from the grid", () => {
 
   it("assigns nothing if a picked record changed, and reassigns once the selection is refreshed", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
     answer("GET /api/v1/projects", page([KINASE]));
     const first = sample();
     const second = sample({ id: `${SAMPLE_ID.slice(0, -1)}2`, hrid: "SMP-000002", revision: 4 });
     answer("POST /api/v1/entities/search", page([first, second]));
-    answer(`GET /api/v1/projects/${KINASE.id}/people`, [
-      { id: BO, name: "Bo Chen", email: "bo@example.com" },
-    ]);
+    answer(
+      `GET /api/v1/projects/${KINASE.id}/people`,
+      page([{ id: BO, name: "Bo Chen", email: "bo@example.com" }]),
+    );
     answer(
       "POST /api/v1/entities/assign",
       problem(

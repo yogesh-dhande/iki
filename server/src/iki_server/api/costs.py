@@ -10,16 +10,17 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F, QuerySet
+from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 from pydantic import field_validator
 
 from iki_server.api import csvs
-from iki_server.api.common import caller, project, require
+from iki_server.api.common import SCOPE_ORDER, by_scope, caller, project, require
+from iki_server.api.pagination import PageParams, page_by
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import PersonRef
+from iki_server.api.schemas import Page, PersonRef
 from iki_server.audit import log as audit
 from iki_server.org import permissions
 from iki_server.org.models import Project, Team
@@ -323,14 +324,13 @@ def _released() -> None:
         queue.notify(tier)
 
 
-@router.get("/compute/budgets", response=list[BudgetOut], summary="Budgets")
-def list_budgets(request: HttpRequest) -> list[dict[str, Any]]:
-    """Every budget, the organization's first, with what's been spent this month."""
+@router.get("/compute/budgets", response=Page[BudgetOut], summary="Budgets")
+def list_budgets(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """Every budget, the organization's first, then teams', then projects', with what's been
+    spent this month."""
     require(caller(request), Action.COSTS_READ)
-    ordered = _budgets().order_by(
-        F("project").asc(nulls_first=True), F("team").asc(nulls_first=True), "id"
-    )
-    return [_budget_out(b) for b in ordered]
+    found = page_by(by_scope(_budgets()), params, by=(*SCOPE_ORDER, "id"))
+    return {**found, "items": [_budget_out(b) for b in found["items"]]}
 
 
 @router.post("/compute/budgets", response={201: BudgetOut}, summary="Set a budget")

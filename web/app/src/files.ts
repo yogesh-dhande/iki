@@ -6,7 +6,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 
 export type FileRow = Schemas["FileRowOut"];
 export type FileDetail = Schemas["FileDetailOut"];
@@ -114,12 +114,14 @@ export function fileFormatsQuery(projectId: string | undefined, filter: FileFilt
   const others = { ...filter, format: [], sort: "newest" as const };
   return queryOptions({
     queryKey: [...FILES, "formats", key(projectId, others, takes)],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/files/formats", {
-          params: { query: query(projectId, others, takes) },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/files/formats", {
+            params: { query: { ...query(projectId, others, takes), ...page } },
+            signal,
+          }),
+        ),
       ),
     placeholderData: keepPreviousData,
   });

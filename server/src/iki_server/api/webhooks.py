@@ -15,7 +15,7 @@ from django.utils import timezone
 from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.api.common import caller, project, require, require_scope
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, page, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, PersonRef, ProjectRef
 from iki_server.org.permissions import Action
@@ -201,16 +201,26 @@ def _delivery(webhook: Webhook, delivery_id: UUID) -> Delivery:
 # --- Events and policy -------------------------------------------------------------
 
 
+class EventFilters(PageParams):
+    scope: Scope = Field("project", description="A project's webhooks', or the organization's.")
+
+
 @router.get(
-    "/webhook-events", response=list[EventTypeOut], summary="The events webhooks can receive"
+    "/webhook-events", response=Page[EventTypeOut], summary="The events webhooks can receive"
 )
-def webhook_events(request: HttpRequest, scope: Scope = "project") -> list[dict[str, str]]:
+def webhook_events(request: HttpRequest, filters: Query[EventFilters]) -> dict[str, Any]:
+    """By type."""
     caller(request)
-    return [
-        {"type": e.key, "description": e.description}
-        for e in events.for_scope(scope)
-        if e.key != events.PING
-    ]
+    return page_sorted(
+        (
+            {"type": e.key, "description": e.description}
+            for e in events.for_scope(filters.scope)
+            if e.key != events.PING
+        ),
+        filters,
+        by=("type",),
+        key=lambda e: (e["type"],),
+    )
 
 
 @router.get("/webhook-policy", response=PolicyOut, summary="Who may add webhooks")

@@ -13,7 +13,7 @@
 import { unwrap, type Schemas } from "@ikisci/sdk";
 import { queryOptions, useQueries, useQuery } from "@tanstack/react-query";
 
-import { iki } from "./api";
+import { everyPage, iki } from "./api";
 import { ENTITIES, type EntityType, type FieldDef } from "./entities";
 import { registriesQuery } from "./registries";
 
@@ -87,18 +87,20 @@ export function labListQuery(name: string, scope: ListScope) {
 /**
  * A list's options, in its order: the active ones a dropdown offers, or with `every`,
  * archived and superseded ones too, as records may still name them. A list has 10,000
- * options at most (LIST_MAX_OPTIONS), so it's read whole and searched in the browser, which
- * shows a few of its matches at a time (SHOWN_MATCHES).
+ * options at most (LIST_MAX_OPTIONS), so it's read whole, every page, and searched in the
+ * browser, which shows a few of its matches at a time (SHOWN_MATCHES).
  */
 export function optionsQuery(name: string, scope: ListScope, every = false) {
   return queryOptions({
     queryKey: [...LAB_LISTS, "options", name, scopeKey(scope), every],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/lists/{name}/options", {
-          params: { path: { name }, query: { ...query(scope), archived: every } },
-          signal,
-        }),
+    queryFn: ({ signal }) =>
+      everyPage(async (page) =>
+        unwrap(
+          await iki.GET("/api/v1/lists/{name}/options", {
+            params: { path: { name }, query: { ...query(scope), archived: every, ...page } },
+            signal,
+          }),
+        ),
       ),
     staleTime: 30_000,
   });

@@ -51,7 +51,7 @@ def moves(
     return api.post(
         "/storage/moves",
         {
-            "items": [
+            "moves": [
                 {"record": r["id"], "to": t["id"] if t else None, "position": p}
                 for r, t, p in items
             ],
@@ -142,10 +142,10 @@ def test_a_box_takes_its_shape_as_its_made_and_each_position_holds_one(world: Wo
     # A position outside the grid, or one that's taken, is refused, saying why.
     d = tube(api, world.project, "FX3")
     assert errors(moves(api, (d, small, "C1"))) == {
-        "#/items/0": f"{small['hrid']}: C1 isn't a position: they're A1 to B3."
+        "#/moves/0": f"{small['hrid']}: C1 isn't a position: they're A1 to B3."
     }
     assert errors(moves(api, (d, small, "a1"))) == {
-        "#/items/0": f"{small['hrid']} has something at A1 already."
+        "#/moves/0": f"{small['hrid']} has something at A1 already."
     }
     # Its shape can't change once it's made, so nothing in it is ever out of its grid.
     changed = api.patch(
@@ -184,26 +184,26 @@ def test_a_freezer_holds_racks_and_boxes_and_a_box_says_where_it_is(world: World
     ]
     assert where["position"] == "C4" and where["stored"] and not where["hidden"]
     # The freezer is one of the places to start from; the rack and box are in it.
-    places = api.get("/storage/places").json()
+    places = api.every("/storage/places")
     assert [p["hrid"] for p in places] == [freezer["hrid"]]
     assert places[0]["count"] == 1
     # A tube holds nothing, and a box doesn't hold a freezer, or go inside itself.
-    assert errors(moves(api, (cryo, sample, None)))["#/items/0"].endswith("which holds nothing.")
-    assert errors(moves(api, (freezer, cryo, None)))["#/items/0"].endswith(
+    assert errors(moves(api, (cryo, sample, None)))["#/moves/0"].endswith("which holds nothing.")
+    assert errors(moves(api, (freezer, cryo, None)))["#/moves/0"].endswith(
         "doesn't hold a Freezer."
     )
-    assert errors(moves(api, (rack, rack, None)))["#/items/0"] == (
+    assert errors(moves(api, (rack, rack, None)))["#/moves/0"] == (
         f"{rack['hrid']} doesn't hold a Rack."
     )
     # Scanning a freezer's asset tag, a tube's barcode or an HRID finds it.
     for code, hrid in (("AT-0003", freezer["hrid"]), ("TB-0001", sample["hrid"])):
-        found = api.get("/storage/scan", code=code).json()["items"]
+        found = api.get("/storage/scan", code=code).json()["matches"]
         assert [m["hrid"] for m in found] == [hrid]
     # A tube's is where it is in its box, which is last in its path.
-    assert api.get("/storage/scan", code="TB-0001").json()["items"][0]["position"] == "C4"
-    found = api.get("/storage/scan", code=cryo["hrid"].lower()).json()["items"]
+    assert api.get("/storage/scan", code="TB-0001").json()["matches"][0]["position"] == "C4"
+    found = api.get("/storage/scan", code=cryo["hrid"].lower()).json()["matches"]
     assert [(m["hrid"], m["container"]) for m in found] == [(cryo["hrid"], True)]
-    assert api.get("/storage/scan", code="nothing-at-all").json()["items"] == []
+    assert api.get("/storage/scan", code="nothing-at-all").json()["matches"] == []
 
 
 def test_a_bulk_move_makes_the_plan_its_preview_showed(world: World) -> None:
@@ -226,7 +226,7 @@ def test_a_bulk_move_makes_the_plan_its_preview_showed(world: World) -> None:
 
     # Starting at the first free well, the preview shows A1.
     shown = moved(me, (mine, dest, None), preview=True)
-    assert shown["items"][0]["to"]["position"] == "A1" and len(shown["plan"]) == 64
+    assert shown["moves"][0]["to"]["position"] == "A1" and len(shown["plan"]) == 64
     # Meanwhile, at another bench, someone puts their tube in A1.
     moved(other, (theirs, dest, "A1"), reason="Bench 2")
     before = unchanged()
@@ -235,7 +235,7 @@ def test_a_bulk_move_makes_the_plan_its_preview_showed(world: World) -> None:
     assert refused.json()["code"] == "moves_plan_changed"
     now = refused.json()["moves"]
     # The same one move, to another well: nothing moved, and what it would do now is said.
-    assert [(i["record"]["hrid"], i["to"]["position"]) for i in now["items"]] == [
+    assert [(i["record"]["hrid"], i["to"]["position"]) for i in now["moves"]] == [
         (mine["hrid"], "A2")
     ]
     assert now["plan"] != shown["plan"] and now["done"] is False
@@ -248,8 +248,8 @@ def test_a_bulk_move_makes_the_plan_its_preview_showed(world: World) -> None:
     again = moves(me, (mine, dest, None), plan=now["plan"])
     assert again.status_code == 409, again.content
     latest = again.json()["moves"]
-    assert latest["items"][0]["from_place"]["position"] == "B2"
-    assert latest["items"][0]["to"]["position"] == "A2"
+    assert latest["moves"][0]["from_place"]["position"] == "B2"
+    assert latest["moves"][0]["to"]["position"] == "A2"
     assert unchanged() == before
 
     # Reviewed again, it's made as shown, by whoever approved it.
@@ -277,15 +277,15 @@ def test_a_bulk_move_is_all_or_none_with_one_reason_and_history(world: World) ->
     extra = tube(api, world.project, "BM4")
     moved(api, (extra, second, "A1"))
     refused = moves(api, *[(t, second, None) for t in tubes], reason="Consolidating")
-    assert errors(refused) == {"#/items/3": f"{second['hrid']} has no free position left."}
+    assert errors(refused) == {"#/moves/3": f"{second['hrid']} has no free position left."}
     assert contents(api, first) == before
     # A reason is required, and a preview changes nothing.
     assert errors(moves(api, (tubes[0], second, None), reason=" ")) == {
         "#/reason": "is required: say why they're moved."
     }
     preview = moved(api, *[(t, second, None) for t in tubes[:3]], preview=True)
-    assert [i["to"]["position"] for i in preview["items"]] == ["A2", "B1", "B2"]
-    assert [i["kind"] for i in preview["items"]] == ["moved"] * 3
+    assert [i["to"]["position"] for i in preview["moves"]] == ["A2", "B1", "B2"]
+    assert [i["kind"] for i in preview["moves"]] == ["moved"] * 3
     assert preview["done"] is False and contents(api, first) == before
     # Swapping two in one move is one change: each position stays held by one.
     done = moved(api, (tubes[0], first, "A2"), (tubes[1], first, "A1"), reason="Swapped")
@@ -319,18 +319,18 @@ def test_a_checked_out_tube_keeps_its_position_until_its_checked_in(world: World
     assert out.status_code == 200, out.content
     where = api.get(f"/entities/{a['id']}/location").json()
     assert where["custodian"]["email"] == "editor@example.com" and where["position"] == "A1"
-    mine = api.get("/storage/checked-out").json()
+    mine = api.every("/storage/checked-out")
     assert [m["hrid"] for m in mine] == [a["hrid"]]
     # Nothing else takes its position while it's out.
-    assert errors(moves(api, (b, cryo, "A1")))["#/items/0"].endswith("has something at A1 already.")
+    assert errors(moves(api, (b, cryo, "A1")))["#/moves/0"].endswith("has something at A1 already.")
     # Handed to the admin, then checked back in where it was.
     handed = api.post(
         "/storage/hand-over",
         {"record": a["id"], "to": str(world.users["admin"].pk), "reason": "Bench 4"},
     )
     assert handed.status_code == 200, handed.content
-    assert api.get("/storage/checked-out").json() == []
-    back = api.post("/storage/check-in", {"items": [{"record": a["id"]}], "reason": "Done"})
+    assert api.every("/storage/checked-out") == []
+    back = api.post("/storage/check-in", {"check_ins": [{"record": a["id"]}], "reason": "Done"})
     assert back.status_code == 200, back.content
     where = api.get(f"/entities/{a['id']}/location").json()
     assert where["custodian"] is None and where["position"] == "A1"
@@ -347,8 +347,8 @@ def test_another_projects_boxes_are_never_seen_or_used(world: World) -> None:
     moved(theirs, (their_box, freezer, None))
     mine = tube(api, world.project, "AC1")
     # Not listed, not found, not opened, and nothing goes in it.
-    assert api.get("/storage/places").json() == []
-    assert api.get("/storage/scan", code=freezer["hrid"]).json()["items"] == []
+    assert api.every("/storage/places") == []
+    assert api.get("/storage/scan", code=freezer["hrid"]).json()["matches"] == []
     assert api.get(f"/storage/containers/{their_box['id']}").status_code == 404
     assert moves(api, (mine, their_box, None)).status_code == 404
     # Their tube isn't moved out of their box by us either.
@@ -359,7 +359,7 @@ def test_another_projects_boxes_are_never_seen_or_used(world: World) -> None:
     viewer = Api(world.browser("viewer"))
     cryo = box(api, world.project)
     assert viewer.get(f"/storage/containers/{cryo['id']}").json()["can"]["keep"] is False
-    assert errors(moves(viewer, (mine, cryo, None)))["#/items/0"] == (
+    assert errors(moves(viewer, (mine, cryo, None)))["#/moves/0"] == (
         f"Putting things in {cryo['hrid']} needs Editor in its project."
     )
 
@@ -1168,7 +1168,7 @@ def test_completion_requires_the_reconciliation_plan_the_editor_reviewed(world: 
     assert 0 < opened["revision"] < scans.json()["revision"] < shown["revision"]
     assert shown["revision"] < second.json()["revision"] < cleared.json()["revision"]
     assert cleared.json()["revision"] < refreshed["revision"]
-    assert a.get(listing).json()[0]["revision"] == refreshed["revision"]
+    assert a.every(listing)[0]["revision"] == refreshed["revision"]
     done = a.post(f"{path}/complete", {"note": "Reviewed A4"}, headers=seen(refreshed["revision"]))
     assert done.status_code == 200, done.content
     assert done.json()["note"] == "Reviewed A4"

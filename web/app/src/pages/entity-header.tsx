@@ -293,7 +293,7 @@ function TabCount({ n, what }: { n: number; what: string }) {
 
 /** What state it's in: its states, locked, signed, archived, superseded. */
 function StatusPills({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
-  const signatures = useQuery(signaturesQuery(apiRef(entity), false)).data?.items ?? [];
+  const signatures = useQuery(signaturesQuery(apiRef(entity), false)).data?.signatures ?? [];
   const signed = signatures.some(
     (s) =>
       s.status === "carried" &&

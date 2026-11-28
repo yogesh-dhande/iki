@@ -143,10 +143,10 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
 
 function onSample(found: Schemas["EntityOut"] = sample()): void {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
   answer("GET /api/v1/entities/SMP-000001", found);
   answer("GET /api/v1/entities/SMP-000001/provenance", {});
-  answer("GET /api/v1/entities/SMP-000001/projects", []);
+  answer("GET /api/v1/entities/SMP-000001/projects", page([]));
 }
 
 describe("a record's state fields", () => {
@@ -301,21 +301,24 @@ describe("a record's state fields", () => {
       locked_by: ["status"],
     });
     onSample(reviewed);
-    answer("GET /api/v1/entity-types", [
-      {
-        ...SAMPLE,
-        fields: SAMPLE.fields.map((f) =>
-          f.name !== "status"
-            ? f
-            : {
-                ...f,
-                states: f.states.map((s) =>
-                  s.name === "reviewed" ? { ...s, on_edit: "received" } : s,
-                ),
-              },
-        ),
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...SAMPLE,
+          fields: SAMPLE.fields.map((f) =>
+            f.name !== "status"
+              ? f
+              : {
+                  ...f,
+                  states: f.states.map((s) =>
+                    s.name === "reviewed" ? { ...s, on_edit: "received" } : s,
+                  ),
+                },
+          ),
+        },
+      ]),
+    );
     answer(`PATCH /api/v1/entities/${SAMPLE_ID}`, sample({ revision: 3 }));
     const { user } = await renderApp("/entities/SMP-000001/");
     await user.click(await screen.findByRole("link", { name: "Edit" }));
@@ -344,16 +347,19 @@ describe("a record's state fields", () => {
   it("asks for a reason before clearing a marked Boolean", async () => {
     const held = sample({ values: { ...sample().values, on_hold: true } });
     onSample(held);
-    answer("GET /api/v1/entity-types", [
-      PROTEIN,
-      {
-        ...SAMPLE,
-        fields: [
-          ...SAMPLE.fields,
-          field({ name: "on_hold", label: "On hold", type: "bool", reason_on_clear: true }),
-        ],
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        PROTEIN,
+        {
+          ...SAMPLE,
+          fields: [
+            ...SAMPLE.fields,
+            field({ name: "on_hold", label: "On hold", type: "bool", reason_on_clear: true }),
+          ],
+        },
+      ]),
+    );
     answer(
       `PATCH /api/v1/entities/${SAMPLE_ID}`,
       sample({ revision: 3, values: { ...held.values, on_hold: false } }),
@@ -380,7 +386,7 @@ describe("a record's state fields", () => {
 
   it("are described on its type's page", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
     await renderApp("/types/iki/lims.Sample/");
     expect(
       screen.getByText(
@@ -473,7 +479,7 @@ describe("a project's grid of a type with state fields", () => {
 
   it("shows each record's states, and filters by each field", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "POST /api/v1/entities/search",

@@ -85,7 +85,7 @@ def launch(
 
 
 def test_lists_installed_actions_and_where_they_run(world: World) -> None:
-    actions = api_as(world, "viewer").get("/actions").json()
+    actions = api_as(world, "viewer").every("/actions")
     assert [a["name"] for a in actions] == [
         PREDICT,
         "acme/prediction.predict_with_colabfold",
@@ -158,9 +158,7 @@ def test_lists_the_actions_that_take_a_type(world: World) -> None:
     viewer = api_as(world, "viewer")
 
     def taking(*types: str) -> list[str]:
-        found = viewer.get("/actions", takes=list(types))
-        assert found.status_code == 200, found.content
-        return [a["name"] for a in found.json()]
+        return [a["name"] for a in viewer.every("/actions", takes=list(types))]
 
     assert taking("acme/protein.Protein") == [
         PREDICT,
@@ -181,7 +179,7 @@ def test_without_compute_only_client_tier_actions_run(
 ) -> None:
     monkeypatch.setenv("IKI_COMPUTE_FILE", str(tmp_path / "missing.json"))
     catalog.compute.cache_clear()
-    assert not any(a["available"] for a in api_as(world).get("/actions").json())
+    assert not any(a["available"] for a in api_as(world).every("/actions"))
 
 
 # --- Launching ---------------------------------------------------------------------------------

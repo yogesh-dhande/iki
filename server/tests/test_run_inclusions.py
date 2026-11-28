@@ -466,7 +466,7 @@ def test_a_run_reads_the_lab_list_option_its_record_names(
     project = str(world.project.pk)
     methods = editor.get("/lists/acme/protein.PurificationMethod/options", project=project)
     assert methods.status_code == 200, methods.content
-    protein_a = next(o for o in methods.json() if o["code"] == "protein_a")
+    protein_a = next(o for o in methods.json()["items"] if o["code"] == "protein_a")
     made = editor.post(
         "/entities",
         {
@@ -561,7 +561,7 @@ def runs_reading_everything(world: World) -> list[ActionRun]:
     project = str(world.project.pk)
     methods = editor.get("/lists/acme/protein.PurificationMethod/options", project=project)
     assert methods.status_code == 200, methods.content
-    protein_a = next(o for o in methods.json() if o["code"] == "protein_a")
+    protein_a = next(o for o in methods.json()["items"] if o["code"] == "protein_a")
     prep = create(
         editor, world.project, {"name": "Anti-HER2 prep 12", "method": protein_a["id"]}, PREP
     )

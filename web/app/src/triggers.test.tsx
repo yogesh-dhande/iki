@@ -123,7 +123,7 @@ function must<T>(value: T | undefined): T {
 function onProject(triggers: Schemas["ProjectTriggerOut"][], firings = [FIRING]): void {
   withTypes();
   answer("GET /api/v1/projects", page([project()]));
-  answer(`GET /api/v1/projects/${KINASE.id}/triggers`, triggers);
+  answer(`GET /api/v1/projects/${KINASE.id}/triggers`, page(triggers));
   answer(`GET /api/v1/projects/${KINASE.id}/trigger-firings`, page(firings));
 }
 

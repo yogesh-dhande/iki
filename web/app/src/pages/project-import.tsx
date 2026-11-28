@@ -423,7 +423,7 @@ function Outside({ plan }: { plan: Schemas["ImportPlan"] }) {
         they’re imported too.
       </p>
       <ul className="plain-list">
-        {o.items.map((item) => (
+        {o.first.map((item) => (
           <li key={item.id}>
             {item.hrid ?? <code>{item.id}</code>}
             {item.type ? (
@@ -437,8 +437,8 @@ function Outside({ plan }: { plan: Schemas["ImportPlan"] }) {
           </li>
         ))}
       </ul>
-      {o.count > o.items.length ? (
-        <p className="muted">And {(o.count - o.items.length).toLocaleString()} more.</p>
+      {o.count > o.first.length ? (
+        <p className="muted">And {(o.count - o.first.length).toLocaleString()} more.</p>
       ) : null}
     </section>
   );

@@ -346,11 +346,11 @@ function RunList({
                         </Link>
                       </span>
                     ) : null}
-                    {run.workflow ? (
+                    {run.workflow_run ? (
                       <span className="cell-meta">
                         in{" "}
-                        <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
-                          {run.workflow.hrid}
+                        <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow_run.hrid }}>
+                          {run.workflow_run.hrid}
                         </Link>
                       </span>
                     ) : null}
@@ -954,7 +954,7 @@ function ImportedRows({ imported }: { imported: NonNullable<Run["imported"]> }) 
           </>
         ) : null}
         {imported.batch ? `, launched in ${imported.batch} there` : ""}
-        {imported.workflow ? `, a step of ${imported.workflow} there` : ""}
+        {imported.workflow_run ? `, a step of ${imported.workflow_run} there` : ""}
         {workers.length ? `. It ran on ${workers.join(", ")}.` : ""}
       </dd>
       {approval ? (
@@ -1865,13 +1865,13 @@ export function RunPage() {
               </dd>
             </>
           ) : null}
-          {run.workflow ? (
+          {run.workflow_run ? (
             <>
               <dt>Workflow</dt>
               <dd>
-                Step <code>{run.workflow.step}</code> of{" "}
-                <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
-                  {run.workflow.hrid}
+                Step <code>{run.workflow_run.step}</code> of{" "}
+                <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow_run.hrid }}>
+                  {run.workflow_run.hrid}
                 </Link>
               </dd>
             </>

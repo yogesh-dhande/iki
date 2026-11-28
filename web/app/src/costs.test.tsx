@@ -218,7 +218,7 @@ describe("budgets", () => {
   it("show what's been spent of each, read-only to Auditors", async () => {
     signedIn({ can: ADMIN });
     answer("GET /api/v1/compute/costs", summary());
-    answer("GET /api/v1/compute/budgets", [budget()]);
+    answer("GET /api/v1/compute/budgets", page([budget()]));
     await renderApp("/admin/costs/");
     const section = (
       await screen.findByRole("heading", { name: "Budgets for November 2026" })
@@ -236,7 +236,7 @@ describe("budgets", () => {
   it("are set by Compute Admins from a project's row", async () => {
     signedIn({ can: COMPUTE_ADMIN });
     answer("GET /api/v1/compute/costs", summary());
-    answer("GET /api/v1/compute/budgets", []);
+    answer("GET /api/v1/compute/budgets", page([]));
     answer("POST /api/v1/compute/budgets", budget());
     const { user } = await renderApp("/admin/costs/");
     expect(await screen.findByText(/No budgets\. Set one for the organization/)).toBeVisible();
@@ -268,7 +268,7 @@ describe("budgets", () => {
   it("are changed and removed by Compute Admins", async () => {
     signedIn({ can: COMPUTE_ADMIN });
     answer("GET /api/v1/compute/costs", summary());
-    answer("GET /api/v1/compute/budgets", [budget({ project: null })]);
+    answer("GET /api/v1/compute/budgets", page([budget({ project: null })]));
     answer(`PATCH /api/v1/compute/budgets/${budget().id}`, budget({ project: null, amount: 75 }));
     answer(`DELETE /api/v1/compute/budgets/${budget().id}`, respond(204));
     const { user } = await renderApp("/admin/costs/");

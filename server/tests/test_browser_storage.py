@@ -1691,7 +1691,7 @@ def test_an_unregistered_label_seen_in_another_slot_asks_which_tube_it_is(
     assert set(after) == {"A2", "A3", "A4"}
     assert after["A3"]["id"] == a1["id"] and after["A2"] == a2
     assert after["A4"]["id"] not in {a1["id"], a2["id"]}
-    events = list(reversed(send(editor, "GET", f"{path}/history")[1]["items"]))
+    events = list(reversed(send(editor, "GET", f"{path}/observations")[1]["items"]))
     moved, added = events[-2:]
     assert (moved["line_id"], moved["reason"]) == (a1["id"], why_moved)
     assert moved["actor"]["id"] == str(world.users["admin"].pk)
@@ -1758,7 +1758,13 @@ def held_by(page: Page, path: str) -> dict[str, Any]:
     out = page.request.get("/api/v1/storage/checked-out")
     waiting = page.request.get("/api/v1/storage/awaiting-put-away")
     assert receipt.ok and out.ok and waiting.ok
-    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()["items"]}
+    # Each is a page (ADR 0291); a test's few fit on the first.
+    assert out.json()["next_cursor"] is None and waiting.json()["next_cursor"] is None
+    return {
+        "receipt": receipt.json(),
+        "out": out.json()["items"],
+        "waiting": waiting.json()["items"],
+    }
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
@@ -1931,7 +1937,7 @@ def test_a_well_taken_meanwhile_is_refused_on_its_tube_and_read_again(
         "POST",
         "/storage/moves",
         {
-            "items": [{"record": str(theirs["id"]), "to": str(incoming["id"]), "position": "A1"}],
+            "moves": [{"record": str(theirs["id"]), "to": str(incoming["id"]), "position": "A1"}],
             "reason": "Put away",
             "confirmations": {str(theirs["id"]): iki_label(theirs)},
         },

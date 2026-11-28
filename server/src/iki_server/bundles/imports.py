@@ -931,7 +931,7 @@ class _Planner:
         return {
             "count": len(items),
             "here": sum(1 for i in items if i["here"]),
-            "items": items[:OUTSIDE_SHOWN],
+            "first": items[:OUTSIDE_SHOWN],
         }
 
 

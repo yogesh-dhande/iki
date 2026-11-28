@@ -57,7 +57,7 @@ def test_an_action_needing_a_setting_the_deployment_hasnt_set_cant_run(
 def test_people_see_why_before_they_launch_and_a_launch_is_refused(
     world: World, needing: dict[str, Any]
 ) -> None:
-    listed = {a["name"]: a for a in api_as(world, "viewer").get("/actions").json()}
+    listed = {a["name"]: a for a in api_as(world, "viewer").every("/actions")}
     assert listed[COMPUTE]["available"] is False
     assert listed[COMPUTE]["unavailable_reason"] == UNSET
     editor = api_as(world, "editor")

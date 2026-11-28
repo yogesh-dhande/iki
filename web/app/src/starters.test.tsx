@@ -119,17 +119,19 @@ function onStarters(
   answer("GET /api/v1/projects", ({ query }: { query: URLSearchParams }) =>
     page(!query.has("slug") || query.get("slug") === service.slug ? [service] : []),
   );
-  answer("GET /api/v1/starters", [found]);
+  answer("GET /api/v1/starters", page([found]));
   answer(`GET /api/v1/projects/${service.id}/members`, page(members));
   answer(
     "GET /api/v1/lab-roles",
-    Object.entries(fixtures.roles).map(([name, label]) => ({
-      name,
-      label,
-      description: null,
-      plugin: name.slice(0, name.indexOf(".")),
-      uses: [],
-    })),
+    page(
+      Object.entries(fixtures.roles).map(([name, label]) => ({
+        name,
+        label,
+        description: null,
+        plugin: name.slice(0, name.indexOf(".")),
+        uses: [],
+      })),
+    ),
   );
   for (const type of [
     `${PLATE}ResearchAssayResult`,

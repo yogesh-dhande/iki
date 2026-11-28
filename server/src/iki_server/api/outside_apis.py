@@ -11,12 +11,13 @@ from typing import Any
 from uuid import UUID
 
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, Router, Schema, Status
+from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
+from iki_server.api.pagination import PageParams, page_sorted
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import PersonRef
+from iki_server.api.schemas import Page, PersonRef
 from iki_server.entities import registry
 from iki_server.org import permissions
 from iki_server.org.models import Project
@@ -142,40 +143,46 @@ def _out(api: OutsideApi, approvals: list[ApiApproval]) -> dict[str, Any]:
     }
 
 
-def _approvals(projects: Any = None) -> list[ApiApproval]:  # noqa: ANN401 - a QuerySet
-    found = ApiApproval.objects.filter(revoked_at__isnull=True)
+def _approvals(apis: list[OutsideApi], projects: Any = None) -> list[ApiApproval]:  # noqa: ANN401 - a QuerySet
+    found = ApiApproval.objects.filter(
+        revoked_at__isnull=True, api__in=[a.qualified_name for a in apis]
+    )
     if projects is not None:
         found = found.filter(project__in=projects)
     return list(found.select_related("project", "approved_by").order_by("project__name"))
 
 
-@router.get("/outside-apis", response=list[OutsideApiOut], summary="Outside APIs")
-def list_outside_apis(request: HttpRequest) -> list[dict[str, Any]]:
-    """Every outside API installed plugins call, with where data goes, why, the actions that
-    send it and what each sends, the key's state, the price, and each project's approval.
-    Org Admins see every project's approvals."""
+def _page(params: PageParams) -> dict[str, Any]:
+    return page_sorted(_apis().values(), params, by=("api",), key=lambda a: (a.qualified_name,))
+
+
+@router.get("/outside-apis", response=Page[OutsideApiOut], summary="Outside APIs")
+def list_outside_apis(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """Every outside API installed plugins call, by name, with where data goes, why, the
+    actions that send it and what each sends, the key's state, the price, and each project's
+    approval. Org Admins see every project's approvals."""
     me = caller(request)
     require(me, Action.OUTSIDE_APIS_MANAGE)
-    approvals = _approvals()
-    return [
-        _out(api, approvals) for api in sorted(_apis().values(), key=lambda a: a.qualified_name)
-    ]
+    found = _page(params)
+    approvals = _approvals(found["items"])
+    return {**found, "items": [_out(api, approvals) for api in found["items"]]}
 
 
 @router.get(
     "/projects/{project_id}/outside-apis",
-    response=list[OutsideApiOut],
+    response=Page[OutsideApiOut],
     summary="Outside APIs, and whether each is approved for a project",
 )
-def list_project_outside_apis(request: HttpRequest, project_id: UUID) -> list[dict[str, Any]]:
-    """Every installed outside API, with the project's approval if it has one: what its
-    members see before launching an action that sends data outside."""
+def list_project_outside_apis(
+    request: HttpRequest, project_id: UUID, params: Query[PageParams]
+) -> dict[str, Any]:
+    """Every installed outside API, by name, with the project's approval if it has one: what
+    its members see before launching an action that sends data outside."""
     me = caller(request)
-    found = project(me, project_id)
-    approvals = _approvals([found.pk])
-    return [
-        _out(api, approvals) for api in sorted(_apis().values(), key=lambda a: a.qualified_name)
-    ]
+    target = project(me, project_id)
+    found = _page(params)
+    approvals = _approvals(found["items"], [target.pk])
+    return {**found, "items": [_out(api, approvals) for api in found["items"]]}
 
 
 class ApiApprovalIn(Schema):

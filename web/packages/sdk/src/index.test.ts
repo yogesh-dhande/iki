@@ -170,11 +170,11 @@ describe("createIkiClient", () => {
     const { requests, fetch } = recorder({ items: [], next_cursor: null });
     const iki = createIkiClient({ baseUrl: BASE, fetch });
     const project = "01a1c33f-ee39-74dc-a04f-4b57bb940194";
-    await iki.GET("/api/v1/me/work", {
+    await iki.GET("/api/v1/me/work-items", {
       params: { query: { project: [project], type: ["a/b.S"], state: ["x", "y"], sort: "due" } },
     });
     expect(requests[0]?.url).toBe(
-      `${BASE}/api/v1/me/work?project=${project}&type=a%2Fb.S&state=x&state=y&sort=due`,
+      `${BASE}/api/v1/me/work-items?project=${project}&type=a%2Fb.S&state=x&state=y&sort=due`,
     );
   });
 

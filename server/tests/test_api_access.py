@@ -765,7 +765,7 @@ def stored(suffix: str = "", body: Any = None) -> Build:
 def storage_moves(w: World) -> tuple[Any, ...]:
     box, tube = _box(w), _tube(w)
     items = [{"record": str(tube.pk), "to": str(box.pk), "position": "A1"}]
-    return "/storage/moves", {"items": items, "reason": "Put away"}
+    return "/storage/moves", {"moves": items, "reason": "Put away"}
 
 
 def storage_scan_preview(w: World) -> tuple[Any, ...]:
@@ -780,7 +780,7 @@ def storage_check_out(w: World) -> tuple[Any, ...]:
 
 def storage_check_in(w: World) -> tuple[Any, ...]:
     tube = _tube(w, into=_box(w), out=True)
-    return "/storage/check-in", {"items": [{"record": str(tube.pk)}], "reason": "Done"}
+    return "/storage/check-in", {"check_ins": [{"record": str(tube.pk)}], "reason": "Done"}
 
 
 def storage_hand_over(w: World) -> tuple[Any, ...]:
@@ -805,7 +805,7 @@ def stock_lots(w: World) -> tuple[str, None]:
         {"label": "Lot 1", "lot": str(item.pk)},
         amount={"value": "10", "unit": "uL"},
     )
-    return f"/projects/{w.project.pk}/stock/{item.pk}/lots", None
+    return f"/projects/{w.project.pk}/stock/items/{item.pk}/lots", None
 
 
 @pytest.fixture
@@ -1460,8 +1460,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ("GET", "/receipts/{receipt_id}", receipt("/receipts/{receipt}"), readers(200)),
     (
         "GET",
-        "/receipts/{receipt_id}/history",
-        receipt("/receipts/{receipt}/history"),
+        "/receipts/{receipt_id}/observations",
+        receipt("/receipts/{receipt}/observations"),
         readers(200),
     ),
     (
@@ -1539,8 +1539,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     (
         "GET",
-        "/reconciliations/{reconciliation_id}/history",
-        reconciliation("/reconciliations/{reconciliation}/history"),
+        "/reconciliations/{reconciliation_id}/observations",
+        reconciliation("/reconciliations/{reconciliation}/observations"),
         readers(200),
     ),
     (
@@ -1588,8 +1588,8 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     # Whom its records can name is its data: an Org Admin sees the project, not its people.
     ("GET", "/projects/{project_id}/people", project("/people"), readers(200, org_admin=403)),
     # Each person's work is their own: there's always some, if only none.
-    ("GET", "/me/work", fixed("/me/work"), row(200)),
-    ("GET", "/me/work/open", fixed("/me/work/open"), row(200)),
+    ("GET", "/me/work-items", fixed("/me/work-items"), row(200)),
+    ("GET", "/me/open-work-items", fixed("/me/open-work-items"), row(200)),
     # Electronic signatures (ADR 0126): read by the record's readers; given only by those
     # with the lab role, and withdrawn only by their signer, before they're carried.
     ("POST", "/entities/{ref}/signatures", lot_signing, readers(403)),
@@ -1638,7 +1638,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         row(404, viewer=200),
     ),
     ("GET", "/entities/{ref}/origins", entity("/origins"), readers(200)),
-    ("GET", "/entities/{ref}/making", entity("/making"), readers(200)),
+    ("GET", "/entities/{ref}/makings", entity("/makings"), readers(200)),
     ("GET", "/entities/{ref}/bundles", entity("/bundles"), readers(200)),
     # Across the graph (ADR 0123): as far as each reads.
     ("GET", "/entities/{ref}/upstream", entity("/upstream"), readers(200)),
@@ -1897,23 +1897,26 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         row(403, compute_admin=204),
     ),
     # Slurm clusters (ADR 0133): the deployment's compute has one, hpc1.
-    ("GET", "/compute/slurm", fixed("/compute/slurm"), COMPUTE_ONLY),
+    ("GET", "/compute/slurm-clusters", fixed("/compute/slurm-clusters"), COMPUTE_ONLY),
     (
         "GET",
-        "/compute/slurm/{cluster}/accounts",
-        fixed("/compute/slurm/hpc1/accounts"),
+        "/compute/slurm-clusters/{cluster}/accounts",
+        fixed("/compute/slurm-clusters/hpc1/accounts"),
         COMPUTE_ONLY,
     ),
     (
         "PUT",
-        "/compute/slurm/{cluster}/accounts/{project_id}",
-        lambda w: (f"/compute/slurm/hpc1/accounts/{w.project.pk}", {"account": "rd-proteins"}),
+        "/compute/slurm-clusters/{cluster}/accounts/{project_id}",
+        lambda w: (
+            f"/compute/slurm-clusters/hpc1/accounts/{w.project.pk}",
+            {"account": "rd-proteins"},
+        ),
         COMPUTE_ONLY,
     ),
     (
         "DELETE",
-        "/compute/slurm/{cluster}/accounts/{project_id}",
-        lambda w: (f"/compute/slurm/hpc1/accounts/{w.project.pk}", None),
+        "/compute/slurm-clusters/{cluster}/accounts/{project_id}",
+        lambda w: (f"/compute/slurm-clusters/hpc1/accounts/{w.project.pk}", None),
         row(403, compute_admin=204),
     ),
     (
@@ -1945,18 +1948,23 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         visible(403, **dict.fromkeys(ENTITY_EDITORS, 201)),
     ),
     ("GET", "/uploads", fixed("/uploads"), row(200)),
-    ("GET", "/quarantine", fixed("/quarantine"), row(403, quarantine_admin=200)),
     (
         "GET",
-        "/quarantine/{decision_id}",
-        fixed("/quarantine/00000000-0000-0000-0000-000000000001"),
+        "/quarantine-decisions",
+        fixed("/quarantine-decisions"),
+        row(403, quarantine_admin=200),
+    ),
+    (
+        "GET",
+        "/quarantine-decisions/{decision_id}",
+        fixed("/quarantine-decisions/00000000-0000-0000-0000-000000000001"),
         row(403, quarantine_admin=404),
     ),
     (
         "POST",
-        "/quarantine/{decision_id}/release",
+        "/quarantine-decisions/{decision_id}/release",
         fixed(
-            "/quarantine/00000000-0000-0000-0000-000000000001/release",
+            "/quarantine-decisions/00000000-0000-0000-0000-000000000001/release",
             {"reason": "Matched the independently verified original."},
         ),
         row(403, quarantine_admin=404),
@@ -2353,14 +2361,24 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         row(200),
     ),
     # Stock, reorder lines and lot locations all require a project reader (ADR 0190).
-    ("GET", "/projects/{project_id}/stock", project("/stock"), visible(200, org_admin=403)),
+    (
+        "GET",
+        "/projects/{project_id}/stock/items",
+        project("/stock/items"),
+        visible(200, org_admin=403),
+    ),
     (
         "GET",
         "/projects/{project_id}/stock/orders",
         project("/stock/orders"),
         visible(200, org_admin=403),
     ),
-    ("GET", "/projects/{project_id}/stock/{item_id}/lots", stock_lots, visible(200, org_admin=403)),
+    (
+        "GET",
+        "/projects/{project_id}/stock/items/{item_id}/lots",
+        stock_lots,
+        visible(200, org_admin=403),
+    ),
 ]
 
 
@@ -2445,7 +2463,7 @@ def test_operation_matrix(
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")
         settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]
-    if template.startswith("/compute/slurm"):
+    if template.startswith("/compute/slurm-clusters"):
         from test_slurm import with_cluster
 
         with_cluster(request)

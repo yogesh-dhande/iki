@@ -25,13 +25,13 @@ __all__ = ["keep_connection", "world"]  # fixtures, from test_workers
 def test_a_runs_attempts_say_where_and_how_they_ran(world: World) -> None:
     run = queued(world)
     viewer = api_as(world, "viewer")
-    (attempt,) = viewer.get(f"/runs/{run['hrid']}/attempts").json()
+    (attempt,) = viewer.every(f"/runs/{run['hrid']}/attempts")
     assert (attempt["attempt"], attempt["state"], attempt["worker"]) == (1, "queued", None)
     pod = worker(world, name="pod-7")
     job = pod.lease().json()
     pod.report(job, "progress", fraction=0.25, message="Weighing")
     pod.report(job, "fail", reason="interrupted", message="The node went away.")
-    first, second = viewer.get(f"/runs/{run['id']}/attempts").json()
+    first, second = viewer.every(f"/runs/{run['id']}/attempts")
     assert (first["state"], first["worker"]) == ("interrupted", "pod-7")
     assert first["error"]["code"] == "interrupted"
     assert (first["progress"], first["progress_message"]) == (0.25, "Weighing")

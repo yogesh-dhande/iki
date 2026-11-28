@@ -24,7 +24,7 @@ pytestmark = pytest.mark.django_db
 def custody_state(api: Api, path: str, entities: list[str]) -> dict[str, Any]:
     return {
         "receipt": read(api, path),
-        "history": read(api, path + "/history"),
+        "history": read(api, path + "/observations"),
         "places": list(Place.objects.filter(entity_id__in=entities).order_by("pk").values()),
         "links": list(ProjectLink.objects.filter(entity_id__in=entities).order_by("pk").values()),
         "events": list(Event.objects.order_by("pk").values_list("pk", flat=True)),
@@ -96,7 +96,7 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
     receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier 104")
     assert not any(line["received_unplaced"] for line in receipt["lines"])
     queue = "/storage/awaiting-put-away"
-    assert api.get(queue).json() == {"items": [], "next_cursor": None}
+    assert api.every(queue) == []
     done = change(
         api,
         "POST",
@@ -122,7 +122,7 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
         row = pending.json()["items"][0]
         assert (row["id"], row["hrid"]) == (tubes[0]["id"], tubes[0]["hrid"])
         assert row["custodian"]["id"] == str(lab.users["tech"].pk) and row["custody_since"]
-    assert lab.api("outsider").get(queue).json()["items"] == []
+    assert lab.api("outsider").every(queue) == []
     # A private receiving box and an explicitly unplaced tube have distinct receipt history.
     report = read(requester, path)
     assert [line["received_unplaced"] for line in report["lines"]] == [
@@ -155,7 +155,7 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
     assert resolved.status_code == 200, resolved.content
     change(api, "POST", count + "/complete", resolved.json())
     assert contents(api, incoming) == {"A1": tubes[0]["hrid"], "A2": tubes[1]["hrid"]}
-    assert api.get(queue).json() == {"items": [], "next_cursor": None}
+    assert api.every(queue) == []
     assert read(requester, path) == report
 
 
@@ -227,14 +227,14 @@ def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab
     before = custody_state(api, path, ids)
     assert api.post(path + "/put-away/preview", body).status_code == 428
     preview = api.post(path + "/put-away/preview", body, headers=reviewed)
-    assert preview.status_code == 200 and preview.json()["items"][0]["to"]["position"] == "A1"
+    assert preview.status_code == 200 and preview.json()["moves"][0]["to"]["position"] == "A1"
     assert custody_state(api, path, ids) == before
     for expected in ["A1", "A2"]:
         before = custody_state(api, path, ids)
         response = api.post(path + "/complete", body, headers=reviewed)
         assert response.status_code == 409, response.content
         current = response.json()["moves"]
-        assert current["items"][0]["to"]["position"] == expected
+        assert current["moves"][0]["to"]["position"] == expected
         assert custody_state(api, path, ids) == before
         body["plan"] = current["plan"]
         if expected == "A1":

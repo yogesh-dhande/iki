@@ -30,7 +30,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from django.db.models import F, Q, QuerySet
+from django.db.models import Q, QuerySet
 from jsonschema import Draft202012Validator
 
 from iki_server import expressions
@@ -55,8 +55,8 @@ COLUMNS: tuple[str, ...] = ("hrid", "title", "type", "created_at", "updated_at")
 MAX_TEXT = 50_000
 #: The most schema problems :func:`check` lists: past the first few, they repeat.
 MAX_SCHEMA_PROBLEMS = 20
-#: The most apps an entity's page lists as tabs.
-MAX_TABS = 20
+#: How apps are listed: by name, then HRID, as an entity's page shows them as tabs.
+BY_NAME = ("name", "hrid")
 
 
 @dataclass(frozen=True)
@@ -538,9 +538,9 @@ def _expressions(templates: Sequence[_Template]) -> list[str]:
 
 def about(user: User, entity: Entity) -> QuerySet[Entity]:
     """The apps about an entity, which its page shows as tabs: apps about its type (or one
-    it extends) in a project it's in, that the user can read, by name, at most
-    :data:`MAX_TABS`. An app shows on the entities of its own projects, as their members
-    made it for them, never on others'."""
+    it extends) in a project it's in, that the user can read, to sort by :data:`BY_NAME`.
+    An app shows on the entities of its own projects, as their members made it for them,
+    never on others'."""
     entity_type = registry.types().get(entity.type)
     if entity_type is None:
         return Entity.objects.none()
@@ -559,5 +559,4 @@ def about(user: User, entity: Entity) -> QuerySet[Entity]:
             archived_at__isnull=True,
         )
         .distinct()
-        .order_by(F("name"), "hrid")[:MAX_TABS]
     )

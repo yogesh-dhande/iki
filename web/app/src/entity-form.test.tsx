@@ -101,7 +101,7 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
 
 function onLab(): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
   answer("GET /api/v1/projects", page([KINASE]));
 }
 
@@ -121,7 +121,7 @@ describe("creating an entity", () => {
     );
     answer("GET /api/v1/entities/SMP-000001", sample());
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     const { user, router } = await renderApp(
       "/projects/kinase-atlas/entities/new/?type=lab.Sample",
     );
@@ -180,7 +180,7 @@ describe("creating an entity", () => {
         field({ name: "assays", label: "Assays", type: "list", items: "enum", values: assays }),
       ],
     };
-    answer("GET /api/v1/entity-types", [PROTEIN, typed]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, typed]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "POST /api/v1/entities",
@@ -188,7 +188,7 @@ describe("creating an entity", () => {
     );
     answer("GET /api/v1/entities/SMP-000001", sample());
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     const { user } = await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
     await user.type(screen.getByRole("textbox", { name: "Name" }), "Plasma A");
     await user.type(screen.getByRole("textbox", { name: "Code" }), "P-1");
@@ -263,7 +263,7 @@ describe("creating an entity", () => {
       answer("POST /api/v1/entities", respond(status, made));
       answer("GET /api/v1/entities/PRT-000001", record());
       answer(`GET /api/v1/entities/${PROTEIN_ID}/provenance`, {});
-      answer(`GET /api/v1/entities/${PROTEIN_ID}/projects`, []);
+      answer(`GET /api/v1/entities/${PROTEIN_ID}/projects`, page([]));
       answer(`GET /api/v1/entries/${ENTRY.id}/revisions`, page([]));
     }
 
@@ -471,7 +471,7 @@ describe("choosing a reference as it's typed", () => {
     );
     answer("GET /api/v1/entities/SMP-000001", sample());
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     await user.type(source, "abl");
     await release("abl");
     await user.click(await screen.findByRole("option", { name: /ABL2 kinase/ }));
@@ -571,7 +571,7 @@ describe("editing an entity", () => {
     onLab();
     answer("GET /api/v1/entities/SMP-000001", current);
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     answer("GET /api/v1/entities", page([]));
   }
 
@@ -796,7 +796,7 @@ describe("archiving and restoring", () => {
     onLab();
     answer("GET /api/v1/entities/SMP-000001", sample());
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     answer(
       "PATCH /api/v1/entities/" + SAMPLE_ID,
       sample({ revision: 3, archived: true, archived_at: "2026-03-16T09:00:00Z" }),
@@ -820,7 +820,7 @@ describe("archiving and restoring", () => {
     onLab();
     answer("GET /api/v1/entities/SMP-000001", sample());
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     // Someone else renamed it while this dialog was open: Iki refuses the old revision.
     const theirs = sample({
       revision: 3,
@@ -898,7 +898,7 @@ describe("file fields", () => {
     vi.stubGlobal("XMLHttpRequest", Storage);
     Object.assign(timing, { retry: 1, poll: 1, maxPoll: 1 });
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, STRUCTURE]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, STRUCTURE]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answer("GET /api/v1/files", page([]));
@@ -954,7 +954,7 @@ describe("file fields", () => {
       entity({ hrid: "PST-000001", type: "iki/protein.ProteinStructure", values: {} }),
     );
     answer("GET /api/v1/entities/PST-000001/provenance", {});
-    answer("GET /api/v1/entities/PST-000001/projects", []);
+    answer("GET /api/v1/entities/PST-000001/projects", page([]));
     const { user } = await renderApp(
       "/projects/kinase-atlas/entities/new/?type=iki/protein.ProteinStructure",
     );
@@ -994,7 +994,7 @@ describe("file fields", () => {
         },
       },
     };
-    answer("GET /api/v1/entity-types", [PROTEIN, traces]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, traces]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answer("GET /api/v1/files", page([]));
@@ -1093,7 +1093,7 @@ describe("file fields", () => {
         },
       },
     };
-    answer("GET /api/v1/entity-types", [PROTEIN, chains]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, chains]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answer("GET /api/v1/files", page([]));
@@ -1139,7 +1139,7 @@ describe("file fields", () => {
         },
       },
     };
-    answer("GET /api/v1/entity-types", [PROTEIN, strict]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, strict]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     answer("GET /api/v1/files", page([]));
@@ -1182,7 +1182,7 @@ describe("a detached plugin's data", () => {
 
   it("says so on its entities, which can't be edited", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, DETACHED]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, DETACHED]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer(
       "GET /api/v1/entities/SMP-000001",
@@ -1198,7 +1198,7 @@ describe("a detached plugin's data", () => {
       }),
     );
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     answer("GET /api/v1/entities", page([]));
     const { user } = await renderApp("/entities/SMP-000001/");
     expect(await screen.findByRole("note")).toHaveTextContent(
@@ -1212,7 +1212,7 @@ describe("a detached plugin's data", () => {
 
   it("isn't offered as a type to create", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, DETACHED]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, DETACHED]));
     answer("GET /api/v1/projects", page([KINASE]));
     answer("GET /api/v1/entities", page([]));
     await renderApp("/projects/kinase-atlas/entities/new/");
@@ -1227,7 +1227,7 @@ describe("a detached plugin's data", () => {
 
   it("keeps an extension's values, out of the form", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN, EXTENDED]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, EXTENDED]));
     answer("GET /api/v1/projects", page([KINASE]));
     await renderApp("/projects/kinase-atlas/entities/new/?type=lab.Sample");
     expect(screen.queryByRole("textbox", { name: "LIMS ID" })).not.toBeInTheDocument();
@@ -1259,7 +1259,7 @@ describe("a purged plugin's data", () => {
       }),
     );
     answer("GET /api/v1/entities/SMP-000001/provenance", {});
-    answer("GET /api/v1/entities/SMP-000001/projects", []);
+    answer("GET /api/v1/entities/SMP-000001/projects", page([]));
     answer("GET /api/v1/entities", page([]));
     await renderApp("/entities/SMP-000001/");
     const link = await screen.findByRole("link", { name: "DNA-000007" });

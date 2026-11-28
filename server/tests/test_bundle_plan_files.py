@@ -237,7 +237,7 @@ def test_a_swap_beyond_the_outside_reference_display_limit_is_still_reviewed(wor
     after = review()
     displayed = after.summary["outside"]
     assert displayed == before.summary["outside"]
-    assert displayed["here"] == 1 and len(displayed["items"]) == imports.OUTSIDE_SHOWN
+    assert displayed["here"] == 1 and len(displayed["first"]) == imports.OUTSIDE_SHOWN
     difference = before.difference(after)
     assert first.hrid in difference and second.hrid in difference
 

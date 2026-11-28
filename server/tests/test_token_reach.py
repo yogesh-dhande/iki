@@ -213,7 +213,7 @@ ORGANIZATION = [
     ("POST", "/teams", {"name": "Genomics"}),
     ("GET", "/teams", None),
     ("GET", "/outside-apis", None),
-    ("GET", "/quarantine", None),
+    ("GET", "/quarantine-decisions", None),
 ]
 
 
@@ -249,7 +249,7 @@ def test_it_neither_sees_nor_saves_a_search_of_every_project() -> None:
     token = token_for(person, projects=[world.project])
 
     listed = bearer(token, "GET", "/saved-searches", None).json()
-    assert [s["id"] for s in listed] == [str(mine.pk)]
+    assert [s["id"] for s in listed["items"]] == [str(mine.pk)]
     response = bearer(token, "GET", f"/saved-searches/{everywhere.pk}", None)
     assert response.status_code == 404
     found = problem(
@@ -260,7 +260,7 @@ def test_it_neither_sees_nor_saves_a_search_of_every_project() -> None:
     assert "every project" in found["detail"]
     # Given every project, it does both.
     whole = token_for(person, projects=None)
-    assert len(bearer(whole, "GET", "/saved-searches", None).json()) == 2
+    assert len(bearer(whole, "GET", "/saved-searches", None).json()["items"]) == 2
 
 
 def test_a_project_token_can_read_flow_definitions_and_only_its_projects_starter_choice() -> None:
@@ -290,14 +290,14 @@ def test_project_tokens_share_format_definitions_and_count_only_their_files() ->
     here = token_for(person, projects=[world.project], scopes=["read"])
     there = token_for(person, projects=[other], scopes=["read"])
 
-    definitions = bearer(here, "GET", "/formats")
-    assert definitions.status_code == 200
-    assert {f["id"] for f in definitions.json()} >= {"iki/core.pdb", "iki/core.csv"}
-    assert bearer(there, "GET", "/formats").json() == definitions.json()
+    definitions = bearer(here, "GET", "/formats?limit=100")
+    assert definitions.status_code == 200 and definitions.json()["next_cursor"] is None
+    assert {f["id"] for f in definitions.json()["items"]} >= {"iki/core.pdb", "iki/core.csv"}
+    assert bearer(there, "GET", "/formats?limit=100").json() == definitions.json()
     for token, expected in ((here, "iki/core.pdb"), (there, "iki/core.csv")):
         facets = bearer(token, "GET", "/files/formats")
         assert facets.status_code == 200
-        assert [(f["id"], f["count"]) for f in facets.json()] == [(expected, 1)]
+        assert [(f["id"], f["count"]) for f in facets.json()["items"]] == [(expected, 1)]
     problem(bearer(here, "GET", f"/files/formats?project={other.pk}"), 404, "not_found")
 
 
@@ -333,7 +333,7 @@ def test_every_operation_beyond_its_projects_is_refused(
         request.getfixturevalue("s3")
         settings = request.getfixturevalue("settings")
         settings.IKI_FILES_REGISTER_LOCATIONS = ["s3://lab-data/runs/"]
-    if template.startswith("/compute/slurm"):
+    if template.startswith("/compute/slurm-clusters"):
         from test_slurm import with_cluster
 
         with_cluster(request)
@@ -353,7 +353,7 @@ def test_every_operation_beyond_its_projects_is_refused(
         found = response.json()
         if isinstance(found, dict) and "groups" in found:
             # Searching everything (ADR 0176): every kind, and nothing of any.
-            assert [g["items"] for g in found["groups"]] == [[]] * len(found["groups"]), found
+            assert [g["results"] for g in found["groups"]] == [[]] * len(found["groups"]), found
             assert all(g["total"] == 0 for g in found["groups"]), found
             return
         if isinstance(found, dict) and "types" in found:
@@ -362,6 +362,10 @@ def test_every_operation_beyond_its_projects_is_refused(
         if isinstance(found, dict) and "more_than_total" in found:
             # How many files match (ADR 0177): none.
             assert found == {"total": 0, "more_than_total": False}, found
+            return
+        if isinstance(found, dict) and "matches" in found:
+            # A scan (ADR 0291): its matches, of nothing it may reach.
+            assert found["matches"] == [], found
             return
         assert (found.get("items") if isinstance(found, dict) else found) == [], found
         return

@@ -149,10 +149,10 @@ function sample(overrides: Partial<Schemas["EntityOut"]> = {}): Schemas["EntityO
 
 function onSample(found: Schemas["EntityOut"] = sample()): void {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, SAMPLE]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, SAMPLE]));
   answer("GET /api/v1/entities/SMP-000001", found);
   answer("GET /api/v1/entities/SMP-000001/provenance", {});
-  answer("GET /api/v1/entities/SMP-000001/projects", []);
+  answer("GET /api/v1/entities/SMP-000001/projects", page([]));
   answer(`GET /api/v1/entities/${SAMPLE_ID}/amount/movements`, {
     ...page([
       movement("drawn", "-25", "250", {
@@ -230,7 +230,7 @@ describe("a record's amount", () => {
       storage: { holds: [], grid: null, barcode: "label", label: null, confirm: ["draw"] },
     };
     onSample();
-    answer("GET /api/v1/entity-types", [PROTEIN, tube]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, tube]));
     answer(`GET /api/v1/entities/${SAMPLE_ID}/location`, {
       path: [],
       hidden: false,
@@ -275,7 +275,7 @@ describe("a record's amount", () => {
       storage: { holds: [], grid: null, barcode: "label", label: null, confirm: ["draw"] },
     };
     onSample();
-    answer("GET /api/v1/entity-types", [PROTEIN, tube]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, tube]));
     answer(`GET /api/v1/entities/${SAMPLE_ID}/location`, {
       path: [],
       hidden: false,
@@ -666,7 +666,7 @@ describe("a record's amount", () => {
       position: "A1",
     };
     onSample();
-    answer("GET /api/v1/entity-types", [PROTEIN, tube]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, tube]));
     answer(`GET /api/v1/entities/${SAMPLE_ID}/location`, {
       path: [box],
       hidden: false,

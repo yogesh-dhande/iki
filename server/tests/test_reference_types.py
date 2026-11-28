@@ -63,11 +63,11 @@ def test_the_type_names_each_type_it_may_refer_to(world: World) -> None:
 
 def test_listing_finds_entities_of_any_of_several_types(world: World) -> None:
     abl1, puc = protein(api_as(world), world.project), dna(world)
-    sample(world, "S-1")
-    found = api_as(world).get("/entities", types=EITHER).json()["items"]
+    s1 = sample(world, "S-1").json()
+    found = api_as(world).get("/entities", type=EITHER).json()["items"]
     assert {e["hrid"] for e in found} == {abl1["hrid"], puc["hrid"]}
-    both = api_as(world).get("/entities", types=EITHER, type=SAMPLE)
-    assert both.status_code == 422
+    every = api_as(world).get("/entities", type=[*EITHER, SAMPLE]).json()["items"]
+    assert {e["hrid"] for e in every} == {abl1["hrid"], puc["hrid"], s1["hrid"]}
 
 
 def test_the_database_refuses_a_reference_to_another_type(world: World) -> None:

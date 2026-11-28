@@ -299,7 +299,7 @@ describe("where an import starts", () => {
     answer("GET /api/v1/projects", page([KINASE]));
     answer("POST /api/v1/entities/search", page([entity()]));
     answer("GET /api/v1/entities/counts", { types: [], total: 1 });
-    answer("GET /api/v1/saved-searches", []);
+    answer("GET /api/v1/saved-searches", page([]));
     await renderApp(`/projects/kinase-atlas/entities/?type=${PROTEIN.name}`);
     const link = await screen.findByRole("link", { name: "Import" });
     expect(link.getAttribute("href")).toBe(
@@ -313,7 +313,7 @@ describe("where an import starts", () => {
     answer("GET /api/v1/projects", page([viewing]));
     answer("POST /api/v1/entities/search", page([entity()]));
     answer("GET /api/v1/entities/counts", { types: [], total: 1 });
-    answer("GET /api/v1/saved-searches", []);
+    answer("GET /api/v1/saved-searches", page([]));
     await renderApp(`/projects/kinase-atlas/entities/?type=${PROTEIN.name}`);
     await screen.findByRole("table");
     expect(screen.queryByRole("link", { name: "Import" })).toBeNull();
@@ -380,9 +380,10 @@ describe("where an import starts", () => {
     };
     answer("GET /api/v1/files", page([workbook]));
     answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
-    answer("GET /api/v1/files/formats", [
-      { id: "iki/core.xlsx", label: "Excel", media_type: workbook.media_type, count: 1 },
-    ]);
+    answer(
+      "GET /api/v1/files/formats",
+      page([{ id: "iki/core.xlsx", label: "Excel", media_type: workbook.media_type, count: 1 }]),
+    );
     answer(`POST /api/v1/projects/${KINASE.id}/spreadsheet-imports`, respond(201, sheet()));
     answer(`GET ${BASE}`, sheet());
     const { router, user } = await renderApp(
@@ -668,7 +669,7 @@ describe("an import's steps", () => {
         updated_by: PERSON,
         updated_at: original.updated_at,
       };
-      answer(lookup, [target]);
+      answer(lookup, page([target]));
       const detail =
         which === "source"
           ? "The source sheet changed. Review its mapping."
@@ -711,17 +712,19 @@ describe("an import's steps", () => {
       answer(`GET ${BASE}`, latest);
       answer(
         lookup,
-        which === "source"
-          ? [target]
-          : [
-              {
-                ...target,
-                ...changedMatch,
-                id: which === "deleted" ? ID : match.id,
-                columns: [{ header: "Current target label", field: "name" }],
-                locale: { ...original.locale, decimal: "comma" },
-              },
-            ],
+        page(
+          which === "source"
+            ? [target]
+            : [
+                {
+                  ...target,
+                  ...changedMatch,
+                  id: which === "deleted" ? ID : match.id,
+                  columns: [{ header: "Current target label", field: "name" }],
+                  locale: { ...original.locale, decimal: "comma" },
+                },
+              ],
+        ),
       );
       await act(async () => {
         await queryClient.invalidateQueries();
@@ -1021,7 +1024,7 @@ describe("an import's steps", () => {
     onImport({ ...PREVIEWED, state: "imported", run, can: {} });
     answer("POST /api/v1/entities/search", page([entity()]));
     answer("GET /api/v1/entities/counts", { types: [], total: 1 });
-    answer("GET /api/v1/saved-searches", []);
+    answer("GET /api/v1/saved-searches", page([]));
     const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
     expect(
       await screen.findByText("Imported 4 rows of kinases.xlsx into Kinase Atlas."),

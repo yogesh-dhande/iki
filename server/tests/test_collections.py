@@ -52,7 +52,7 @@ def secret(world: World) -> Project:
 
 
 def test_collections_are_a_core_type(world: World) -> None:
-    types = api_as(world, "viewer").get("/entity-types").json()
+    types = api_as(world, "viewer").every("/entity-types")
     found = next(t for t in types if t["name"] == "iki/core.Collection")
     assert {f["name"] for f in found["fields"]} >= {"name", "description", "members", "search"}
     made = collection(api_as(world), world).json()

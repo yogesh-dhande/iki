@@ -96,7 +96,7 @@ def weigh(pod: WorkerClient) -> dict[str, Any]:
 
 def test_lists_installed_workflows(world: World) -> None:
     viewer = api_as(world, "viewer")
-    listed = viewer.get("/workflows").json()
+    listed = viewer.every("/workflows")
     names = [
         ALIGN_THEN_WEIGH,
         IMPORT_AND_WEIGH,
@@ -195,16 +195,16 @@ def test_starting_a_workflow_launches_its_first_steps(world: World) -> None:
 
     viewer = api_as(world, "viewer")
     assert get(world, body, "viewer") == {**body, "can": {"cancel": False, "rerun": False}}
-    runs = viewer.get("/runs", workflow=body["hrid"]).json()["items"]
+    runs = viewer.get("/runs", workflow_run=body["hrid"]).json()["items"]
     assert [r["id"] for r in runs] == [weigh_run["id"]]
-    assert runs[0]["workflow"] == {"id": body["id"], "hrid": body["hrid"], "step": "weigh"}
+    assert runs[0]["workflow_run"] == {"id": body["id"], "hrid": body["hrid"], "step": "weigh"}
     listed = viewer.get("/workflow-runs", project=str(world.project.pk)).json()["items"]
     assert [w["hrid"] for w in listed] == [body["hrid"]]
     assert viewer.get("/workflow-runs", status="failed").json()["items"] == []
 
     outsider = api_as(world, "outsider")
     problem(outsider.get(f"/workflow-runs/{body['hrid']}"), 404, "not_found")
-    problem(outsider.get("/runs", workflow=body["hrid"]), 404, "not_found")
+    problem(outsider.get("/runs", workflow_run=body["hrid"]), 404, "not_found")
     assert outsider.get("/workflow-runs").json()["items"] == []
 
 
@@ -465,7 +465,7 @@ def test_a_step_runs_once_for_each_entity_an_earlier_one_created(world: World, s
     batch = weigh_step["batch"]
     assert (batch["size"], batch["statuses"]) == (2, {"queued": 2})
     runs = api_as(world, "viewer").get("/runs", batch=batch["hrid"]).json()["items"]
-    assert [r["workflow"]["step"] for r in runs] == ["weigh", "weigh"]
+    assert [r["workflow_run"]["step"] for r in runs] == ["weigh", "weigh"]
 
     # The batch's runs go in one job (compute_properties is batchable).
     job = pod.lease().json()

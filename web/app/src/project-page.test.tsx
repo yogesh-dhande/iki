@@ -162,7 +162,7 @@ describe("a project's page", () => {
     // What changed lately answers last, after the Overview's budget.
     answer(`GET ${BASE}/changes`, async () => {
       await held;
-      return [change({})];
+      return page([change({})]);
     });
     await renderApp("/projects/kinase-atlas/");
     // Till the budget's spent, nothing on it is drawn, wherever its answer is in.
@@ -188,7 +188,7 @@ describe("a project's page", () => {
   it("draws every card as it is when its reads are in by the budget", async () => {
     signedIn();
     onProject();
-    answer(`GET ${BASE}/changes`, [change({})]);
+    answer(`GET ${BASE}/changes`, page([change({})]));
     await renderApp("/projects/kinase-atlas/");
     const card = await screen.findByRole("region", { name: "Recent changes" });
     expect(within(card).getByRole("list", { name: "Recent changes" })).toBeVisible();
@@ -296,21 +296,24 @@ describe("a project's page", () => {
   it("lists what changed lately, and Auditors open the audit log from it", async () => {
     signedIn({ can: { ...ME.can, read_audit: true } });
     onProject();
-    answer(`GET ${BASE}/changes`, [
-      change({
-        number: 3,
-        kind: "state_changed",
-        changed_fields: ["status"],
-        state: {
-          field: { name: "status", label: "Status" },
-          from: { name: "draft", label: "Draft" },
-          to: { name: "registered", label: "Registered" },
-          signatures: [{ id: "s1", manifestation: "Approved", present: true }],
-        },
-      }),
-      change({ reason: "Rename" }),
-      change({ number: 1, kind: "created", user: null, via: "system" }),
-    ]);
+    answer(
+      `GET ${BASE}/changes`,
+      page([
+        change({
+          number: 3,
+          kind: "state_changed",
+          changed_fields: ["status"],
+          state: {
+            field: { name: "status", label: "Status" },
+            from: { name: "draft", label: "Draft" },
+            to: { name: "registered", label: "Registered" },
+            signatures: [{ id: "s1", manifestation: "Approved", present: true }],
+          },
+        }),
+        change({ reason: "Rename" }),
+        change({ number: 1, kind: "created", user: null, via: "system" }),
+      ]),
+    );
     await renderApp("/projects/kinase-atlas/");
     const list = await screen.findByRole("list", { name: "Recent changes" });
     expect(
@@ -336,11 +339,14 @@ describe("a project's page", () => {
   it("sums up its automation, and only its Admins hear of webhooks", async () => {
     signedIn();
     onProject();
-    answer("GET /api/v1/workflows", [{ name: "a" }, { name: "b" }]);
-    answer(`GET ${BASE}/triggers`, [
-      { name: "t1", enabled: true },
-      { name: "t2", enabled: false },
-    ]);
+    answer("GET /api/v1/workflows", page([{ name: "a" }, { name: "b" }]));
+    answer(
+      `GET ${BASE}/triggers`,
+      page([
+        { name: "t1", enabled: true },
+        { name: "t2", enabled: false },
+      ]),
+    );
     answer(`GET ${BASE}/webhooks`, page([{ id: "w1" }]));
     await renderApp("/projects/kinase-atlas/");
     // Drawn with its counts, once they're in: its link doesn't move as they come.
@@ -364,7 +370,7 @@ describe("a project's Automation tab", () => {
   it("holds its workflows, triggers and webhooks, each a tab under it", async () => {
     signedIn();
     onProject();
-    answer(`GET ${BASE}/triggers`, []);
+    answer(`GET ${BASE}/triggers`, page([]));
     await renderApp("/projects/kinase-atlas/automation/triggers/");
     const tabs = await screen.findByRole("navigation", { name: "Project" });
     expect(within(tabs).getByRole("link", { name: "Automation" })).toHaveAttribute(

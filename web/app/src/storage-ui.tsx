@@ -548,7 +548,8 @@ function unconfirmedBy(
   if (problem.status !== 422) return [];
   const asked = new Set(needed.map((r) => r.id));
   return (problem.errors ?? []).flatMap((e) => {
-    const at = /^#\/items\/(\d+)$/.exec(e.pointer ?? "");
+    // The body's list: a move's `moves`, a check-in's `check_ins`.
+    const at = /^#\/(?:moves|check_ins)\/(\d+)$/.exec(e.pointer ?? "");
     const record = at ? selected[Number(at[1])] : undefined;
     return record && asked.has(record.id) ? [record] : [];
   });
@@ -780,7 +781,7 @@ async function fromPosition(
 }
 
 async function previewMoves(body: {
-  items: { record: string; to: string | null; to_choice?: string; position: string | null }[];
+  moves: { record: string; to: string | null; to_choice?: string; position: string | null }[];
   reason: string;
   confirmations: Record<string, Proof>;
   preview: boolean;
@@ -790,12 +791,12 @@ async function previewMoves(body: {
 }
 
 /** Where a planned move ends: “BOX-000014, A2”, or out of storage. */
-function endOf(x: Planned["items"][number]): string {
+function endOf(x: Planned["moves"][number]): string {
   return x.to ? `${x.to.hrid}${x.to.position ? `, ${x.to.position}` : ""}` : "Out of storage";
 }
 
 /** Where a planned move starts: “BOX-000003, B2”, or nowhere. */
-function startOf(x: Planned["items"][number]): string {
+function startOf(x: Planned["moves"][number]): string {
   return x.from_place
     ? `${x.from_place.ref?.hrid ?? "A place you can’t open"}${
         x.from_place.position ? `, ${x.from_place.position}` : ""
@@ -809,8 +810,8 @@ function startOf(x: Planned["items"][number]): string {
  * each, without its full stop.
  */
 export function moveChanges(shown: Planned, now: Planned): StaleItem[] {
-  const before = new Map(shown.items.map((x) => [x.record.id, x]));
-  return now.items.flatMap((x) => {
+  const before = new Map(shown.moves.map((x) => [x.record.id, x]));
+  return now.moves.flatMap((x) => {
     const was = before.get(x.record.id);
     const said: string[] = [];
     if (!was || startOf(was) !== startOf(x)) said.push(`now in ${startOf(x)}`);
@@ -889,7 +890,7 @@ export function MoveDialog({
           : await fromPosition(client, box, start.trim(), records);
       setPositions(at);
       return previewMoves({
-        items: items(at, choice),
+        moves: items(at, choice),
         reason: reason.trim(),
         confirmations: proofs,
         preview: true,
@@ -918,7 +919,7 @@ export function MoveDialog({
   const move = useApiMutation(
     (shown: Planned) =>
       previewMoves({
-        items: items(positions, toChoice),
+        moves: items(positions, toChoice),
         reason: reason.trim(),
         confirmations: confirmed,
         preview: false,
@@ -932,7 +933,7 @@ export function MoveDialog({
       ? problemOf(preview.error)
       : undefined;
   const errors = fieldErrors(problem);
-  const blocked = planned?.items.some((x) => x.problems.length) ?? false;
+  const blocked = planned?.moves.some((x) => x.problems.length) ?? false;
   const unconfirmed = needed.some((r) => !confirmed[r.id]);
   const n = records.length;
   const named = n === 1 ? (records[0]?.hrid ?? "") : `${String(n)} records`;
@@ -985,7 +986,7 @@ export function MoveDialog({
                   changed();
                 }}
                 maxLength={200}
-                error={errors["items/0/to"]}
+                error={errors["moves/0/to"]}
                 help="Its ID or barcode, such as BOX-000014: scan its label."
               />
               <TextField
@@ -997,7 +998,7 @@ export function MoveDialog({
                 }}
                 optional
                 maxLength={8}
-                error={errors["items/0/position"]}
+                error={errors["moves/0/position"]}
                 help={
                   n > 1
                     ? "A position, such as A1: the rest go in the next free ones after it. Leave it empty for the first free one."
@@ -1074,7 +1075,7 @@ export function MoveDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {planned.items.map((x) => (
+                  {planned.moves.map((x) => (
                     <tr key={x.record.id} className={x.problems.length ? "row-problem" : undefined}>
                       <th scope="row">{x.record.hrid}</th>
                       <td>{startOf(x)}</td>
@@ -1153,7 +1154,7 @@ function MoveProblems({
 }) {
   if (!problem) return null;
   const items = (problem.errors ?? []).flatMap((e) => {
-    const at = /^#\/items\/(\d+)/.exec(e.pointer ?? "");
+    const at = /^#\/moves\/(\d+)/.exec(e.pointer ?? "");
     if (!at) return [];
     const record = records[Number(at[1])];
     return [`${record?.hrid ?? "One of them"}: ${e.detail}`];
@@ -1209,7 +1210,7 @@ export function CustodyDialog({
         return unwrap(
           await iki.POST("/api/v1/storage/check-in", {
             body: {
-              items: records.map((x) => ({ record: x.id, to: null, position: null })),
+              check_ins: records.map((x) => ({ record: x.id, to: null, position: null })),
               reason: r,
               confirmations: confirmed,
             },

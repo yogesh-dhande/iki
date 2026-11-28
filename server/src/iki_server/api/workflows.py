@@ -18,7 +18,7 @@ from ninja import Field, Query, Router, Schema, Status
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project
 from iki_server.api.entities import field_out
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, page, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.runs import (
     ActionTier,
@@ -204,11 +204,14 @@ def _workflow(name: str) -> Workflow:
     return found
 
 
-@router.get("/workflows", response=list[WorkflowOut], summary="Installed workflows")
-def list_workflows(request: HttpRequest) -> list[dict[str, Any]]:
+@router.get("/workflows", response=Page[WorkflowOut], summary="Installed workflows")
+def list_workflows(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Every workflow installed plugins provide, in name order."""
     caller(request)
-    return [_workflow_out(w) for w in workflows.workflows().values()]
+    found = page_sorted(
+        workflows.workflows().values(), params, by=("name",), key=lambda w: (w.qualified_name,)
+    )
+    return {**found, "items": [_workflow_out(w) for w in found["items"]]}
 
 
 @router.get("/workflows/{qualified:name}", response=WorkflowOut, summary="A workflow")
@@ -577,7 +580,7 @@ class WorkflowRunFilters(PageParams):
 
 @router.get("/workflow-runs", response=Page[WorkflowRunOut], summary="Workflow runs you can read")
 def list_workflow_runs(request: HttpRequest, filters: Query[WorkflowRunFilters]) -> dict[str, Any]:
-    """Newest first. `GET /runs?workflow=` lists a workflow run's runs."""
+    """Newest first. `GET /runs?workflow_run=` lists a workflow run's runs."""
     me = caller(request)
     found = workflows.visible(me).select_related("project__team", "requested_by", "agent")
     if filters.project is not None:

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
-import { answer } from "./test-server";
+import { answer, page } from "./test-server";
 
 const PLASMID = {
   ...PROTEIN,
@@ -37,7 +37,7 @@ const BASES = "ACGT".repeat(40); // 160 bp
 
 function onPlasmid(features: unknown) {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, PLASMID]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, PLASMID]));
   answer(
     "GET /api/v1/entities/DNA-000001",
     entity({
@@ -85,31 +85,34 @@ describe("the sequence viewer", () => {
     profile[20] = 2.5;
     profile[40] = -3.25;
     withTypes();
-    answer("GET /api/v1/entity-types", [
-      {
-        ...PROTEIN,
-        fields: [
-          ...PROTEIN.fields,
-          field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
-          field({ name: "charge", label: "Charge", type: "json" }),
-          field({ name: "flexibility", label: "Flexibility", type: "json" }),
-        ],
-        viewers: [
-          {
-            viewer: "sequence" as const,
-            label: "Sequence",
-            sequence: "sequence",
-            alphabet: "protein" as const,
-            features: null,
-            tracks: [
-              { field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 },
-              { field: "charge", label: "Charge", min: null, max: null },
-              { field: "flexibility", label: "Flexibility", min: null, max: null },
-            ],
-          },
-        ],
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          fields: [
+            ...PROTEIN.fields,
+            field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
+            field({ name: "charge", label: "Charge", type: "json" }),
+            field({ name: "flexibility", label: "Flexibility", type: "json" }),
+          ],
+          viewers: [
+            {
+              viewer: "sequence" as const,
+              label: "Sequence",
+              sequence: "sequence",
+              alphabet: "protein" as const,
+              features: null,
+              tracks: [
+                { field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 },
+                { field: "charge", label: "Charge", min: null, max: null },
+                { field: "flexibility", label: "Flexibility", min: null, max: null },
+              ],
+            },
+          ],
+        },
+      ]),
+    );
     answer(
       "GET /api/v1/entities/PRT-000001",
       entity({
@@ -139,25 +142,28 @@ describe("the sequence viewer", () => {
     // AAAAAGGGG*: nine residues, so ProtScale's window of nine gives one value, the fifth's.
     const profile = [null, null, null, null, 0.6, null, null, null, null];
     withTypes();
-    answer("GET /api/v1/entity-types", [
-      {
-        ...PROTEIN,
-        fields: [
-          ...PROTEIN.fields,
-          field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
-        ],
-        viewers: [
-          {
-            viewer: "sequence" as const,
-            label: "Sequence",
-            sequence: "sequence",
-            alphabet: "protein" as const,
-            features: null,
-            tracks: [{ field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 }],
-          },
-        ],
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          fields: [
+            ...PROTEIN.fields,
+            field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
+          ],
+          viewers: [
+            {
+              viewer: "sequence" as const,
+              label: "Sequence",
+              sequence: "sequence",
+              alphabet: "protein" as const,
+              features: null,
+              tracks: [{ field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 }],
+            },
+          ],
+        },
+      ]),
+    );
     answer(
       "GET /api/v1/entities/PRT-000001",
       entity({
@@ -174,25 +180,28 @@ describe("the sequence viewer", () => {
   /** A protein type whose sequence viewer draws its hydropathy as a track. */
   function withHydropathy() {
     withTypes();
-    answer("GET /api/v1/entity-types", [
-      {
-        ...PROTEIN,
-        fields: [
-          ...PROTEIN.fields,
-          field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
-        ],
-        viewers: [
-          {
-            viewer: "sequence" as const,
-            label: "Sequence",
-            sequence: "sequence",
-            alphabet: "protein" as const,
-            features: null,
-            tracks: [{ field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 }],
-          },
-        ],
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          fields: [
+            ...PROTEIN.fields,
+            field({ name: "hydropathy", label: "Hydropathy", type: "json" }),
+          ],
+          viewers: [
+            {
+              viewer: "sequence" as const,
+              label: "Sequence",
+              sequence: "sequence",
+              alphabet: "protein" as const,
+              features: null,
+              tracks: [{ field: "hydropathy", label: "Hydropathy", min: -4.5, max: 4.5 }],
+            },
+          ],
+        },
+      ]),
+    );
   }
 
   it("counts no stop inside a protein as a residue", async () => {
@@ -235,7 +244,7 @@ describe("the sequence viewer", () => {
       viewers: [{ ...PLASMID.viewers[0], alphabet: "rna" as const, features: null }],
     };
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, TRANSCRIPT]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, TRANSCRIPT]));
     answer(
       "GET /api/v1/entities/RNA-000001",
       entity({
@@ -260,7 +269,7 @@ describe("the sequence viewer", () => {
       viewers: [{ ...PLASMID.viewers[0], strands: "strandedness", features: null }],
     };
     withTypes();
-    answer("GET /api/v1/entity-types", [PROTEIN, DNA]);
+    answer("GET /api/v1/entity-types", page([PROTEIN, DNA]));
     for (const [hrid, strandedness] of [
       ["DNA-000001", "single"],
       ["DNA-000002", "double"],
@@ -326,7 +335,7 @@ const DUPLEX = {
 /** pUC19c, a circular duplex, with its lacZα and its polylinker (L09137.2's features). */
 function onPuc19(values: Record<string, unknown> = {}) {
   withTypes();
-  answer("GET /api/v1/entity-types", [PROTEIN, DUPLEX]);
+  answer("GET /api/v1/entity-types", page([PROTEIN, DUPLEX]));
   answer(
     "GET /api/v1/entities/DNA-000001",
     entity({
@@ -441,23 +450,26 @@ describe("the sequence viewer's strands and selection", () => {
 
   it("selects a protein's residues, with nothing to say of bases", async () => {
     withTypes();
-    answer("GET /api/v1/entity-types", [
-      {
-        ...PROTEIN,
-        viewers: [
-          {
-            viewer: "sequence" as const,
-            label: "Sequence",
-            sequence: "sequence",
-            alphabet: "protein" as const,
-            strands: null,
-            topology: null,
-            features: null,
-            tracks: [],
-          },
-        ],
-      },
-    ]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          viewers: [
+            {
+              viewer: "sequence" as const,
+              label: "Sequence",
+              sequence: "sequence",
+              alphabet: "protein" as const,
+              strands: null,
+              topology: null,
+              features: null,
+              tracks: [],
+            },
+          ],
+        },
+      ]),
+    );
     answer(
       "GET /api/v1/entities/PRT-000001",
       entity({ hrid: "PRT-000001", values: { name: "HBA", sequence: "MVLSPADKTNVKAAW" } }),

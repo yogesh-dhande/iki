@@ -22,7 +22,7 @@ export function run(overrides: Partial<Schemas["RunOut"]> = {}): Schemas["RunOut
     approval: null,
     reason: "",
     batch: null,
-    workflow: null,
+    workflow_run: null,
     trigger: null,
     tier: "backend",
     environment: "sequence-tools",

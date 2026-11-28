@@ -85,11 +85,12 @@ _LABELS = {
 class SearchEverythingParams(Schema):
     q: str = Field("", max_length=search.MAX_TEXT, description="What to look for.")
     kind: SearchKind | None = Field(None, description="Only this kind, with more of it.")
-    limit: int | None = Field(
+    per_kind: int | None = Field(
         None,
         ge=1,
         le=50,
-        description="Results per kind: 5 by default, 20 for one `kind`.",
+        description="Results of each kind: 5 by default, 20 for one `kind`. Each group's "
+        "`href` is its full list.",
     )
 
 
@@ -121,7 +122,7 @@ class SearchGroupOut(Schema):
     )
     more_than_total: bool = Field(description="There are more than `total`.")
     href: str | None = Field(description="Their full list, when there is one.")
-    items: list[SearchResultOut]
+    results: list[SearchResultOut] = Field(description="The first `per_kind`, best first.")
 
 
 class SearchEverythingOut(Schema):
@@ -158,7 +159,7 @@ def search_everything(
     me = caller(request)
     q = " ".join(params.q.split())
     kinds = [params.kind] if params.kind else list(KINDS)
-    limit = params.limit or (20 if params.kind else 5)
+    limit = params.per_kind or (20 if params.kind else 5)
     hrid_like = search.looks_like_hrid(q)
     records = len(q) >= MIN_TEXT or hrid_like
     groups: list[_Group] = []
@@ -186,7 +187,7 @@ def search_everything(
                 "total": g.total,
                 "more_than_total": g.more,
                 "href": g.href,
-                "items": g.items,
+                "results": g.items,
             }
             for g in groups
         ],

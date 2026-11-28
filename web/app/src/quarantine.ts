@@ -59,11 +59,11 @@ export function quarantineQuery(filter: QuarantineFilter) {
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam, signal }) =>
       unwrap(
-        await iki.GET("/api/v1/quarantine", {
+        await iki.GET("/api/v1/quarantine-decisions", {
           params: {
             query: {
               limit: 50,
-              status: filter.status,
+              released: filter.status === "released",
               ...(filter.state ? { state: filter.state } : {}),
               ...(filter.q ? { q: filter.q } : {}),
               ...(pageParam ? { cursor: pageParam } : {}),
@@ -81,7 +81,7 @@ export function quarantinedQuery(id: string) {
     queryKey: [...QUARANTINE, "one", id],
     queryFn: async ({ signal }) =>
       unwrap(
-        await iki.GET("/api/v1/quarantine/{decision_id}", {
+        await iki.GET("/api/v1/quarantine-decisions/{decision_id}", {
           params: { path: { decision_id: id } },
           signal,
         }),

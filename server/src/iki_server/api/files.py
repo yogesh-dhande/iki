@@ -31,7 +31,7 @@ from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.api.common import caller, project, require
-from iki_server.api.pagination import PageParams, page
+from iki_server.api.pagination import PageParams, page, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.runs import RunStatusName
 from iki_server.api.schemas import AgentOut, FileScanOut, Page, ProjectRef, UserOut, agent_out
@@ -156,8 +156,9 @@ class QuarantineOut(Schema):
 
 
 class QuarantineFilters(PageParams):
-    status: Literal["held", "released"] = Field(
-        "held", description="Held now, or infected findings released as false positives."
+    released: bool = Field(
+        False,
+        description="Infected findings released as false positives, rather than what's held now.",
     )
     state: Literal["infected", "not_scanned"] | None = Field(
         None, description="Only malware findings, or only inspections that couldn't finish."
@@ -427,8 +428,8 @@ class Page_RegistrationOut_(Page[RegistrationOut | RegistrationStatusOut]):  # n
     pass
 
 
-class LocationsOut(Schema):
-    locations: list[str] = Field(description="Where files may be registered, such as s3://lab/.")
+class RegistrationLocationOut(Schema):
+    uri: str = Field(description="Where files may be registered, such as s3://lab/.")
 
 
 _FILE_QUERY = (
@@ -723,23 +724,25 @@ def _quarantine_out(
     return rows
 
 
-@router.get("/quarantine", response=Page[QuarantineOut], summary="List quarantined files")
+@router.get("/quarantine-decisions", response=Page[QuarantineOut], summary="List quarantined files")
 def list_quarantine(request: HttpRequest, filters: Query[QuarantineFilters]) -> dict[str, Any]:
     """For Quarantine Admins. Newest first, across the deployment: what's held now, or with
-    ``status=released``, the infected findings released as false positives. Each entry
+    ``released``, the infected findings released as false positives. Each entry
     identifies the held bytes, the finding, and where the bytes are: several project files
     can share one source, and so its scan."""
     me = caller(request)
     require(me, Action.QUARANTINE_MANAGE)
-    found = scan_state.quarantine(
-        released=filters.status == "released", state=filters.state or "", q=filters.q
-    )
+    found = scan_state.quarantine(released=filters.released, state=filters.state or "", q=filters.q)
     result = page(found, filters, newest_first=True)
     items = _quarantine_out(me, result["items"], every=False)
     return {"items": items, "next_cursor": result["next_cursor"]}
 
 
-@router.get("/quarantine/{decision_id}", response=QuarantineOut, summary="Read a quarantined file")
+@router.get(
+    "/quarantine-decisions/{decision_id}",
+    response=QuarantineOut,
+    summary="Read a quarantined file",
+)
 def read_quarantine(request: HttpRequest, decision_id: UUID) -> dict[str, Any]:
     """For Quarantine Admins: a held decision, or a released one, with every place its
     bytes are."""
@@ -756,7 +759,7 @@ def _reviewed(decision_id: UUID) -> BlobScan:
 
 
 @router.post(
-    "/quarantine/{decision_id}/release",
+    "/quarantine-decisions/{decision_id}/release",
     response=QuarantineOut,
     summary="Release an infected file after reviewing its finding",
 )
@@ -856,12 +859,19 @@ def cancel_upload(request: HttpRequest, upload_id: UUID) -> Status[None]:
 
 
 @router.get(
-    "/registrations/locations", response=LocationsOut, summary="Where files can be registered"
+    "/registrations/locations",
+    response=Page[RegistrationLocationOut],
+    summary="Where files can be registered",
 )
-def registration_locations(request: HttpRequest) -> dict[str, Any]:
-    """The approved buckets and prefixes, set by your administrators."""
+def registration_locations(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
+    """The approved buckets and prefixes, set by your administrators, by URI."""
     caller(request)
-    return {"locations": services.locations()}
+    return page_sorted(
+        ({"uri": uri} for uri in services.locations()),
+        params,
+        by=("uri",),
+        key=lambda u: (u["uri"],),
+    )
 
 
 @router.post(
@@ -1027,15 +1037,22 @@ def count_files(request: HttpRequest, params: Query[FacetParams]) -> dict[str, A
     return {"total": total, "more_than_total": more}
 
 
-@router.get("/files/formats", response=list[FormatOut], summary="The formats of files")
-def file_formats(request: HttpRequest, params: Query[FacetParams]) -> list[dict[str, Any]]:
-    """Format labels and counts for readable files matching the other filters. Aliases
-    count together. A file of an undeclared type keeps its media type as its label."""
+class FormatFacetParams(FacetParams, PageParams):
+    pass
+
+
+@router.get("/files/formats", response=Page[FormatOut], summary="The formats of files")
+def file_formats(request: HttpRequest, params: Query[FormatFacetParams]) -> dict[str, Any]:
+    """Format labels and counts for readable files matching the other filters, the most
+    common first. Aliases count together. A file of an undeclared type keeps its media type
+    as its label."""
     me = caller(request)
-    found = listing.formats(me, _scope(me, params.project), _filters(me, params))
+    counted = listing.formats(me, _scope(me, params.project), _filters(me, params))
+    # Counted over every matching file in one query, so paged as counted.
+    found = page_sorted(counted, params, by=("-count", "media_type"), key=lambda f: (-f[1], f[0]))
     catalog = registry.file_formats()
     out = []
-    for media_type, count in found:
+    for media_type, count in found["items"]:
         fmt = catalog.by_media_type(media_type)
         out.append(
             {
@@ -1045,15 +1062,21 @@ def file_formats(request: HttpRequest, params: Query[FacetParams]) -> list[dict[
                 "count": count,
             }
         )
-    return out
+    return {**found, "items": out}
 
 
-@router.get("/formats", response=list[InstalledFormatOut], summary="The installed file formats")
-def installed_formats(request: HttpRequest) -> list[dict[str, Any]]:
+@router.get("/formats", response=Page[InstalledFormatOut], summary="The installed file formats")
+def installed_formats(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
     """Core and plugin formats, in recognition order for shared filename extensions."""
     caller(request)
     catalog = registry.file_formats()
-    return [
+    found = page_sorted(
+        enumerate(catalog.formats.values()),
+        params,
+        by=("order", "id"),
+        key=lambda f: (f[0], f[1].id),
+    )
+    items = [
         {
             "id": fmt.id,
             "label": fmt.label,
@@ -1065,8 +1088,9 @@ def installed_formats(request: HttpRequest) -> list[dict[str, Any]]:
             "viewer": fmt.viewer,
             "parsers": catalog.parsers(fmt.id),
         }
-        for fmt in catalog.formats.values()
+        for _, fmt in found["items"]
     ]
+    return {**found, "items": items}
 
 
 def _run_ref(run: Any) -> dict[str, Any]:  # noqa: ANN401 - an ActionRun

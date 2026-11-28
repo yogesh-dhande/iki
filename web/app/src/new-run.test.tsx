@@ -50,7 +50,7 @@ function onProject(can: Partial<Schemas["ProjectOut"]["can"]> = {}): void {
   withTypes();
   const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"], ...can } });
   answer("GET /api/v1/projects", page([atlas]));
-  answer("GET /api/v1/actions", [COMPUTE, PREDICT, OFFLINE]);
+  answer("GET /api/v1/actions", page([COMPUTE, PREDICT, OFFLINE]));
   answer("POST /api/v1/entities/search", (r: { body: { where: { value: string[] } } }) =>
     page(
       [
@@ -66,7 +66,7 @@ describe("starting a run", () => {
     withTypes();
     answer("GET /api/v1/entities/PRT-000001", entity());
     answer("GET /api/v1/entities/PRT-000001/provenance", {});
-    answer("GET /api/v1/entities/PRT-000001/projects", []);
+    answer("GET /api/v1/entities/PRT-000001/projects", page([]));
     await renderApp("/entities/PRT-000001/");
     expect(screen.getByRole("link", { name: "Run action" })).toHaveAttribute(
       "href",
@@ -94,7 +94,7 @@ describe("starting a run", () => {
     onProject();
     answer(`POST /api/v1/actions/${ACTION.name}/runs`, () => run());
     answer("GET /api/v1/runs/RUN-000001", run());
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
     const { user, router } = await renderApp(
       "/projects/kinase-atlas/runs/new/?entities=PRT-000001",
     );
@@ -165,63 +165,66 @@ describe("starting a run", () => {
       max_length: null,
       pattern: null,
     };
-    answer("GET /api/v1/actions", [
-      {
-        ...ACTION,
-        name: actionName,
-        label: "Record plasmid verification",
-        inputs: [
-          {
-            name: "prep",
-            label: "Physical prep",
-            type: prep.type,
-            optional: false,
-            cardinality: "one",
-            max: null,
-            from_project: false,
-            description: null,
-          },
-          {
-            name: "alignment",
-            label: "Alignment",
-            type: alignment.type,
-            optional: true,
-            cardinality: "one",
-            max: null,
-            from_project: false,
-            description: null,
-          },
-        ],
-        params: [
-          {
-            ...param,
-            ...field({
-              name: "outcome",
-              label: "Outcome",
-              type: "enum",
-              values: ["match", "discrepancy", "inconclusive"],
-              required: true,
-            }),
-          },
-          {
-            ...param,
-            ...field({
-              name: "override_reason",
-              label: "Reason for overriding the verdict",
-              type: "string",
-            }),
-          },
-        ],
-        params_schema: {},
-      },
-    ]);
+    answer(
+      "GET /api/v1/actions",
+      page([
+        {
+          ...ACTION,
+          name: actionName,
+          label: "Record plasmid verification",
+          inputs: [
+            {
+              name: "prep",
+              label: "Physical prep",
+              type: prep.type,
+              optional: false,
+              cardinality: "one",
+              max: null,
+              from_project: false,
+              description: null,
+            },
+            {
+              name: "alignment",
+              label: "Alignment",
+              type: alignment.type,
+              optional: true,
+              cardinality: "one",
+              max: null,
+              from_project: false,
+              description: null,
+            },
+          ],
+          params: [
+            {
+              ...param,
+              ...field({
+                name: "outcome",
+                label: "Outcome",
+                type: "enum",
+                values: ["match", "discrepancy", "inconclusive"],
+                required: true,
+              }),
+            },
+            {
+              ...param,
+              ...field({
+                name: "override_reason",
+                label: "Reason for overriding the verdict",
+                type: "string",
+              }),
+            },
+          ],
+          params_schema: {},
+        },
+      ]),
+    );
     answer("POST /api/v1/entities/search", page([prep]));
     answer("GET /api/v1/entities", page([alignment]));
     answer("GET /api/v1/entities/" + SECOND_ID, alignment);
     const launched = "POST /api/v1/actions/" + actionName + "/runs";
     answer(launched, run({ action: actionName }));
     answer("GET /api/v1/runs/RUN-000001", run({ action: actionName }));
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
     const { user } = await renderApp(
       "/projects/kinase-atlas/runs/new/?entities=PREP-000001&action=" + actionName,
     );
@@ -263,7 +266,7 @@ describe("starting a run", () => {
             }),
     );
     answer("GET /api/v1/runs/RUN-000001", run());
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
     const { user, router } = await renderApp(
       `/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=${ACTION.name}`,
     );
@@ -342,7 +345,7 @@ describe("starting a run", () => {
         timeout_cost: 0.3,
       },
     };
-    answer("GET /api/v1/actions", [RELAX]);
+    answer("GET /api/v1/actions", page([RELAX]));
     await renderApp(
       `/projects/kinase-atlas/runs/new/?entities=PRT-000001,PRT-000002&action=${ACTION.name}`,
     );
@@ -353,20 +356,23 @@ describe("starting a run", () => {
 
   it("says what its machine costs an hour, before any run has", async () => {
     onProject({ run: ["self_hosted", "backend", "container"] });
-    answer("GET /api/v1/actions", [
-      {
-        ...ACTION,
-        tier: "container",
-        estimate: {
-          template: "container-small",
-          price_per_hour: 1.8,
-          currency: "USD",
-          typical: null,
-          runs_seen: 0,
-          timeout_cost: 0.3,
+    answer(
+      "GET /api/v1/actions",
+      page([
+        {
+          ...ACTION,
+          tier: "container",
+          estimate: {
+            template: "container-small",
+            price_per_hour: 1.8,
+            currency: "USD",
+            typical: null,
+            runs_seen: 0,
+            timeout_cost: 0.3,
+          },
         },
-      },
-    ]);
+      ]),
+    );
     await renderApp(`/projects/kinase-atlas/runs/new/?entities=PRT-000001&action=${ACTION.name}`);
     expect(await screen.findByText(/^Its machine costs/)).toHaveTextContent(
       "Its machine costs $1.80 an hour: at most $0.30 if it runs for its whole timeout.",
@@ -427,7 +433,7 @@ describe("starting a run", () => {
         additionalProperties: false,
       },
     };
-    answer("GET /api/v1/actions", [COMPUTE, IMPORT]);
+    answer("GET /api/v1/actions", page([COMPUTE, IMPORT]));
     const fasta = {
       id: FILE_ID,
       name: "kinases.fasta",
@@ -446,17 +452,20 @@ describe("starting a run", () => {
     };
     answer("GET /api/v1/files", page([fasta]));
     answer("GET /api/v1/files/count", { total: 1, more_than_total: false });
-    answer("GET /api/v1/files/formats", [
-      {
-        id: "iki/core.protein-fasta",
-        label: "protein FASTA",
-        media_type: "chemical/seq-aa-fasta",
-        count: 1,
-      },
-    ]);
+    answer(
+      "GET /api/v1/files/formats",
+      page([
+        {
+          id: "iki/core.protein-fasta",
+          label: "protein FASTA",
+          media_type: "chemical/seq-aa-fasta",
+          count: 1,
+        },
+      ]),
+    );
     answer("POST /api/v1/actions/iki/protein.import_proteins/runs", () => run());
     answer("GET /api/v1/runs/RUN-000001", run());
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
     const { user, router } = await renderApp("/projects/kinase-atlas/runs/new/");
 
     await user.selectOptions(
@@ -513,10 +522,10 @@ describe("starting a run", () => {
       labels: ["chromeleon"],
     };
     onProject();
-    answer("GET /api/v1/actions", [hplc]);
+    answer("GET /api/v1/actions", page([hplc]));
     answer(`POST /api/v1/actions/${ACTION.name}/runs`, () => run());
     answer("GET /api/v1/runs/RUN-000001", run());
-    answer("GET /api/v1/runs/RUN-000001/attempts", []);
+    answer("GET /api/v1/runs/RUN-000001/attempts", page([]));
     const { user } = await renderApp("/projects/kinase-atlas/runs/new/?entities=PRT-000001");
     await user.selectOptions(
       await screen.findByRole("combobox", { name: "Action" }),
@@ -558,7 +567,7 @@ describe("starting a run", () => {
     withTypes();
     const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"] } });
     answer("GET /api/v1/projects", page([atlas]));
-    answer("GET /api/v1/actions", [COMPUTE]);
+    answer("GET /api/v1/actions", page([COMPUTE]));
     const ours = entity();
     const theirs = entity({
       id: SECOND_ID,
@@ -587,7 +596,7 @@ describe("starting a run", () => {
     withTypes();
     const atlas = project({ can: { ...KINASE.can, run: ["self_hosted", "backend"] } });
     answer("GET /api/v1/projects", page([atlas]));
-    answer("GET /api/v1/actions", [COMPUTE]);
+    answer("GET /api/v1/actions", page([COMPUTE]));
     const elsewhere = (id: string, hrid: string, slug: string) =>
       entity({
         id,
@@ -635,7 +644,7 @@ describe("starting a run", () => {
       available: false,
       unavailable_reason: why,
     };
-    answer("GET /api/v1/actions", [COMPUTE, FETCH]);
+    answer("GET /api/v1/actions", page([COMPUTE, FETCH]));
     await renderApp("/projects/kinase-atlas/runs/new/?action=iki/dna.fetch_sequences");
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(`Fetch DNA sequences from NCBI can’t run here. ${why}`);
@@ -673,7 +682,7 @@ describe("starting a run", () => {
         ...ACTION.inputs,
       ],
     };
-    answer("GET /api/v1/actions", [ranking]);
+    answer("GET /api/v1/actions", page([ranking]));
     const path = `/api/v1/actions/${ranking.name}/runs`;
     answer(`POST ${path}`, () =>
       problem(422, "validation_failed", "Some inputs or params are invalid.", [

@@ -166,15 +166,15 @@ function onProjects(...projects: Schemas["ProjectOut"][]): void {
 /** A record's page in Kinase Atlas, by its HRID and project. */
 function onRecord(current = record()): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [PROTEIN_R]);
-  answer("GET /api/v1/components", []);
+  answer("GET /api/v1/entity-types", page([PROTEIN_R]));
+  answer("GET /api/v1/components", page([]));
   onProjects(KINASE, OTHER);
   answer("GET /api/v1/entities/PRT-000001", current);
   answer(`GET /api/v1/entities/${PROTEIN_ID}/provenance`, {
     uniprot: revision({ number: 2, entry: true, user: null, created_at: null, via: "" }),
     name: revision(),
   });
-  answer(`GET /api/v1/entities/${PROTEIN_ID}/projects`, []);
+  answer(`GET /api/v1/entities/${PROTEIN_ID}/projects`, page([]));
 }
 
 describe("a project's record of a registry entry", () => {
@@ -307,8 +307,8 @@ describe("a project's record of a registry entry", () => {
       fields: [field({ name: "chain", label: "Chain", type: "ref", to: ["iki/protein.Protein"] })],
     };
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN_R, structure]);
-    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/entity-types", page([PROTEIN_R, structure]));
+    answer("GET /api/v1/components", page([]));
     onProjects(KINASE);
     answer(
       "GET /api/v1/entities/PST-000001",
@@ -328,7 +328,7 @@ describe("a project's record of a registry entry", () => {
       }),
     );
     answer("GET /api/v1/entities/PST-000001/provenance", {});
-    answer("GET /api/v1/entities/PST-000001/projects", []);
+    answer("GET /api/v1/entities/PST-000001/projects", page([]));
     await renderApp("/entities/PST-000001/");
     expect(screen.getByRole("link", { name: "PRT-000001" })).toHaveAttribute(
       "href",
@@ -512,12 +512,12 @@ describe("a superseded entry", () => {
 
   function onReagent(current: Schemas["EntityOut"]): void {
     signedIn();
-    answer("GET /api/v1/entity-types", [PRIMARY, SECONDARY]);
-    answer("GET /api/v1/components", []);
+    answer("GET /api/v1/entity-types", page([PRIMARY, SECONDARY]));
+    answer("GET /api/v1/components", page([]));
     onProjects(KINASE, OTHER);
     answer(`GET /api/v1/entities/${current.hrid}`, current);
     answer(`GET /api/v1/entities/${current.id}/provenance`, {});
-    answer(`GET /api/v1/entities/${current.id}/projects`, []);
+    answer(`GET /api/v1/entities/${current.id}/projects`, page([]));
   }
 
   it("moves a record to an entry of another type as a new record, archiving this one", async () => {
@@ -534,7 +534,7 @@ describe("a superseded entry", () => {
     answer(`POST /api/v1/entities/${PROTEIN_ID}/move`, { ...moved, repointed: [] });
     answer("GET /api/v1/entities/SAB-000001", moved);
     answer(`GET /api/v1/entities/${SECONDARY_ID}/provenance`, {});
-    answer(`GET /api/v1/entities/${SECONDARY_ID}/projects`, []);
+    answer(`GET /api/v1/entities/${SECONDARY_ID}/projects`, page([]));
     const { router, user } = await renderApp("/entities/PAB-000001/?project=kinase-atlas");
     const banner = await screen.findByRole("note", {
       name: "PAB-000001 was superseded by SAB-000001",
@@ -702,7 +702,7 @@ describe("editing a record", () => {
 describe("a type's fields", () => {
   it("says where each is kept", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN_R]);
+    answer("GET /api/v1/entity-types", page([PROTEIN_R]));
     await renderApp("/types/iki/protein.Protein/");
     const rows = within(screen.getByRole("table")).getAllByRole("row").slice(1);
     expect(rows.map((r) => r.querySelector("td:last-child .badge")?.textContent)).toEqual([
@@ -798,7 +798,7 @@ describe("a project's registry", () => {
       set_by: null,
       set_at: null,
     });
-    answer(`GET /api/v1/projects/${KINASE.id}/dashboard/choices`, []);
+    answer(`GET /api/v1/projects/${KINASE.id}/dashboard/choices`, page([]));
     await renderApp("/projects/kinase-atlas/settings/");
     const card = screen.getByRole("heading", { name: "Registry" }).closest("section");
     if (!card) throw new Error("no Registry card");
@@ -835,7 +835,7 @@ function entryOut(overrides: Partial<Schemas["EntryOut"]> = {}): Schemas["EntryO
 
 function onEntry(current = entryOut()): void {
   signedIn();
-  answer("GET /api/v1/entity-types", [PROTEIN_R]);
+  answer("GET /api/v1/entity-types", page([PROTEIN_R]));
   onProjects(KINASE, OTHER);
   answer("GET /api/v1/entries/PRT-000001", current);
   answer(`GET /api/v1/entries/${ENTRY_ID}/revisions`, page([]));
@@ -844,7 +844,7 @@ function onEntry(current = entryOut()): void {
 describe("a registry's entries", () => {
   it("lists them for its registrars, with how many projects have each", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN_R]);
+    answer("GET /api/v1/entity-types", page([PROTEIN_R]));
     answer(
       `GET /api/v1/registries/${MAIN_REGISTRY.id}`,
       registry({ can: { manage: false, curate: true, curate_lists: false } }),
@@ -888,7 +888,7 @@ describe("a registry's entries", () => {
 
   it("are only its registrars' to list", async () => {
     signedIn();
-    answer("GET /api/v1/entity-types", [PROTEIN_R]);
+    answer("GET /api/v1/entity-types", page([PROTEIN_R]));
     answer(`GET /api/v1/registries/${MAIN_REGISTRY.id}`, registry());
     await renderApp(`/registries/${MAIN_REGISTRY.id}/entries/`);
     expect(
@@ -950,8 +950,8 @@ describe("an entry's page", () => {
     );
     answer("GET /api/v1/entities/PRT-000001", record({ owner_project: OTHER }));
     answer(`GET /api/v1/entities/${PROTEIN_ID}/provenance`, {});
-    answer(`GET /api/v1/entities/${PROTEIN_ID}/projects`, []);
-    answer("GET /api/v1/components", []);
+    answer(`GET /api/v1/entities/${PROTEIN_ID}/projects`, page([]));
+    answer("GET /api/v1/components", page([]));
     const { router, user } = await renderApp("/entries/PRT-000001/");
     const add = screen.getByRole("region", { name: "Add to another project" });
     // Only the projects the API says it may go to.
@@ -1005,7 +1005,10 @@ describe("an entry's page", () => {
   it("says when someone else changed it first, brings their facts in, and saves from them", async () => {
     onEntry(entryOut({ holders: 2, can: { curate: true } }));
     const pdb = field({ name: "pdb", label: "PDB ID", type: "string", registry: "fact" });
-    answer("GET /api/v1/entity-types", [{ ...PROTEIN_R, fields: [...PROTEIN_R.fields, pdb] }]);
+    answer(
+      "GET /api/v1/entity-types",
+      page([{ ...PROTEIN_R, fields: [...PROTEIN_R.fields, pdb] }]),
+    );
     const theirs = entryOut({
       revision: 4,
       holders: 2,
@@ -1140,7 +1143,7 @@ describe("an entry's page", () => {
       },
     });
     signedIn();
-    answer("GET /api/v1/entity-types", [PRIMARY, SECONDARY]);
+    answer("GET /api/v1/entity-types", page([PRIMARY, SECONDARY]));
     onProjects(KINASE, OTHER);
     answer("GET /api/v1/entries/PAB-000001", wrong);
     answer(`GET /api/v1/entries/${ENTRY_ID}/revisions`, page([]));

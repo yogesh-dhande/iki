@@ -19,6 +19,7 @@ import {
 
 export type Person = Schemas["PersonOut"];
 export type Nameable = Schemas["NameableOut"];
+export type NameablePage = Schemas["Page_NameableOut_"];
 export type WorkItem = Schemas["WorkItemOut"];
 export type Reassign = Schemas["ReassignOut"];
 export type Assigned = Schemas["AssignOut"];
@@ -40,25 +41,26 @@ export function workStates(type: EntityType | undefined, entity: Entity): string
   });
 }
 
-/** How many people a picker asks the server for at most. */
+/** How many people a picker asks the server for at most: the first page of best matches. */
 const NAMEABLE_LIMIT = 20;
 
 /**
  * Whom the server lists for `text`, worked out from what it listed for `before`, or
- * undefined when that can't be known. It can when the earlier list was whole (under the
- * limit) and `text` contains `before`: everyone matching `text` was in it. The server's
+ * undefined when that can't be known. It can when the earlier answer was whole (its last
+ * page: no `next_cursor`) and `text` contains `before`: everyone matching `text` was in
+ * it. The server's
  * match and order (name or email containing the text, those starting with it first, then
  * by name), so its answer, when it comes, is the same list: suggestions don't move under
  * someone choosing one.
  */
 export function narrowNameable(
-  listed: Nameable[],
+  listed: NameablePage,
   before: string,
   text: string,
-): Nameable[] | undefined {
+): NameablePage | undefined {
   const was = before.trim().toLowerCase();
   const key = text.trim().toLowerCase();
-  if (listed.length >= NAMEABLE_LIMIT || !key.includes(was)) return undefined;
+  if (listed.next_cursor || !key.includes(was)) return undefined;
   const rank = (p: Nameable): [number, string] => {
     const name = p.name.toLowerCase();
     const email = p.email.toLowerCase();
@@ -67,14 +69,16 @@ export function narrowNameable(
   };
   const order = (a: [number, string], b: [number, string]): number =>
     a[0] - b[0] || (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
-  return listed
+  const items = listed.items
     .filter((p) => p.name.toLowerCase().includes(key) || p.email.toLowerCase().includes(key))
     .map((p) => ({ p, at: rank(p) }))
     .sort((a, b) => order(a.at, b.at))
     .map(({ p }) => p);
+  return { items, next_cursor: null };
 }
 
-/** The people a project's records can name, for a picker: those a field can name. Until
+/** The people a project's records can name, for a picker: those a field can name, the
+ * first page of the best matches. Until
  * the server answers, only an answer known to be the same shows: never people listed for
  * other text or another role, who would then move or vanish as someone clicks. */
 export function nameableQuery(projectId: string, role: string | null | undefined, q: string) {
@@ -155,8 +159,8 @@ export function workQuery(filter: WorkFilter) {
       };
       return unwrap(
         filter.open
-          ? await iki.GET("/api/v1/me/work/open", { params: { query }, signal })
-          : await iki.GET("/api/v1/me/work", { params: { query }, signal }),
+          ? await iki.GET("/api/v1/me/open-work-items", { params: { query }, signal })
+          : await iki.GET("/api/v1/me/work-items", { params: { query }, signal }),
       );
     },
     getNextPageParam: (last) => last.next_cursor ?? undefined,

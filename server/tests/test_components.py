@@ -25,7 +25,7 @@ RESIDUES = "acme/protein.residues"
 
 
 def test_components_are_listed_with_where_they_appear(world: World) -> None:
-    listed = {c["name"]: c for c in api_as(world, "viewer").get("/components").json()}
+    listed = {c["name"]: c for c in api_as(world, "viewer").every("/components")}
     found = listed[RESIDUES]
     module = installed.module(RESIDUES)
     assert found == {
