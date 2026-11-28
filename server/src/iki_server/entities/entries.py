@@ -169,6 +169,9 @@ def curate(
     with transaction.atomic(), services._unique_values():
         if listed:
             lists.lock(entry.registry_id, entry.type)
+        if breaches.rechecked(entry.type, set(values)):
+            # Its records before it, as an edit locks its record before its entry.
+            breaches.lock_holders([entry.pk])
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         if locked.revision != expected_revision:
             raise services.Stale(locked.revision)

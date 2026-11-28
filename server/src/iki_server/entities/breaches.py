@@ -26,6 +26,7 @@ here: the database holds them, and the sync stops when records already break one
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Collection, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -36,8 +37,17 @@ from iki_server.audit import log as audit
 from iki_server.entities import checking, computing, holds, registry
 from iki_server.entities.models import Entity, RuleBreach, RuleHold, RulesChecked
 from iki_server.notifications import kinds
+from iki_spec.model import EntityType
 
-__all__ = ["BROKEN", "Checked", "check_brought", "check_holders", "recheck"]
+__all__ = [
+    "BROKEN",
+    "Checked",
+    "check_brought",
+    "check_holders",
+    "lock_holders",
+    "recheck",
+    "rechecked",
+]
 
 log = structlog.get_logger(__name__)
 
@@ -200,12 +210,22 @@ def check_holders(
     besides: frozenset[Any] = frozenset(),
 ) -> None:
     """After a change to a registry entry's values (ADR 0115), the records of it, but
-    ``besides`` (those the change's own save checked), checked against the rules reading
-    what changed (ADR 0127). The change isn't their project's, and it mustn't learn of
-    them, so it isn't refused for them: as a deploy finds records breaking a rule, one
-    breaking a rule that holds is held, by ``user`` for ``reason``, and one breaking any
-    other is reported. A rule it keeps again is cleared."""
-    if not changed or not _read_by_holders(entry.type, changed):
+    ``besides`` (those the change's own save checked and cleared). The change isn't their
+    project's, and it mustn't learn of them, so it isn't refused for them:
+
+    - the results of their checks reading what changed are cleared, as an edit of it
+      clears them (ADR 0080), by ``user`` for ``reason`` (:func:`services.recheck_holders`);
+    - they're checked against the rules reading what changed, or what that cleared (ADR
+      0127): as a deploy finds records breaking a rule, one breaking a rule that holds is
+      held, by ``user`` for ``reason``, and one breaking any other is reported. A rule it
+      keeps again is cleared.
+
+    A few queries for a page of them, a type at a time."""
+    if not changed:
+        return
+    read = _read_by_holders(entry.type, changed)
+    cleared_by = rechecked(entry.type, changed)
+    if not read and not cleared_by:
         return
     from iki_server.entities import services
 
@@ -215,16 +235,29 @@ def check_holders(
         .select_related("owner_project")
         .order_by("pk")
     )
+    if cleared_by:
+        # Locked already, before the entry, by the change (lock_holders): kept so.
+        records = records.select_for_update(of=("self",))
     by_type: dict[str, list[Entity]] = defaultdict(list)
     for record in records:
         if record.type in registry.types():
             by_type[record.type].append(record)
     for type_name, chunk in sorted(by_type.items()):
         values = services.current_values_of(chunk)
+        cleared = (
+            services.recheck_holders(chunk, values, changed, user=user, reason=reason)
+            if cleared_by
+            else {}
+        )
+        if not read and not cleared:
+            continue
+        edits = {e.pk: changed | cleared.get(e.pk, frozenset()) for e in chunk}
         savings = [
-            checking.Saving(values.get(e.pk, {}).get, changed, id=e.pk, hrid=e.hrid) for e in chunk
+            checking.Saving(values.get(e.pk, {}).get, edits[e.pk], id=e.pk, hrid=e.hrid)
+            for e in chunk
         ]
-        for record, found in zip(chunk, checking.broken(type_name, savings), strict=True):
+        broken = checking.broken(type_name, savings)
+        for record, found in zip(chunk, broken, strict=True):
             for b in found:
                 if not b.held:
                     RuleBreach.objects.update_or_create(
@@ -242,22 +275,51 @@ def check_holders(
                     revision=record.revision,
                     entry_revision=entry_revision,
                 )
-            checking.kept(record, changed, found)
+        checking.kept_each(
+            [(r, edits[r.pk], found) for r, found in zip(chunk, broken, strict=True)]
+        )
+
+
+def rechecked(type_name: str, changed: Collection[str]) -> bool:
+    """Whether a check (ADR 0080) of a type whose records an entry of ``type_name`` could
+    have reads one of ``changed``, so a change to them clears its results on the entry's
+    records (:func:`check_holders`): asks no query."""
+    from iki_server.runs import triggers
+
+    return any(triggers.rechecks(t.qualified_name, set(changed)) for t in _holding(type_name))
+
+
+def lock_holders(entry_ids: Collection[Any]) -> None:
+    """Locks the records of these registry entries, in order. A change to an entry that
+    clears their check results (:func:`rechecked`) locks them before the entry, as an
+    edit of a record locks it before its entry: the two never deadlock."""
+    list(
+        Entity.objects.select_for_update()
+        .filter(entry_id__in=entry_ids, registry_id__isnull=True)
+        .order_by("pk")
+        .values_list("pk", flat=True)
+    )
 
 
 def _read_by_holders(type_name: str, changed: frozenset[str]) -> bool:
     """Whether a rule of a type whose records an entry of ``type_name`` could have reads
     one of ``changed``: so an entry no rule reads costs no query."""
+    return any(
+        not r.reads or set(r.reads) & changed
+        for t in _holding(type_name)
+        for r in checking.checks_of(t.qualified_name)
+    )
+
+
+def _holding(type_name: str) -> Iterator[EntityType]:
+    """The types whose records an entry of ``type_name`` could have: its identity's."""
     owner = registry.identity_owner(registry.types()[type_name])
     if owner is None:
-        return False
+        return
     for t in registry.types().values():
         found = registry.identity_owner(t)
-        if t.abstract or found is None or found.qualified_name != owner.qualified_name:
-            continue
-        if any(not r.reads or set(r.reads) & changed for r in checking.checks_of(t.qualified_name)):
-            return True
-    return False
+        if not t.abstract and found is not None and found.qualified_name == owner.qualified_name:
+            yield t
 
 
 @dataclass

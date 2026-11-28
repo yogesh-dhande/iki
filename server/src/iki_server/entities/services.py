@@ -46,7 +46,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Model, Q
+from django.db.models import F, Model, Q
 from django.db.models.functions import Now
 
 from iki_server.accounts.models import User
@@ -121,6 +121,9 @@ STATE_SET_ALONE = (
     "is a state field: it's set on its own, by someone with one of its states' lab roles "
     "(ADR 0125). New records start in its initial state."
 )
+
+#: A recheck's note on a record once what its check read changed (ADR 0080).
+RECHECK_NOTE = "Needs re-verification"
 
 
 class Stale(Exception):  # noqa: N818 - reads as "the edit was stale"
@@ -626,6 +629,9 @@ def fill_entry(
     (:func:`breaches.check_holders`), but ``besides``, which the save itself checks."""
     if not values:
         return None
+    if breaches.rechecked(entry.type, set(values)):
+        # Its records before it, as an edit locks its record before its entry.
+        breaches.lock_holders([entry.pk])
     locked = Entity.objects.select_for_update().get(pk=entry.pk)
     rows = Rows(form, None, _specific(locked))
     current = {name: rows.get(name) for name in values}
@@ -664,11 +670,142 @@ def fill_entry(
     return revision
 
 
+def recheck_holders(
+    records: Sequence[Entity],
+    values: Mapping[Any, dict[str, Any]],
+    changed: frozenset[str],
+    *,
+    user: User | None,
+    reason: str,
+) -> dict[Any, frozenset[str]]:
+    """Records of one type, holding a registry entry whose values ``changed`` (ADR 0115),
+    locked: the results of their checks reading what changed are cleared, as an edit of it
+    clears them (ADR 0080), each record's in a revision by ``user`` for ``reason``, in a
+    few queries for them all. Their checks aren't run here, as a recheck runs as whoever
+    edited the record, and no one did in its project: its note says it needs
+    re-verification. A record that can't change now (its state locks it, it's archived,
+    or its plugin is detached) keeps them, flagged to be worked out again. Each project
+    was told of the entry's change (:func:`entries.announce`), so the revisions tell no
+    webhook and fire no trigger of their own. ``values``, each record's current values,
+    are updated with what it clears. Returns what each record cleared."""
+    from iki_server.runs import triggers
+    from iki_server.runs.models import Recalculation
+
+    if not records:
+        return {}
+    type_name = records[0].type
+    found = triggers.rechecks(type_name, set(changed))
+    if not found:
+        return {}
+    form = shape(type_name)
+    fields = form.fields()
+    clearing: dict[str, Any] = {}
+    for spec, outputs in found:
+        for name in outputs:
+            if name in fields and not form.part_of(name).entry:
+                empty: list[Any] | None = [] if _is_list(fields[name]) else None
+                clearing[name] = RECHECK_NOTE if name == spec.recheck else empty
+    detached = frozen(form) is not None
+    flagged: list[Recalculation] = []
+    groups: dict[frozenset[str], list[Entity]] = defaultdict(list)
+    for record in records:
+        now = values[record.pk]
+        names = frozenset(n for n, v in clearing.items() if now.get(n) != v)
+        if not names:
+            continue
+        if detached or record.locked or record.archived_at is not None:
+            flagged += [
+                Recalculation(entity_id=record.pk, action=f"{spec.plugin}.{spec.run}")
+                for spec, _ in found
+            ]
+            continue
+        groups[names].append(record)
+    Recalculation.objects.bulk_create(flagged, ignore_conflicts=True)
+    cleared: dict[Any, frozenset[str]] = {}
+    for names, group in groups.items():
+        new = {n: clearing[n] for n in names}
+        touched = _write_each(form, [r.pk for r in group], new)
+        revisions = Revision.objects.bulk_create(
+            [
+                Revision(
+                    entity_id=r.pk,
+                    number=r.revision + 1,
+                    kind=RevisionKind.EDITED,
+                    changed_fields=sorted(names),
+                    user=user,
+                    # Who changed the entry isn't told to its other holders (ADR 0115).
+                    via=current_via() if user is not None else "system",
+                    client=current_oauth_client() if user is not None else "",
+                    agent=current_agent() if user is not None else None,
+                    reason=reason.strip(),
+                )
+                for r in group
+            ]
+        )
+        Entity.objects.filter(pk__in=[r.pk for r in group]).update(
+            revision=F("revision") + 1, updated_at=Now()
+        )
+        for record in group:
+            record.revision += 1
+            values[record.pk].update(new)
+            cleared[record.pk] = names
+        for part in touched:
+            part.history._default_manager.bulk_create(
+                [
+                    part.history(
+                        entity_id=r.pk,
+                        revision=r.revision,
+                        **{
+                            n: None if f.removed else to_history(f, values[r.pk].get(n))
+                            for n, f in part.fields.items()
+                        },
+                    )
+                    for r in group
+                ]
+            )
+        for record, revision in zip(group, revisions, strict=True):
+            if not _quiet.get():
+                # A calculation reading through a reference to it reads what it cleared.
+                triggers.source_changed(record, revision)
+    return cleared
+
+
+def _write_each(form: Shape, ids: Sequence[Any], new: Mapping[str, Any]) -> list[Part]:
+    """Writes the same ``new`` values to each of the records ``ids``, as :func:`_write`
+    does to one, a query or two a table: a list's only cleared. Returns the tables it
+    wrote."""
+    touched: list[Part] = []
+    for part in form.parts:
+        mine = {n: v for n, v in new.items() if n in part.fields}
+        if not mine or part.entry:
+            continue
+        touched.append(part)
+        columns: dict[str, Any] = {}
+        for name, value in mine.items():
+            f = part.fields[name]
+            if _is_list(f):
+                assert not value  # noqa: S101 - what a recheck clears
+                part.list_model(name)._default_manager.filter(entity_id__in=ids).delete()
+            else:
+                columns[f"{name}_id" if f.type in FOREIGN_KEYS else name] = value
+        if not columns:
+            continue
+        manager = part.model._default_manager
+        if not part.extension:
+            manager.filter(pk__in=ids).update(**columns)
+            continue
+        have = set(manager.filter(entity_id__in=ids).values_list("entity_id", flat=True))
+        manager.filter(entity_id__in=have).update(**columns)
+        manager.bulk_create([part.model(entity_id=i, **columns) for i in ids if i not in have])
+    return touched
+
+
 def entry_filled(entry: Entity, form: Shape, new: Mapping[str, Any]) -> str:
-    """Why a record is held by its entry's change, as its other holders are told it."""
+    """Why a record is held, or its check results cleared, by its entry's change, as its
+    other holders are told it."""
     fields = form.fields()
     names = ", ".join(fields[n].label or n for n in sorted(new) if n in fields)
-    return f"Its registry entry {entry.hrid} was given {names}, which its rules read."
+    return f"Its registry entry {entry.hrid} was given {names}."
 
 
 def entry_changes(
@@ -978,6 +1115,12 @@ def update(
     edit of them would.
     """
     with transaction.atomic(), _unique_values():
+        if entity.entry_id is not None:
+            # What it gives its entry may clear its other records' check results: they're
+            # locked with it, in order, before the entry (see breaches.lock_holders).
+            given = set(values) & set(shape(entity.type).entry_fields())
+            if given and breaches.rechecked(entity.type, given):
+                breaches.lock_holders([entity.entry_id])
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
         if locked.registry_id is not None:
             raise Refused(
@@ -1130,12 +1273,15 @@ def update(
             raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
         from iki_server.runs import triggers
 
-        rechecks = (
-            triggers.rechecks(locked.type, set(new) | _entry_moved) if new or _entry_moved else []
+        # What it gives its entry changes the entry's facts, which its checks may read too.
+        filling, _ = entry_changes(
+            form, {n: rows.get(n) for n in for_entry}, for_entry, explicit=not by_run
         )
+        edited = set(new) | set(filling) | _entry_moved
+        rechecks = triggers.rechecks(locked.type, edited) if edited else []
         for spec, outputs in rechecks:
             for name in outputs:
-                value = "Needs re-verification" if name == spec.recheck else None
+                value = RECHECK_NOTE if name == spec.recheck else None
                 if rows.get(name) != value or name in new:
                     new[name] = value
         unworked: dict[str, list[str]] = {}
@@ -1240,7 +1386,7 @@ def update(
                     saved = update(
                         user,
                         locked,
-                        {spec.recheck: f"Needs re-verification. {problem}"[:10000]},
+                        {spec.recheck: f"{RECHECK_NOTE}. {problem}"[:10000]},
                         _recheck_note=spec.recheck,
                         expected_revision=saved.revision.number
                         if saved.revision
