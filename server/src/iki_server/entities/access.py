@@ -72,10 +72,12 @@ def visible_entries(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or An
 
 def readable(user: Any) -> QuerySet[Entity]:  # noqa: ANN401 - User or AnonymousUser
     """Records and registry entries the user can read: what a reference may show."""
-    return _readable_in(readable_projects(user).values("pk"))
+    return readable_in(readable_projects(user).values("pk"))
 
 
-def _readable_in(projects: QuerySet[Any]) -> QuerySet[Entity]:
+def readable_in(projects: QuerySet[Any]) -> QuerySet[Entity]:
+    """Records and registry entries readable through ``projects``: the one definition of
+    it, which the graph's walks use too (:mod:`iki_server.graph.queries`)."""
     links = ProjectLink.objects.filter(entity=OuterRef("pk"), project__in=projects)
     return Entity.objects.filter(
         Q(Exists(links), _views_they_read(Entity, projects)) | _has_record_in(projects),
@@ -97,7 +99,7 @@ def project_reference_ids(project: Project, ids: set[UUID]) -> set[UUID]:
 
 
 def _reference_ids_in(projects: QuerySet[Any], named: set[UUID]) -> set[UUID]:
-    visible = set(_readable_in(projects).filter(pk__in=named).values_list("pk", flat=True))
+    visible = set(readable_in(projects).filter(pk__in=named).values_list("pk", flat=True))
     if remaining := named - visible:
         visible.update(
             _tombstones_in(projects).filter(pk__in=remaining).values_list("pk", flat=True)

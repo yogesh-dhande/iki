@@ -49,7 +49,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Batch
 schema_version: 1
-hrid: { prefix: BAT }
+hrid: { prefix: BTC }
 fields:
   name: { type: string, max_length: 100, required: true }
   method: { type: ref, to: PurificationMethod }
@@ -178,12 +178,19 @@ def test_iki_reserves_the_prefix_of_lists_options(tmp_path: Path) -> None:
     result = make(
         tmp_path,
         {
-            "types/batch.yaml": BATCH.replace("prefix: BAT", f"prefix: {LIST_HRID_PREFIX}"),
+            "types/batch.yaml": BATCH.replace("prefix: BTC", f"prefix: {LIST_HRID_PREFIX}"),
             "types/method.yaml": METHOD,
             "types/category.yaml": CATEGORY,
         },
     )
-    assert codes(result) == ["reserved-hrid-prefix"], problems(result)
+    # It's one of core's (ADR 0295): every lab list's options are numbered with it.
+    assert [(p.code, p.message) for p in result.problems if p.is_error] == [
+        (
+            "duplicate-hrid-prefix",
+            f"`acme/lab.Batch` uses `{LIST_HRID_PREFIX}`, the HRID prefix of Iki's lab list "
+            "options.",
+        )
+    ]
 
 
 def test_nothing_extends_a_list(tmp_path: Path) -> None:
@@ -271,6 +278,19 @@ def test_starting_options_are_each_the_lists_once(tmp_path: Path) -> None:
     twice += "  - { code: other, label: chromatography }\n"
     result = make(tmp_path, {"types/category.yaml": twice})
     assert codes(result) == ["list-option-twice", "list-label-twice"], problems(result)
+
+
+def test_a_starting_options_code_and_label_name_it_alone(tmp_path: Path) -> None:
+    """A sheet names an option by its code or its label, in any case, so another option's
+    code or label may be neither; its own may be both."""
+    clash = CATEGORY + "    - { code: sec, label: Size exclusion }\n"
+    clash += "    - { code: gf, label: SEC }\n"
+    clash += "    - { code: CHROMATOGRAPHY, label: Other chromatography }\n"
+    clash += "    - { code: desalting, label: Buffer exchange }\n"
+    clash += "    - { code: buffer_exchange, label: Desalting }\n"
+    result = make(tmp_path, {"types/category.yaml": clash})
+    assert codes(result) == ["list-name-twice"] * 3, problems(result)
+    assert "“SEC” is option 2's code, in any case" in str(problems(result))
 
 
 def test_starting_options_values_are_checked(tmp_path: Path) -> None:

@@ -17,12 +17,15 @@ import uuid
 from collections.abc import Iterable
 from typing import Any
 
-from django.db import transaction
-from django.db.models import QuerySet
+from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.models import BooleanField, Exists, F, Func, OuterRef, QuerySet
+from django.db.models.sql.compiler import SQLCompiler
 from django.utils import timezone
 
 from iki_server.audit import log as audit
-from iki_server.files.models import File
+from iki_server.core import sweeps
+from iki_server.files import scan_state
+from iki_server.files.models import BlobScan, File
 from iki_server.files.scan_state import ScanStatus, statuses_for_blobs
 from iki_server.runs import live
 from iki_server.runs.models import ActionRun, Job, JobState
@@ -82,45 +85,54 @@ def decided(blob_id: str) -> int:
 
 def recover(limit: int = AT_MOST) -> int:
     """Ends the waits whose files' scans are done, oldest first, in case a decision's task
-    was lost or came before their wait began. Returns how many ended. Through a scanner
-    outage it reads only which are still pending, in a query or two."""
-    jobs = list(
+    was lost or came before their wait began. Returns how many ended. It selects only those
+    that are done, so however many still wait through a long scan or a scanner outage, the
+    rest are found, in one query."""
+    ids = list(
         _waiting()
+        .filter(~Exists(_files().filter(blob__scan_result__isnull=True)) | Exists(_held()))
         .order_by("scan_wait_started_at")
-        .only("pk", "run_id", "scan_wait_started_at", "scan_wait_ended_at", "scan_wait_files")[
-            :limit
-        ]
+        .values_list("pk", flat=True)[:limit]
     )
-    blobs = dict(
-        File.objects.filter(pk__in={f for j in jobs for f in j.scan_wait_files}).values_list(
-            "pk", "blob_id"
-        )
-    )
-    scans = statuses_for_blobs(set(blobs.values()))
+    return _check_each(ids)
 
-    def settled(job: Job) -> bool:
-        found = [scans[blobs[f]] for f in job.scan_wait_files if f in blobs]
-        held = any(not s.usable and s.state != "pending" for s in found)
-        return held or all(s.state != "pending" for s in found)
 
-    return _check_each([j.pk for j in jobs if settled(j)])
+def _files() -> QuerySet[File]:
+    """The files the attempt in the outer query waits for."""
+    return File.objects.filter(InArray(F("pk"), OuterRef("scan_wait_files")))
+
+
+def _held() -> QuerySet[File]:
+    """Those of them that a decision holds."""
+    return _files().filter(blob__scan_result__in=BlobScan.objects.exclude(scan_state.USABLE))
 
 
 def _check_each(ids: list[uuid.UUID]) -> int:
-    ended = 0
-    for pk in ids:
-        with transaction.atomic():
-            # Jobs before their run, as the queue locks them, so the two never deadlock.
-            job = (
-                _waiting()
-                .select_for_update(skip_locked=True, of=("self",))
-                .filter(pk=pk)
-                .select_related("run__project")
-                .first()
-            )
-            if job is not None and _check(job):
-                ended += 1
-    return ended
+    def check(pk: uuid.UUID) -> bool:
+        # Jobs before their run, as the queue locks them, so the two never deadlock.
+        job = (
+            _waiting()
+            .select_for_update(skip_locked=True, of=("self",))
+            .filter(pk=pk)
+            .select_related("run__project")
+            .first()
+        )
+        return job is not None and _check(job)
+
+    return sweeps.each(ids, check, failed="scan_wait_check_failed", key="job")
+
+
+class InArray(Func):
+    """``value = ANY(array)``: whether an array holds the value."""
+
+    output_field = BooleanField()
+
+    def as_sql(  # type: ignore[override]
+        self, compiler: SQLCompiler, connection: BaseDatabaseWrapper
+    ) -> tuple[str, list[Any]]:
+        value, array = self.get_source_expressions()
+        (value_sql, given), (array_sql, taken) = compiler.compile(value), compiler.compile(array)
+        return f"{value_sql} = ANY({array_sql})", [*given, *taken]
 
 
 def _check(job: Job) -> bool:

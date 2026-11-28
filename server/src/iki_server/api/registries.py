@@ -46,7 +46,7 @@ from iki_server.api.entities import (
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
-from iki_server.entities import access, entries, registry, services
+from iki_server.entities import access, entries, lists, registry, services
 from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, ids_in, shape, to_json
@@ -331,8 +331,24 @@ class EntryRecordOut(Schema):
     project: ProjectRef
 
 
+class SupersedeAsOut(Schema):
+    type: str
+    fields: list[str] = Field(
+        description="The registry fields a registrar gives its new entry, as `values`: those "
+        "this entry's values don't fill as they are, outside what the two types share or "
+        "refined by the new type (its parts' roles). The rest come from this entry."
+    )
+
+
 class EntryCan(Schema):
     curate: bool = Field(description="Change its facts and supersede it: its registrars.")
+    supersede_as: list[SupersedeAsOut] = Field(
+        default_factory=list,
+        description="For its registrars: the other types its identity can be registered as "
+        "(ADR 0165), as POST /entries/{ref}/supersede with `type` does, by a new entry of "
+        "one that it hands its identity to. Types under one identity share entries: a "
+        "protein complex's chains registered as an antibody are that antibody.",
+    )
 
 
 class EntrySupersededOut(Schema):
@@ -399,6 +415,19 @@ def _curates(user: User, entry: Entity) -> bool:
     if registry.is_lab_list(entry.type):
         return permissions.can_curate_list(user, entry.registry, entry.type)
     return permissions.can(user, Action.REGISTRY_CURATE, entry.registry)
+
+
+def _not_an_option(entry: Entity, change: str, path: str) -> None:
+    """A lab list's option (ADR 0270) is changed on its list, under the list's checks: this
+    endpoint reads it, and says where."""
+    if registry.is_lab_list(entry.type):
+        code = lists.option_of(entry).code
+        raise Problem(
+            409,
+            f"{entry.hrid} is an option of a lab list: {change} it on its list, with "
+            f"/api/v1/lists/{entry.type}/options/{code}{path}.",
+            code="refused",
+        )
 
 
 def _entry_references(
@@ -468,7 +497,15 @@ def _entry_out(user: User, entry: Entity, curates: bool) -> dict[str, Any]:
         "records": records,
         "holders": entries.holders(entry).count() if curates else None,
         "add_to": _addable(user, entry),
-        "can": {"curate": curates and entry.superseded_by_id is None},
+        "can": {
+            "curate": curates and entry.superseded_by_id is None,
+            "supersede_as": [
+                {"type": t, "fields": entries.to_give(entry.type, t)}
+                for t in entries.registrable_as(entry)
+            ]
+            if curates and entry.superseded_by_id is None
+            else [],
+        },
     }
 
 
@@ -515,10 +552,12 @@ def patch_entry(
     if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
 ) -> dict[str, Any]:
     """Its registry's registrars, with a reason. Audited, and told to every holding project:
-    who, when and why. Its identity and derived values never change: supersede it instead."""
+    who, when and why. Its identity and derived values never change: supersede it instead.
+    A lab list's option changes on its list (`/lists/{name}/options/{code}`), not here."""
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
+    _not_an_option(entry, "change", "")
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
     expected = _expected(if_match)
@@ -539,34 +578,88 @@ def patch_entry(
 
 
 class SupersedeIn(Schema):
-    replacement: str = Field(description="The entry that replaces it, by ID or HRID.")
+    replacement: str | None = Field(
+        None,
+        description="The entry that replaces it, by ID or HRID: one of its type, or of "
+        "another type under its identity (ADR 0165). Give this or `type`.",
+    )
+    type: str | None = Field(
+        None,
+        description="Register its identity as this type instead (ADR 0165), one of "
+        "`can.supersede_as`: a new entry, which it's superseded by and hands its identity "
+        "to. Give this or `replacement`.",
+    )
+    values: dict[str, Any] = Field(
+        default_factory=dict,
+        description="With `type`: the new entry's values, in place of the superseded "
+        "entry's, which it has for the fields the two types share: the new type's facts, "
+        "say, or its parts' roles as the new type names them. Its identity stays the same.",
+    )
     reason: str = Field(min_length=1, max_length=2000, description="Why: its holders are told it.")
 
 
 @router.post("/entries/{ref}/supersede", response=EntryOut, summary="Supersede a registry entry")
 def supersede_entry(request: HttpRequest, ref: str, payload: SupersedeIn) -> dict[str, Any]:
-    """Its registry's registrars replace a mistaken entry with another of its type in the
-    registry, for good. Each holding project's Admins, and whoever added its record, are
-    told, to move their records to the replacement."""
+    """Its registry's registrars replace a mistaken entry with another in the registry, for
+    good: one of its type, or of another type under its identity; or with a new entry of its
+    identity as another type (``type``, ADR 0165). Each holding project's Admins, and
+    whoever added its record, are told, to move their records to the replacement. A lab
+    list's option is superseded on its list (`/lists/{name}/options/{code}/supersede`), not
+    here, either way."""
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
+    _not_an_option(entry, "supersede", "/supersede")
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
-    replacement, _ = _entry(me, payload.replacement)
+    if (payload.replacement is None) == (payload.type is None):
+        raise Problem(
+            422,
+            "It can’t be superseded so.",
+            errors=[
+                {
+                    "pointer": "#/replacement",
+                    "detail": "Give the entry that replaces it, or the type to register it as.",
+                }
+            ],
+        )
+    if payload.values and payload.type is None:
+        raise Problem(
+            422,
+            "It can’t be superseded so.",
+            errors=[
+                {
+                    "pointer": "#/values",
+                    "detail": "An entry that replaces it has values of its own: give values "
+                    "only with `type`.",
+                }
+            ],
+        )
     try:
-        entries.supersede(me, entry, replacement, reason=payload.reason)
+        if payload.type is not None:
+            entries.supersede_as(me, entry, payload.type, payload.values, reason=payload.reason)
+        else:
+            assert payload.replacement is not None  # noqa: S101 - checked above
+            replacement, _ = _entry(me, payload.replacement)
+            entries.supersede(me, entry, replacement, reason=payload.reason)
     except Invalid as error:
         raise Problem(
             422,
             "It can’t be superseded so.",
             errors=[
-                {"pointer": f"#/{name}", "detail": " ".join(messages)}
+                {"pointer": _pointer(name), "detail": " ".join(messages)}
                 for name, messages in error.errors.items()
             ],
         ) from None
     fresh = Entity.objects.select_related("registry").get(pk=entry.pk)
     return _entry_out(me, fresh, True)
+
+
+def _pointer(name: str) -> str:
+    """Where in a supersession's or a move's body an error is: its own fields, or a value."""
+    if name in ("reason", "replacement", "type", "values"):
+        return f"#/{name}"
+    return f"#/values/{name}" if name else "#/values"
 
 
 @router.get(
@@ -688,6 +781,11 @@ def add_entry_record(
 
 class MoveIn(Schema):
     reason: str = Field(min_length=1, max_length=2000, description="Why the holder is moving it.")
+    values: dict[str, Any] = Field(
+        default_factory=dict,
+        description="For a replacement of another type (ADR 0165): the new record's own "
+        "values, beside those it carries from this one (`entry.superseded.carries`).",
+    )
 
 
 class MovedOut(EntityOut):
@@ -707,22 +805,29 @@ def move_entity(
 ) -> dict[str, Any]:
     """An Editor of its project. It keeps its data, history and runs; the project's own
     records that refer to the superseded entry are changed to refer to the new one, each a
-    revision with the reason. Refused if the project has a record of the new one already."""
+    revision with the reason. Refused if the project has a record of the new one already.
+
+    A record can't change its type, so to a replacement of another type (ADR 0165) it's the
+    project's new record of the replacement that's returned: with this one's values for the
+    fields the two types share and ``values``, while this one is archived, keeping its
+    history, signatures and runs."""
     me = caller(request)
     record = _find(me, ref)
     assert record.owner_project_id is not None  # noqa: S101 - records have projects
     project(me, record.owner_project_id, Action.PROJECT_EDIT)
     try:
-        moved = entries.move(me, record, reason=payload.reason)
+        moved = entries.move(me, record, reason=payload.reason, values=payload.values)
     except Invalid as error:
+        problem = _invalid(error)
         raise Problem(
             422,
             "It can’t be moved as requested.",
+            code=problem.code,
             errors=[
-                {"pointer": f"#/{name}", "detail": " ".join(messages)}
+                {"pointer": _pointer(name), "detail": " ".join(messages)}
                 for name, messages in error.errors.items()
             ],
         ) from None
     refs, _ = _lookup(me, {"ref": {e.pk for e in moved.repointed}, "file": set()})
-    out = _one(me, Entity.objects.select_related("created_by").get(pk=record.pk), response)
+    out = _one(me, Entity.objects.select_related("created_by").get(pk=moved.record.pk), response)
     return {**out, "repointed": [refs[e.pk] for e in moved.repointed if e.pk in refs]}

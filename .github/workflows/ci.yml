@@ -239,7 +239,7 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm --filter @ikisci/app build:web
-          pnpm --filter @ikisci/science --filter @ikisci/ui build
+          pnpm --filter @ikisci/component --filter @ikisci/science --filter @ikisci/ui build
           uv run --locked python scripts/ci/check_test_prerequisites.py web
       # The browsers' system packages, kept between runs: Ubuntu's mirrors are
       # sometimes too slow from the runners to download them in time.
@@ -440,6 +440,20 @@ jobs:
         run: ../scripts/build-plasmid-tools-wasm.sh --check
       - name: Check the packaged primer-checks module
         run: ../scripts/build-oligo-checks-wasm.sh --check
+      # In the writer builder, as a plugin image's build does it: iki-writer packages to the
+      # checksum Iki's writers pin, and each writer's own tests pass against that crate.
+      - name: iki-writer is the crate Iki's writers pin, and their tests pass
+        working-directory: .
+        run: |
+          image=$(scripts/writer-toolchain.sh --image)
+          docker run --rm --platform linux/amd64 -v "$PWD:/iki:ro" -w /iki "$image" sh -ec '
+            sh worker/crates/iki-writer/build-writer.sh package /tmp/iki-writer > /tmp/sum
+            diff -u worker/crates/iki-writer/iki-writer.crate.sha256 /tmp/sum
+            for toml in plugins/*/writers/*/Cargo.toml examples/plugins/*/writers/*/Cargo.toml; do
+              [ -f "$toml" ] || continue
+              sh worker/crates/iki-writer/build-writer.sh fetch "${toml%/Cargo.toml}"
+              sh worker/crates/iki-writer/build-writer.sh test "${toml%/Cargo.toml}"
+            done'
 
   server-wasm:
     name: Build server Wasm
@@ -826,6 +840,10 @@ jobs:
         run: |
           kubectl --context kind-iki get pods -A -o wide || true
           kubectl --context kind-iki -n iki get events --sort-by=.lastTimestamp | tail -50 || true
+          # Run pods, and what the node has left for them: a run that stays queued is often
+          # a pod the scheduler can't place.
+          kubectl --context kind-iki -n iki-runs get events --sort-by=.lastTimestamp | tail -30 || true
+          kubectl --context kind-iki describe nodes | sed -n '/^Allocatable:/,/^System Info:/p;/^Allocated resources:/,/^Events:/p' || true
           for d in iki-web iki-tasks iki-clamd keycloak seaweedfs otel-lgtm; do
             echo "--- logs: $d"; kubectl --context kind-iki -n iki logs "deploy/$d" --all-containers --tail=100 || true
           done

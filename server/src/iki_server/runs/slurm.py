@@ -38,7 +38,7 @@ from iki_server.audit import log as audit
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, live
-from iki_server.runs.models import Job, SlurmAccount, SlurmJob, Worker
+from iki_server.runs.models import HELD, Job, SlurmAccount, SlurmJob, Worker
 from iki_spec.compute import Template
 from iki_spec.model import Resources
 
@@ -94,7 +94,6 @@ State = Literal[
 ]
 STATES: frozenset[str] = frozenset(get_args(State))
 
-_HELD = ("leased", "staging", "pending", "running", "uploading")
 _RESOURCES = ("cpu", "memory", "gpu_count", "gpu_memory", "scratch_disk")
 
 
@@ -215,7 +214,7 @@ def leasable(worker: Worker) -> Q | None:
     if not mine:
         return None
     running = dict(
-        Job.objects.filter(state__in=_HELD, template__in=list(mine), packed_into__isnull=True)
+        Job.objects.filter(state__in=HELD, template__in=list(mine), packed_into__isnull=True)
         .values("template")
         .annotate(n=Count("pk"))
         .values_list("template", "n")
@@ -463,7 +462,7 @@ def waiting(environments: set[str]) -> dict[str, str]:
                 t
                 for t in bound
                 if t.max_concurrent is not None
-                and Job.objects.filter(state__in=_HELD, template=t.name).count() >= t.max_concurrent
+                and Job.objects.filter(state__in=HELD, template=t.name).count() >= t.max_concurrent
             ]
             if full and len(full) == len(bound):
                 limit = full[0].max_concurrent

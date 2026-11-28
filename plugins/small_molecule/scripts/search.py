@@ -18,9 +18,12 @@ from __future__ import annotations
 import csv
 import os
 import sys
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import streamed
 from chemistry import (
     Messages,
     UnreadableError,
@@ -28,7 +31,6 @@ from chemistry import (
     fail,
     from_smiles,
     rdkit_messages,
-    run_input,
     why_not,
     write_output,
 )
@@ -44,14 +46,33 @@ MAX_DESCRIPTION = 10_000
 NAMED = 25
 
 
-def _compounds(run: dict[str, Any], messages: Messages) -> list[tuple[dict[str, Any], Chem.Mol]]:
-    found = []
-    for entity in run["inputs"]["compounds"]:
+@dataclass(frozen=True)
+class Compound:
+    """What a search keeps of a compound: never its structure, which is read, searched and
+    let go, nor its other values."""
+
+    id: str
+    hrid: str
+    name: str
+    smiles: str
+
+
+def _compounds(
+    records: Iterable[dict[str, Any]], messages: Messages
+) -> Iterator[tuple[Compound, Chem.Mol]]:
+    """Each compound, read from its SMILES, one at a time."""
+    for entity in records:
+        values = entity["values"]
         try:
-            found.append((entity, from_smiles(entity["values"]["smiles"])))
+            mol = from_smiles(values["smiles"])
         except UnreadableError as why:
             messages.add("warning", f"{entity['hrid']} was left out: {why}.", entity["id"])
-    return found
+            continue
+        yield Compound(entity["id"], entity["hrid"], values.get("name", ""), values["smiles"]), mol
+
+
+def _run() -> tuple[dict[str, Any], Iterator[dict[str, Any]]]:
+    return streamed.run_input(Path(os.environ["IKI_INPUT"]), "compounds")
 
 
 def _collection(name: str, description: str, members: list[str]) -> dict[str, Any]:
@@ -65,7 +86,7 @@ def _collection(name: str, description: str, members: list[str]) -> dict[str, An
     }
 
 
-def similar(run: dict[str, Any]) -> dict[str, Any]:
+def similar(run: dict[str, Any], records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     params = run.get("params") or {}
     threshold = float(params.get("threshold", 0.7))
     messages = Messages()
@@ -81,14 +102,13 @@ def similar(run: dict[str, Any]) -> dict[str, Any]:
         called = smiles
     generator = rdFingerprintGenerator.GetMorganGenerator(radius=RADIUS, fpSize=BITS)
     wanted = generator.GetFingerprint(query)
-    compounds = _compounds(run, messages)
     scored = []
-    for entity, mol in compounds:
+    for compound, mol in _compounds(records, messages):
         similarity = DataStructs.TanimotoSimilarity(wanted, generator.GetFingerprint(mol))
         # Compared and ranked whole: rounded first, 13/29 (0.44828) would pass 0.4483.
-        scored.append((similarity, entity))
+        scored.append((similarity, compound))
     scored.sort(key=lambda s: -s[0])
-    hits = [(s, e) for s, e in scored if s >= threshold]
+    hits = [(s, c) for s, c in scored if s >= threshold]
     if len(hits) > MAX_MEMBERS:
         messages.add(
             "warning",
@@ -99,31 +119,30 @@ def similar(run: dict[str, Any]) -> dict[str, Any]:
     with (Path(os.environ["IKI_OUT_DIR"]) / TABLE).open("w", newline="", encoding="utf-8") as out:
         table = csv.writer(out)
         table.writerow(["hrid", "name", "smiles", "tanimoto"])
-        for similarity, entity in scored:
-            values = entity["values"]
-            table.writerow([entity["hrid"], values.get("name", ""), values["smiles"], similarity])
-    named = ", ".join(f"{e['hrid']} {s:.2f}" for s, e in hits[:NAMED])
+        for similarity, compound in scored:
+            table.writerow([compound.hrid, compound.name, compound.smiles, similarity])
+    named = ", ".join(f"{c.hrid} {s:.2f}" for s, c in hits[:NAMED])
     more = f", and {len(hits) - NAMED:,} more" if len(hits) > NAMED else ""
     description = (
-        f"{len(hits):,} of {len(compounds):,} compounds with a Tanimoto similarity of at least "
+        f"{len(hits):,} of {len(scored):,} compounds with a Tanimoto similarity of at least "
         f"{threshold:g} to {called}, by Morgan fingerprints (radius {RADIUS}, {BITS:,} bits), "
         "most similar first" + (f": {named}{more}." if hits else ".")
     )
     name = params.get("name") or f"Like {called} (Tanimoto ≥ {threshold:g})"
-    for similarity, entity in hits[:10]:
-        print(f"{entity['hrid']}: {similarity:.4f}")
+    for similarity, compound in hits[:10]:
+        print(f"{compound.hrid}: {similarity:.4f}")
     return {
-        "creates": [_collection(name, description, [e["id"] for _, e in hits])],
+        "creates": [_collection(name, description, [c.id for _, c in hits])],
         "metrics": {
             "hits": len(hits),
-            "searched": len(compounds),
+            "searched": len(scored),
             "best": round(scored[0][0], 4) if scored else 0.0,
         },
         "messages": messages.output(),
     }
 
 
-def substructure(run: dict[str, Any]) -> dict[str, Any]:
+def substructure(run: dict[str, Any], records: Iterable[dict[str, Any]]) -> dict[str, Any]:
     params = run.get("params") or {}
     smarts = (params.get("smarts") or "").strip()
     chirality = bool(params.get("chirality", False))
@@ -132,8 +151,12 @@ def substructure(run: dict[str, Any]) -> dict[str, Any]:
     if pattern is None:
         raise UnreadableError(f"{smarts!r} isn't SMARTS RDKit can read: {why_not(said, 'syntax')}")
     messages = Messages()
-    compounds = _compounds(run, messages)
-    hits = [e for e, mol in compounds if mol.HasSubstructMatch(pattern, useChirality=chirality)]
+    searched = 0
+    hits = []
+    for compound, mol in _compounds(records, messages):
+        searched += 1
+        if mol.HasSubstructMatch(pattern, useChirality=chirality):
+            hits.append(compound)
     if len(hits) > MAX_MEMBERS:
         messages.add(
             "warning",
@@ -141,16 +164,16 @@ def substructure(run: dict[str, Any]) -> dict[str, Any]:
         )
         hits = hits[:MAX_MEMBERS]
     description = (
-        f"{len(hits):,} of {len(compounds):,} compounds with the substructure {smarts}"
+        f"{len(hits):,} of {searched:,} compounds with the substructure {smarts}"
         + (", stereochemistry included" if chirality else "")
         + ", as RDKit matches SMARTS."
     )
     name = params.get("name") or f"With {smarts}"
-    for entity in hits[:10]:
-        print(f"{entity['hrid']}: has it")
+    for compound in hits[:10]:
+        print(f"{compound.hrid}: has it")
     return {
-        "creates": [_collection(name, description, [e["id"] for e in hits])],
-        "metrics": {"hits": len(hits), "searched": len(compounds)},
+        "creates": [_collection(name, description, [c.id for c in hits])],
+        "metrics": {"hits": len(hits), "searched": searched},
         "messages": messages.output(),
     }
 
@@ -158,7 +181,7 @@ def substructure(run: dict[str, Any]) -> dict[str, Any]:
 def main() -> None:
     search = {"similar": similar, "substructure": substructure}[sys.argv[1]]
     try:
-        output = search(run_input())
+        output = search(*_run())
     except UnreadableError as why:
         fail(f"{why}.")
         return

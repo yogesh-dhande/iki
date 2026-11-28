@@ -363,6 +363,14 @@ class _Planner:
             self._entities(batch)
         outside = self._outside()
         self._runs()
+        # The keys its signatures are checked with: those trusted here, and those it
+        # brings, each shown before it's trusted (ADR 0126, ADR 0148).
+        from iki_server.signatures import signing_keys
+
+        listed = signing_keys.listed(
+            self.bundle.manifest.get("signing_keys", []), source=self.bundle.source
+        )
+        self.problems.extend(listed.problems)
         c = self.counts
         if c.conflict:
             self.problems.append(
@@ -392,6 +400,7 @@ class _Planner:
             "types": types,
             "files": stored,
             "outside": outside,
+            "signing_keys": listed.new,
             "problems": self.problems,
             "applicable": not self.problems,
         }

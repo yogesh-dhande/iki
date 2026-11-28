@@ -38,7 +38,7 @@ function arc(from: number, to: number, length: number, radius: number): string {
   return `M${x1.toFixed(2)} ${y1.toFixed(2)} A${String(radius)} ${String(radius)} 0 ${String(large)} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
 
-function described(map: ThumbnailData, features: Feature[]): string {
+function described(map: ThumbnailData, features: readonly Feature[]): string {
   const names = features.slice(0, NAMED).map(featureName);
   const more = features.length - names.length;
   const shape = map.circular ? "Circular" : "Linear";

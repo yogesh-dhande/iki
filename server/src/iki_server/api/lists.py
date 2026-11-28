@@ -66,7 +66,7 @@ def _registry(user: User, scope: Scope) -> Registry:
             422,
             "Say whose lists: a project's, or a registry's.",
             code="validation_failed",
-            errors=[{"pointer": "#/project", "detail": "Give `project` or `registry`."}],
+            errors=[{"parameter": "project", "detail": "Give `project` or `registry`."}],
         )
     # Whoever sees the registry reads its lists: what its projects' records pick from, which
     # says nothing of any project's work.
@@ -88,7 +88,7 @@ class ListCan(Schema):
 
 
 class ListOut(Schema):
-    type: str = Field(description="The list's type, such as iki/lots.LotMethod.")
+    type: str = Field(description="The list's type, such as iki/lots.PurityMethod.")
     plugin: str
     label: str
     label_plural: str
@@ -525,7 +525,7 @@ def move_references(request: HttpRequest, name: str, code: str, payload: OptionM
 
 
 class ListCuratorOut(Schema):
-    list: str = Field(description="The list's type, such as iki/lots.LotMethod.")
+    list: str = Field(description="The list's type, such as iki/lots.PurityMethod.")
     user: UserOut
     appointed_by: UserOut | None
     appointed_at: datetime

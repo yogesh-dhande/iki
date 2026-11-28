@@ -20,20 +20,30 @@ and audit trail, kept as long as runs' are.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import connection, transaction
-from django.db.models import Max, Q
+from django.db.models import DateTimeField, ExpressionWrapper, F, Max, QuerySet
 from django.utils import timezone
 
 from iki_server.audit import log as audit
+from iki_server.core import sweeps
 from iki_server.entities import hrids, registry
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, egress, live
+from iki_server.runs.leases import (
+    HEARTBEAT_EVERY,
+    LEASE_TTL,
+    MAX_LOG_BYTES,
+    TIMEOUT_GRACE,
+    LogGap,
+    Stale,
+)
 from iki_server.runs.models import (
     SETUP_HRID_PREFIX,
     SETUP_HRID_SEQUENCE,
@@ -87,25 +97,10 @@ SHARED = "shared_filesystem"
 OBJECTS = "object_mount"
 #: Those whose versions are a directory that machines mount, rather than a snapshot.
 MOUNTED = {SHARED, OBJECTS}
-#: A lease lasts this long unless a heartbeat renews it, as for runs' jobs.
-LEASE_TTL = timedelta(seconds=60)
-HEARTBEAT_EVERY = timedelta(seconds=20)
-#: How long past its timeout a build may run before the server ends it.
-TIMEOUT_GRACE = timedelta(minutes=5)
-#: The most log one build keeps.
-MAX_LOG_BYTES = 16 * 1024**2
 #: A setup with no timeout of its own may run this long.
 DEFAULT_TIMEOUT = 6 * 3600
-
-
-class Stale(Exception):  # noqa: N818 - reads as "the lease is stale"
-    """The worker doesn't hold this build's current lease."""
-
-
-class LogGap(Exception):  # noqa: N818 - reads as "there's a gap in the log"
-    def __init__(self, expected: int) -> None:
-        super().__init__(f"The log continues at byte {expected}.")
-        self.expected = expected
+#: The most builds one recovery pass looks at in each sweep.
+RECOVER_AT_MOST = 100
 
 
 # --- What an environment needs ---------------------------------------------------------------
@@ -786,34 +781,44 @@ def finish(
 
 def recover_expired() -> int:
     """Ends builds whose worker stopped sending heartbeats, and those running well past
-    their timeout. The task runner calls it with runs' jobs'."""
+    their timeout. The task runner calls it with runs' jobs'. As for those, each sweep
+    selects only what's due, soonest first, and each build ends in its own transaction
+    (``sweeps.each``): one that can't is logged and left for the next pass."""
     now = timezone.now()
-    ended = 0
-    with transaction.atomic():
-        for build in SetupBuild.objects.select_for_update(skip_locked=True).filter(
-            Q(lease_expires_at__lt=now)
-            | Q(started_at__lt=now - TIMEOUT_GRACE, lease_expires_at__isnull=False),
-            state=SetupState.RUNNING,
-        )[:100]:
-            assert build.started_at is not None  # noqa: S101 - a running build has started
-            if build.lease_expires_at is not None and build.lease_expires_at < now:
-                _end(
-                    build,
-                    SetupState.FAILED,
-                    {"code": "worker_lost", "message": "Its worker stopped sending heartbeats."},
-                    now,
-                )
-                ended += 1
-            elif build.started_at + timedelta(seconds=build.timeout) + TIMEOUT_GRACE < now:
-                _end(
-                    build,
-                    SetupState.TIMED_OUT,
-                    {
-                        "code": "timed_out",
-                        "message": f"It ran past its {build.timeout}s timeout, and its worker "
-                        "didn't stop it.",
-                    },
-                    now,
-                )
-                ended += 1
-    return ended
+    running = SetupBuild.objects.filter(state=SetupState.RUNNING)
+    lost = running.filter(lease_expires_at__lt=now).order_by("lease_expires_at")
+    timeout = F("timeout") * timedelta(seconds=1)
+    overdue = (
+        running.filter(lease_expires_at__isnull=False)
+        .annotate(due=ExpressionWrapper(F("started_at") + timeout, output_field=DateTimeField()))
+        .filter(due__lt=now - TIMEOUT_GRACE)
+        .order_by("due")
+    )
+
+    def worker_lost(build: SetupBuild) -> None:
+        error = {"code": "worker_lost", "message": "Its worker stopped sending heartbeats."}
+        _end(build, SetupState.FAILED, error, now)
+
+    def timed_out(build: SetupBuild) -> None:
+        error = {
+            "code": "timed_out",
+            "message": f"It ran past its {build.timeout}s timeout, and its worker didn't stop it.",
+        }
+        _end(build, SetupState.TIMED_OUT, error, now)
+
+    return _each(lost, worker_lost) + _each(overdue, timed_out)
+
+
+def _each(found: QuerySet[SetupBuild], end: Callable[[SetupBuild], None]) -> int:
+    """Ends each of `found`'s first ``RECOVER_AT_MOST`` builds in its own transaction:
+    locked, skipping one another runner holds, and still one of `found` when it is."""
+    ids = list(found.values_list("pk", flat=True)[:RECOVER_AT_MOST])
+
+    def end_one(pk: uuid.UUID) -> bool:
+        build = found.select_for_update(skip_locked=True).filter(pk=pk).first()
+        if build is None:
+            return False
+        end(build)
+        return True
+
+    return sweeps.each(ids, end_one, failed="setup_recovery_failed", key="build")

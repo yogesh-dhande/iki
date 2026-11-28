@@ -4,16 +4,15 @@
  * themselves: an entity's tab, the grid's results, a project's page and a person's home.
  */
 
+import { MAX_CONDITIONS } from "@ikisci/component";
+import { readMessage, readRefinement } from "@ikisci/component/host";
 import type { Schemas } from "@ikisci/sdk";
 import { screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   gridViews,
-  MAX_REFINE_CONDITIONS,
   MAX_SECTIONS,
-  readMessage,
-  readRefinement,
   sectionsFor,
   type ComponentEntity,
   type PluginComponent,
@@ -105,7 +104,7 @@ describe("refinements", () => {
     for (let i = 0; i < 3; i += 1) deep = { not: deep };
     expect(readRefinement(BOARD, { where: deep })).not.toBe(undefined);
     expect(readRefinement(BOARD, { where: { not: deep } })).toBe(undefined);
-    const many = Array.from({ length: MAX_REFINE_CONDITIONS + 1 }, () => leaf);
+    const many = Array.from({ length: MAX_CONDITIONS + 1 }, () => leaf);
     expect(readRefinement(BOARD, { where: { any: many } })).toBe(undefined);
     expect(readRefinement(BOARD, { where: { any: many.slice(1) } })).not.toBe(undefined);
     expect(readRefinement(BOARD, { where: leaf, type: "iki/dna.DNASequence" })).toBe(undefined);

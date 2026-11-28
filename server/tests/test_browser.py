@@ -224,6 +224,19 @@ IN_FLIGHT: dict[Page, dict[Any, tuple[float, str]]] = {}
 #: Where each page has been: each address it loaded or the app moved it to.
 VISITED: dict[Page, list[str]] = {}
 
+#: What WebKit says of a fetch it refuses. It refuses one that fails a CORS check, and any a
+#: document starts once it's being left: that one it never sends, so no request is made or
+#: fails. It reports either as an uncaught error, which Playwright splits at the first colon,
+#: the scheme's, leaving "/127.0.0.1:…/api/v1/… due to access control checks." as its message.
+_REFUSED = re.compile(r"Fetch API cannot load (\S+) due to access control checks\.")
+
+
+def refused(error: Any) -> str | None:
+    """The address of the fetch a WebKit page error says it refused, if that's what it says."""
+    said = (error.stack or "").split("\n", 1)[0] or f"{error.name}:/{error.message}"
+    found = _REFUSED.fullmatch(said)
+    return found[1] if found else None
+
 
 def watch(page: Page) -> Page:
     """Records what goes wrong on the page, from now on: its errors in `PAGE_ERRORS`,
@@ -232,48 +245,76 @@ def watch(page: Page) -> Page:
     errors: list[str] = []
     failed: list[str] = []
     waiting: dict[Any, tuple[float, str]] = {}
+    #: Whether the page has begun to leave its document: from its next document's request
+    #: until it's on it.
+    leaving: list[str] = []
+
+    def bare(url: str) -> str:
+        return urllib.parse.urldefrag(url).url
+
+    def leaves_for(request: Any) -> bool:
+        return bool(request.is_navigation_request() and request.frame == page.main_frame)
+
+    def sent(request: Any) -> None:
+        waiting[request] = (time.monotonic(), f"{request.method} {request.url}")
+        if leaves_for(request):
+            leaving[:] = [bare(request.url)]
 
     def done(request: Any) -> None:
         waiting.pop(request, None)
 
     def fail(request: Any) -> None:
         done(request)
+        if leaves_for(request):
+            leaving.clear()
         failed.append(f"{request.method} {request.url}: {request.failure}")
 
     def thrown(error: Any) -> None:
         # Not an error (the ResizeObserver spec): what a size change made while observers were
         # called is delivered in the next frame. WebKit reports it when a popover grows as
         # what it read arrives and react-aria places it again, above its button.
-        if str(error) != "ResizeObserver loop completed with undelivered notifications.":
-            errors.append(str(error))
+        if str(error) == "ResizeObserver loop completed with undelivered notifications.":
+            return
+        # Still an error when the page was leaving: its reads stop as a navigation away
+        # begins (page-reads.ts), so one started then is one that should have waited.
+        url = refused(error)
+        if url:
+            when = " as the page was being left" if leaving else ""
+            errors.append(f"WebKit refused a fetch of {url}{when}: {error.stack or error}")
+            return
+        errors.append(str(error))
 
     page.on("pageerror", thrown)
 
     def logged(message: Any) -> None:
-        if message.type != "error":
-            return
-        # WebKit says this of a request a navigation cancelled. A request of the page's own
-        # origin isn't checked as a cross-origin one is, so for one of those it can't mean a
-        # check failed: only that the person moved on before it was answered.
-        origin = "{0.scheme}://{0.netloc}/".format(urllib.parse.urlsplit(page.url))
-        text = message.text
-        if text.endswith(" due to access control checks.") and f"load {origin}" in text:
-            return
-        errors.append(text)
+        if message.type == "error":
+            errors.append(message.text)
 
     page.on("console", logged)
-    page.on("request", lambda r: waiting.__setitem__(r, (time.monotonic(), f"{r.method} {r.url}")))
+    page.on("request", sent)
     page.on("requestfinished", done)
     page.on("requestfailed", fail)
 
-    # A console error says a request failed, but not which: this does.
+    # A console error says a request failed ("the server responded with a status of 404"),
+    # but not which: this does.
     def answered(response: Any) -> None:
-        if response.status >= 500:
+        if response.status >= 400:
             failed.append(f"{response.request.method} {response.url}: {response.status}")
+        # A navigation answered with no content leaves the page where it was.
+        if response.status in (204, 205) and leaves_for(response.request):
+            leaving.clear()
 
     page.on("response", answered)
     visited: list[str] = []
-    page.on("framenavigated", lambda f: visited.append(f.url) if f == page.main_frame else None)
+
+    def navigated(frame: Any) -> None:
+        if frame != page.main_frame:
+            return
+        visited.append(frame.url)
+        if leaving and bare(frame.url) == leaving[0]:
+            leaving.clear()
+
+    page.on("framenavigated", navigated)
     VISITED[page] = visited
     PAGE_ERRORS[page] = errors
     FAILED_REQUESTS[page] = failed
@@ -421,22 +462,11 @@ def test_a_live_route_still_reports_its_handler_error(open_as: Any) -> None:
         page.title()
 
 
-def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
-    """No CSP violations, no errors, and nothing axe finds against WCAG 2.2 AA.
-
-    `axe_in_firefox=False` leaves axe to Chromium and WebKit on that page: Playwright's
-    Firefox crashes its content process when axe works out names and roles on a page that
-    has both a plugin's component frame and an element named by `aria-labelledby`
-    (aria-allowed-attr, aria-conditional-attr, aria-prohibited-attr, nested-interactive,
-    label-content-name-mismatch and more each do). axe checks the DOM, which is the same
-    in every browser. Pass it only for a page that crashes, and take it off again once
-    Playwright's Firefox stops crashing: a page kept here is unchecked in one engine.
-    """
+def assert_clean(page: Page) -> None:
+    """No CSP violations, no errors, and nothing axe finds against WCAG 2.2 AA, in every
+    engine (Firefox's reads of ARIA's element properties: see conftest)."""
     assert page.evaluate("window.__cspViolations") == [], page.url
     assert PAGE_ERRORS[page] == [], (page.url, FAILED_REQUESTS.get(page))
-    browser = page.context.browser
-    if not axe_in_firefox and browser and browser.browser_type.name == "firefox":
-        return
     # Mid-fade text has less contrast than it ends up with: check the end state, once it's
     # drawn, and still settled then.
     page.wait_for_function(FADES_DONE)
@@ -449,7 +479,7 @@ def assert_clean(page: Page, *, axe_in_firefox: bool = True) -> None:
 
 def add_filter(page: Page, field: str) -> Locator:
     """Adds a grid filter by a field, from its "+ Filter" menu, and returns the filter's
-    editor, which opens. Found by role: Firefox crashes on labels after axe."""
+    editor, which opens."""
     page.get_by_role("button", name="Filter", exact=True).click()
     menu = page.get_by_role("menu", name="Filter")
     menu.get_by_role("menuitem", name=re.compile(f"^{re.escape(field)}")).click()
@@ -709,8 +739,7 @@ def test_a_server_pages_header_is_the_apps(
     """A server-rendered page has the bar the app's pages have (ADR 0176): 46px tall beside
     the sidebar, its breadcrumb on the left and its actions on the right, then its title. A
     line about it that doesn't fit opens whole in a toggletip. On a phone the actions go
-    under the title, and the page is never wider than the screen. By role: Firefox crashes
-    on labels after axe."""
+    under the title, and the page is never wider than the screen."""
     world.team.description = (
         "Crystallography and cryo-EM of the kinases the atlas covers, from expression and"
         " purification to the deposited structure, with the beamline rota, the grid"
@@ -801,9 +830,7 @@ def test_a_server_pages_header_is_the_apps(
 def test_a_compute_admin_registers_and_changes_self_hosted_machines(
     open_as: Any, world: World
 ) -> None:
-    """A team's machine, its labels and what it's for (ADR 0112). By role, but each
-    section by its heading: in Firefox, finding a region by name before axe runs crashes
-    the page (see the other tests' notes)."""
+    """A team's machine, its labels and what it's for (ADR 0112)."""
     from test_workers import LOCAL, ROOMY
 
     from iki_server.runs import workers
@@ -1649,8 +1676,7 @@ def test_a_long_value_never_widens_the_page(open_as: Any, world: World) -> None:
     # where the record's tabs no longer fit in a row and scroll within it instead.
     page.set_viewport_size({"width": 320, "height": 640})
     assert page.evaluate(width)
-    # Playwright’s Firefox crashes in axe on this page (see assert_clean).
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
 
 def test_a_fields_description_opens_beside_its_label(open_as: Any, world: World) -> None:
@@ -1967,7 +1993,6 @@ def test_saving_a_search_as_a_collection(open_as: Any, world: World) -> None:
     assert_clean(page)
     dialog.get_by_role("button", name="Save collection").click()
     page.get_by_text(re.compile(r"Saved the collection COL-\d+\.")).wait_for()
-    # By its heading: in Firefox, asking for a region by name before axe runs crashes the page.
     members = page.locator("section", has=page.get_by_role("heading", name="Members"))
     members.get_by_text("Everything this search finds").wait_for()
     assert_clean(page)
@@ -2579,12 +2604,6 @@ def test_picking_rows_and_running_an_action_on_each(open_as: Any, world: World) 
     runs.first.wait_for()
     assert runs.count() == 2
     assert ActionRun.objects.count() == 2
-    assert page.evaluate("window.__cspViolations") == [] and PAGE_ERRORS[page] == []
-    if page.context.browser and page.context.browser.browser_type.name == "firefox":
-        # Firefox's content process crashes when axe's aria-allowed-attr check runs on
-        # this page straight after the app navigates to it; loaded, it's checked in full.
-        page.reload()
-        runs.first.wait_for()
     assert_clean(page)
 
 
@@ -2614,8 +2633,6 @@ def test_approving_a_run_an_ai_agent_asked_for(
         )
 
     page = open_as("admin", f"/runs/{first.hrid}/", color_scheme)
-    # By its heading: in Firefox, Playwright finding a region by name and then axe
-    # running crashes the page (Playwright's role engine, not the app).
     heading = page.get_by_role("heading", name="Waiting for your approval")
     request = page.locator("section", has=heading)
     request.get_by_text("Claude asked to start these 2 runs").wait_for()
@@ -2721,9 +2738,7 @@ def test_an_org_admin_releases_a_legal_hold_saying_why(
     reason = form.get_by_role("textbox", name="Reason for releasing it")
 
     def checked(page: Page) -> None:
-        # Playwright's Firefox crashes in axe on this page while a release form, named by
-        # its heading, is open (see assert_clean); Chromium and WebKit check it.
-        assert_clean(page, axe_in_firefox=False)
+        assert_clean(page)
 
     expect(reason).to_be_focused()
     release = form.get_by_role("button", name="Release the hold")
@@ -2951,7 +2966,6 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
     page.set_viewport_size({"width": 390, "height": 844})
     viewer = f"/entities/{hrid}/viewers/sequence/?project=kinase-atlas"
     page.goto(viewer)
-    # Find the section by its heading so Playwright's role lookup does not crash axe in Firefox.
     panel = page.locator("section", has=page.get_by_role("heading", name="Library features"))
     panel.get_by_text("No library search has run.").wait_for()
     launch = page.get_by_role("link", name="Annotate from library")
@@ -2993,9 +3007,7 @@ def test_dna_feature_library_workflow_in_the_sequence_viewer(
     assert (
         row.get_by_role("button", name="Hide T7 promoter").get_attribute("aria-pressed") == "true"
     )
-    # Where it is read from its box, and the tabs found by their class: with
-    # to_be_in_viewport here, axe below crashed Firefox's page in 3 of 20 runs (none of 20
-    # without it), and role lookups risk the same (see the section above).
+    # Where it is read from its box.
     shown = '.feature-shown[title="T7 promoter (promoter, 4984..5002)"]'
     page.locator(shown).wait_for()
     assert page.evaluate(IN_VIEW, shown)
@@ -3193,8 +3205,7 @@ def test_a_records_page_and_its_audit_trail(
     """A record's page as ADR 0176 lays it out: its values without who set each, a history
     button beside each with its last change, a rail with its map, and an Audit trail tab
     that narrows by field, shows each field's last change, and downloads whole as CSV for
-    an inspector. At a phone's width nothing scrolls across. axe checks it in Chromium and
-    WebKit: Firefox's content process crashes running it here (see assert_clean)."""
+    an inspector. At a phone's width nothing scrolls across."""
     import csv
 
     from iki_server.entities import services as entities
@@ -3237,7 +3248,7 @@ def test_a_records_page_and_its_audit_trail(
     assert rail_box is not None and 260 <= rail_box["width"] <= 300, rail_box
     created = details.locator("dd").filter(has_text="Admin,").first.bounding_box()
     assert created is not None and created["width"] >= 150, created
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     page.get_by_role("button", name="History of Name").click()
     history = page.get_by_role("dialog", name="History of Name")
@@ -3253,14 +3264,14 @@ def test_a_records_page_and_its_audit_trail(
         if box is not None
     }
     assert len(values_x) == 1, values_x
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.keyboard.press("Escape")
     history.wait_for(state="hidden")
 
     # The ⋯ menu has the rest of its actions, the audit trail's CSV among them.
     page.get_by_role("button", name=f"More actions for {hrid}").click()
     page.get_by_role("menuitem", name="Download audit trail (CSV)").wait_for()
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.keyboard.press("Escape")
 
     tabs.get_by_role("link", name=re.compile("^Audit trail")).click()
@@ -3290,14 +3301,14 @@ def test_a_records_page_and_its_audit_trail(
         assert title.count() == 1
         box = export.bounding_box()
         assert box is not None and box["height"] <= 26, box
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.get_by_role("combobox", name="Field").select_option("name")
     page.wait_for_url(re.compile(r"[?&]field=name"))
     page.get_by_role("button", name="By field").click()
     table = page.get_by_role("table", name="Each field’s last change")
     table.get_by_role("row", name=re.compile(r"^Name pBR322 Admin")).wait_for()
     assert table.get_by_role("row").count() == 2
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     with page.expect_download() as downloading:
         page.get_by_role("link", name="Export for inspection").click()
@@ -3316,7 +3327,7 @@ def test_a_records_page_and_its_audit_trail(
     wide = "() => document.documentElement.scrollWidth - innerWidth <= 1"
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(wide)
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.goto(f"/entities/{hrid}/?project=kinase-atlas")
     page.get_by_role("heading", level=1, name="pBR322").wait_for()
     rail.get_by_role("img", name=re.compile("^Circular map")).wait_for()
@@ -3326,7 +3337,7 @@ def test_a_records_page_and_its_audit_trail(
     edit = page.get_by_role("link", name="Edit", exact=True).bounding_box()
     assert heading is not None and edit is not None
     assert heading["y"] + heading["height"] <= edit["y"], (heading, edit)
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])
@@ -3336,9 +3347,7 @@ def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
     """A vector's sequence is its plasmid's, by reference, as a plasmid of the plasmid
     plugin's is its DNA sequence's (ADR 0163): its rail draws its own features along that
     sequence, and its features field says how many, with them listed in a Features card.
-    A list of objects nothing draws reads as a table, never as JSON. axe checks it in
-    Chromium and WebKit: Firefox's content process crashes running it here (see
-    assert_clean)."""
+    A list of objects nothing draws reads as a table, never as JSON."""
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
 
@@ -3375,7 +3384,7 @@ def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
     values.get_by_text(re.compile(r"^3 features, drawn in its map")).wait_for()
     page.get_by_role("table", name="Features of pBR322 vector").wait_for()
     assert "{" not in values.inner_text()
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     # Features that don't lie along its sequence, as pBR322's TcR doesn't along pUC19c's
     # 2,686 bp, can't be drawn: they're a table of their own, as any list of objects is.
@@ -3396,8 +3405,6 @@ def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
     ).entity
     page.goto(f"/entities/{Entity.objects.get(pk=other.pk).hrid}/")
     page.locator("h1", has_text="pUC19c misannotated").wait_for()
-    # By CSS alone on this page: Playwright's Firefox crashes its content process when its
-    # role queries and reads of this table's text are mixed.
     own = page.locator("section[aria-labelledby='values-title']")
     table = own.locator(".object-list table")
     assert table.locator("caption").inner_text() == "Annotated features"
@@ -3405,7 +3412,7 @@ def test_a_records_lists_of_objects_and_its_map_from_another_records_sequence(
     assert table.locator("tbody td").all_inner_texts() == ["TcR", "CDS", "3,086–4,276", "forward"]
     assert "{" not in own.inner_text()
     assert page.locator(".record-rail svg").count() == 0
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
 
 def _stored_file(
@@ -3416,9 +3423,11 @@ def _stored_file(
     media_type: str,
     *,
     scanned: bool = True,
+    **fields: Any,
 ) -> Any:
     """A file in the project, its bytes put straight into the store the server reads: found
-    clean by the scan, or, if not ``scanned``, still waiting for it."""
+    clean by the scan, or, if not ``scanned``, still waiting for it. ``fields`` are what an
+    upload also records (when its data was acquired, say): a file is never changed after."""
     import hashlib
 
     import boto3
@@ -3448,6 +3457,7 @@ def _stored_file(
         media_type=media_type,
         project=world.project,
         created_by=world.users["admin"],
+        **fields,
     )
 
 
@@ -3772,7 +3782,6 @@ def test_an_alignment_in_its_viewer(
     page.keyboard.press("End")
     assert at.inner_text().startswith(f"{hrid1}, column 311: Y, residue 310 of 310.")
     page.get_by_role("switch", name=f"Only where they differ from {hrid2}").check()
-    # By role, not label: Playwright's Firefox crashes finding a label once axe has run.
     page.get_by_role("combobox", name="Colour").select_option("all")
     assert page.evaluate(CANVAS_COLOURS) > 4
     assert_clean(page)
@@ -4004,14 +4013,14 @@ def test_a_component_shows_many_entities_in_each_of_its_places(open_as: Any, wor
     page = open_as("viewer", "/projects/kinase-atlas/")
     section = page.get_by_role("region", name="Protein board")
     section.frame_locator("iframe").get_by_text("Protein board: 3 shown").wait_for()
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     # A person's home: what they added. The viewer added nothing, so has no section.
     page.context.close()
     page = open_as("editor", "/")
     home = page.get_by_role("region", name="Proteins you added")
     home.frame_locator("iframe").get_by_text("Proteins you added: 3 shown").wait_for()
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.context.close()
     page = open_as("viewer", "/")
     page.get_by_role("heading", level=1).wait_for()
@@ -4049,7 +4058,7 @@ def test_a_component_shows_many_entities_in_each_of_its_places(open_as: Any, wor
     page.get_by_text("0 picked.").wait_for()
     shown.get_by_role("button", name=f"Select {abl2}").click()
     page.get_by_text("1 picked.").wait_for()
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
 
 def test_the_audit_log_reads_in_the_viewers_time_zone_under_the_apps_sidebar(
@@ -4361,9 +4370,7 @@ def test_a_count_made_while_someone_draws_is_recounted_not_recorded(
     assert recorded.value.status == 200, recorded.value.text()
     assert recorded.value.request.headers["if-balance-revision"] != seen
     page.get_by_text(f"{sample.hrid} has 78 uL now.").wait_for()
-    # Playwright's Firefox crashes in axe on the record's page once the count is recorded
-    # (see assert_clean); the dialog's states above are checked in all three.
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     assert Amount.objects.get(entity=sample).value == Decimal(78)
     assert list(
         Movement.objects.filter(entity=sample).order_by("created_at").values_list("kind", "reason")
@@ -4446,8 +4453,7 @@ def test_an_admin_gives_a_member_lab_roles(open_as: Any, world: World) -> None:
 def test_a_record_s_state_fields_are_set_by_their_lab_roles(open_as: Any, world: World) -> None:
     """A sample's state fields (ADR 0125): a control for each, the states its reader may set
     and why not of the others, a reason where a state asks for one, and the lock a state
-    puts on it. Its card by its heading: in Firefox, finding a region by name and then
-    running axe crashes the page (see above)."""
+    puts on it."""
     from iki_server.entities import services as entities
     from iki_server.entities.models import Entity
     from iki_server.org import permissions
@@ -4796,7 +4802,7 @@ def test_a_rule_holds_a_record_and_someone_else_reviews_it(open_as: Any, world: 
     assert_clean(page)
     why.fill("As measured on the SEC; retest booked.")
     page.get_by_role("button", name="Create batch").click()
-    page.wait_for_url(re.compile(r"/entities/BAT-\d+/"))
+    page.wait_for_url(re.compile(r"/entities/BTC-\d+/"))
     hrid = Entity.objects.get(type=BATCH).hrid
 
     heading = page.get_by_role("heading", name="Held for review")
@@ -5152,8 +5158,7 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     card.get_by_role("button", name="Preview").click()
     card.get_by_role("alert").get_by_text(re.compile("^Choose 3 different people")).wait_for()
     assert sent["sent"] == []
-    # Playwright's Firefox crashes in axe on this page (see assert_clean).
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     reviewers.get_by_role("checkbox", name="Editor").uncheck()
     reviewers.get_by_role("checkbox", name="Viewer").check()
@@ -5163,11 +5168,11 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     plan = card.get_by_role("status", name="What applying will do")
     plan.get_by_text("Viewer becomes Assay reviewer.").wait_for()
     plan.get_by_text("New results follow the Regulated QC flow.").wait_for()
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     card.get_by_role("button", name="Apply").click()
     page.get_by_text("Applied Dose-response plate assay with the Regulated QC flow.").wait_for()
@@ -5178,7 +5183,7 @@ def test_an_admin_sets_a_project_up_from_a_starter(
     assert sent["sent"][1][1]["role_assignments"][PLATE + "qa"] == [
         str(world.project.memberships.get(user=world.users["admin"]).pk)
     ]
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.context.close()
 
 
@@ -5217,8 +5222,7 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
     # Chromium and WebKit log the refusal, which the test expects, as a failed load.
     PAGE_ERRORS[page][:] = [e for e in PAGE_ERRORS[page] if "status of 409 (Conflict)" not in e]
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
-    # Playwright's Firefox crashes in axe on this page (see assert_clean).
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     card.get_by_role("button", name="Apply").click()
     page.get_by_text("Applied Dose-response plate assay with the Research flow.").wait_for()
@@ -5226,7 +5230,7 @@ def test_a_starter_whose_plan_changed_is_reviewed_again_before_it_applies(
     applies = [body for what, body in api["sent"] if what == "apply"]
     assert len(applies) == 2 and applies[0]["plan"] != applies[1]["plan"]
     assert note.count() == 0
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.context.close()
 
 
@@ -5244,9 +5248,83 @@ def test_a_member_reads_a_project_s_starters(open_as: Any, world: World) -> None
     assert card.get_by_role("button", name="Preview").count() == 0
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(NO_SIDEWAYS_SCROLL)
-    # Playwright's Firefox crashes in axe on this page (see assert_clean).
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.context.close()
+
+
+def test_a_fetch_webkit_refuses_a_leaving_page_is_an_error_that_says_so(
+    open_as: Any, server: Server, browser_name: str
+) -> None:
+    """A page's reads stop as a navigation away begins (page-reads.ts). One started after that
+    is a page error in WebKit, which refuses it unsent, so no request fails to tell of it:
+    the error says what was refused, and that the page was leaving."""
+    page: Page = open_as("admin", "/account/apps/")
+    page.evaluate(
+        """() => addEventListener("pagehide", () => {
+          fetch("/api/v1/me").catch(() => undefined);
+        })"""
+    )
+    page.goto("/projects/")
+    shown(page)
+    if browser_name == "webkit":
+        url = f"{server.url}/api/v1/me"
+        said = (
+            f"WebKit refused a fetch of {url} as the page was being left: Fetch API cannot load"
+            f" {url} due to access control checks.\n"
+        )
+        errors = PAGE_ERRORS[page]
+        assert len(errors) == 1 and errors[0].startswith(said), what_happened(page)
+        errors.clear()
+    assert_clean(page)
+
+
+def test_webkits_refusals_are_read_from_how_playwright_splits_them() -> None:
+    """Playwright splits WebKit's uncaught error at its first colon, the scheme's: a refusal
+    with a stack is read from that, one without (a failed CORS check) from the split."""
+
+    class Split:
+        def __init__(self, text: str, stack: str) -> None:
+            self.name, _, rest = text.partition(":")
+            self.message, self.stack = rest[1:], stack
+
+    other = "http://localhost:9/api/v1/me"
+    cors = Split(f"Fetch API cannot load {other} due to access control checks.", "")
+    assert cors.message == "/localhost:9/api/v1/me due to access control checks."
+    assert refused(cors) == other
+    left = "Fetch API cannot load http://127.0.0.1:8/a?b=1 due to access control checks."
+    assert refused(Split(left, left + "\n    at unknown (http://127.0.0.1:8/x:1:2)")) == (
+        "http://127.0.0.1:8/a?b=1"
+    )
+    assert refused(Split("TypeError: Load failed", "")) is None
+
+
+def test_a_name_axe_and_a_locator_both_work_out_leaves_the_page_running(open_as: Any) -> None:
+    """axe reads an element's ARIA element properties in the page's world, Playwright's
+    locators in theirs. In Firefox before 163 the second read crashed the page (see conftest),
+    which is why axe once skipped Firefox on some pages and tests avoided finding by label."""
+    page: Page = open_as("admin", "/account/apps/")
+    page.evaluate(
+        """() => {
+          // Built node by node: the app's policy takes no HTML strings (Trusted Types).
+          const probe = document.createElement("div");
+          probe.id = "probe";
+          const label = document.createElement("span");
+          label.id = "save-label";
+          label.textContent = "Save the plate map";
+          const button = document.createElement("button");
+          button.setAttribute("aria-labelledby", "save-label");
+          probe.append(label, button);
+          document.body.append(probe);
+        }"""
+    )
+    read = "document.querySelector('#probe button').getAttribute('aria-labelledby')"
+    for _ in range(2):
+        page.evaluate(AXE.read_text())
+        page.evaluate(RUN_AXE, WCAG_22_AA)
+        expect(page.get_by_role("button", name="Save the plate map")).to_be_visible()
+        assert page.evaluate(read) == "save-label"
+    page.evaluate("document.getElementById('probe').remove()")
+    assert_clean(page)
 
 
 def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any) -> None:
@@ -5710,8 +5788,6 @@ def test_an_app_whose_panels_read_the_ones_before(
     made = entities.create(admin, "iki/core.App", world.project, {"name": "Kinases", "spec": spec})
     hrid = Entity.objects.get(pk=made.entity.pk).hrid
     page = open_as("admin", f"/entities/{hrid}/", color_scheme)
-    # By text, not role, until axe has run: Playwright's Firefox crashes running axe after
-    # finding a region by its role.
     grid = page.locator(".app-panel", has_text="Kinases")
     grid.get_by_text("13 aa", exact=True).wait_for()
     page.get_by_text("0 of 2 picked.").wait_for()

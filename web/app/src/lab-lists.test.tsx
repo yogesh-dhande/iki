@@ -16,7 +16,7 @@ import { queryClient } from "./api";
 import { valueText } from "./entities";
 import { entity, field, KINASE, renderApp } from "./entity-fixtures";
 import { filterable } from "./filters";
-import { matching, optionNamed, optionText } from "./lab-lists";
+import { matching, optionText } from "./lab-lists";
 import { movedTo } from "./pages/list-options";
 import { FilterBar } from "./pages/entity-filters";
 import { cellText } from "./sheet";
@@ -300,7 +300,39 @@ describe("a record's dropdown of a lab list", () => {
     expect(method).toHaveValue("Ni-NTA affinity");
   });
 
-  it("says when a list has no options, and when its options can't be read", async () => {
+  it("shows a long list's first matches as people type, and how many there are", async () => {
+    onLab();
+    // A lab's vendor catalogue: 5,000 options, which nobody scrolls through.
+    const many = Array.from({ length: 5000 }, (_, i) =>
+      option(i + 1, `resin_${String(i + 1)}`, `Resin ${String(i + 1)}`),
+    );
+    onOptions(many);
+    const { user } = await renderApp(`/projects/kinase-atlas/entities/new/?type=${PREP_TYPE}`);
+    const method = await waitFor(() => {
+      const box = screen.getByRole("combobox", { name: /^Method/ });
+      expect(box).toHaveAttribute("aria-autocomplete", "list");
+      return box;
+    });
+    await user.click(method);
+    const options = await screen.findByRole("listbox");
+    expect(within(options).getAllByRole("option")).toHaveLength(50);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Showing 50 of 5,000. Type to narrow them.",
+    );
+    // "Resin 49", "Resin 490" to "Resin 499" and "Resin 4900" to "Resin 4999": 111.
+    await user.type(method, "Resin 49");
+    await waitFor(() => {
+      expect(screen.getByRole("status")).toHaveTextContent("Showing 50 of 111.");
+    });
+    expect(within(options).getAllByRole("option")[0]).toHaveTextContent("Resin 49");
+    await user.type(method, "87");
+    expect(within(options).getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("status")).toHaveTextContent("");
+    await user.click(within(options).getByRole("option", { name: "Resin 4987" }));
+    expect(method).toHaveValue("Resin 4987");
+  });
+
+  it("says when a list has no options", async () => {
     onLab();
     answer(`GET ${OPTIONS}`, []);
     await renderApp(`/projects/kinase-atlas/entities/new/?type=${PREP_TYPE}`);
@@ -311,6 +343,41 @@ describe("a record's dropdown of a lab list", () => {
       );
     });
     expect(method).toBeDisabled();
+  });
+
+  it("says when its options can't be read, and keeps the option the record names", async () => {
+    onLab();
+    answer(`GET ${OPTIONS}`, problem(500, "internal", "Something went wrong."));
+    const record = prep({ method: SEC.id }, { [SEC.id]: ref(SEC) });
+    onPrep(record);
+    const saved = prep({ name: "Anti-HER2 prep 12b", method: SEC.id }, { [SEC.id]: ref(SEC) });
+    answer(`PATCH /api/v1/entities/${PREP_ID}`, { ...saved, revision: 3 });
+    const { user } = await renderApp("/entities/PRP-000001/edit/");
+    const method = await screen.findByRole("combobox", { name: /^Method/ });
+    // After its retries.
+    await waitFor(
+      () => {
+        expect(method).toHaveAccessibleDescription(
+          "Couldn’t load its options. Try again in a moment.",
+        );
+      },
+      { timeout: 10_000 },
+    );
+    // Unread isn't archived: it's what the record says it is.
+    expect(method).toHaveDisplayValue("Size exclusion");
+    const name = screen.getByRole("textbox", { name: "Name" });
+    await user.clear(name);
+    await user.type(name, "Anti-HER2 prep 12b");
+    await user.click(screen.getByRole("button", { name: /^Save/ }));
+    await waitFor(() => {
+      expect(calls("PATCH", `/api/v1/entities/${PREP_ID}`)).toHaveLength(1);
+    });
+    const sent = calls("PATCH", `/api/v1/entities/${PREP_ID}`)[0]?.body as {
+      values: Record<string, unknown>;
+    };
+    expect(sent.values).toEqual({ name: "Anti-HER2 prep 12b" });
+    // Saved, the record still names it.
+    expect(await screen.findByRole("link", { name: "Size exclusion" })).toBeVisible();
   });
 });
 
@@ -334,7 +401,7 @@ describe("an option, as records read it", () => {
     expect(screen.queryByText("OPTION-000003")).not.toBeInTheDocument();
   });
 
-  it("reads as its label in the grid, and in a sheet's cell, which reads either back", () => {
+  it("reads as its label in the grid, and in a sheet's cell", () => {
     const method = nthField(PREP, "method");
     const polishing = nthField(PREP, "polishing");
     const record = prep(
@@ -346,9 +413,6 @@ describe("an option, as records read it", () => {
     expect(cellText(polishing, [SEC.id, PROTEIN_A.id], record)).toBe(
       "Size exclusion; Protein A affinity",
     );
-    expect(optionNamed(EVERY, "sec")).toBe(SEC);
-    expect(optionNamed(EVERY, "SIZE EXCLUSION")).toBe(SEC);
-    expect(optionNamed(EVERY, "Superdex")).toBeUndefined();
     expect(matching(EVERY, "AFFIN")).toEqual([PROTEIN_A]);
     expect(optionText("Protien G", "superseded")).toBe("Protien G (superseded)");
   });
@@ -609,21 +673,25 @@ describe("a list's page", () => {
 
   it("archives and restores an option, and supersedes a wrong one, each with a reason", async () => {
     onList({ can: { curate: true } });
-    onOptions([
+    let now = [
       { ...PROTEIN_A, uses: 12 },
       { ...SEC, uses: 0 },
       { ...DIALYSIS, uses: 3 },
-    ]);
-    answer(`POST ${OPTIONS}/protein_a/archive`, { ...PROTEIN_A, archived: true });
-    answer(`POST ${OPTIONS}/dialysis/restore`, { ...DIALYSIS, archived: false });
+    ];
+    onOptions(now);
+    answer(`POST ${OPTIONS}/protein_a/archive`, () => {
+      now = now.map((o) => (o.code === "protein_a" ? { ...o, archived: true } : o));
+      onOptions(now);
+      return { ...PROTEIN_A, archived: true };
+    });
+    answer(`POST ${OPTIONS}/dialysis/restore`, () => {
+      now = now.map((o) => (o.code === "dialysis" ? { ...o, archived: false } : o));
+      onOptions(now);
+      return { ...DIALYSIS, archived: false };
+    });
     answer(`POST ${OPTIONS}/sec/supersede`, {
       ...SEC,
-      superseded_by: {
-        id: PROTEIN_A.id,
-        hrid: PROTEIN_A.hrid,
-        code: "protein_a",
-        label: "Protein A affinity",
-      },
+      superseded_by: { id: DIALYSIS.id, hrid: DIALYSIS.hrid, code: "dialysis", label: "Dialysis" },
     });
     const { user } = await renderApp(PAGE);
     // Its curators see how many records name each, never which.
@@ -642,6 +710,14 @@ describe("a list's page", () => {
         reason: "Column retired",
       });
     });
+    // Its row is gone, and focus goes to the row in its place, not to the page.
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: "Change Protein A affinity" })).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Change Size exclusion" })).toHaveFocus();
+    });
 
     await user.click(screen.getByRole("checkbox", { name: /Show archived and superseded/ }));
     await user.click(screen.getByRole("button", { name: "Change Dialysis" }));
@@ -652,6 +728,10 @@ describe("a list's page", () => {
     await waitFor(() => {
       expect(calls("POST", `${OPTIONS}/dialysis/restore`)).toHaveLength(1);
     });
+    // Its row stays, archived ones shown: focus goes back to it.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Change Dialysis" })).toHaveFocus();
+    });
 
     await user.click(screen.getByRole("button", { name: "Change Size exclusion" }));
     await user.click(await screen.findByRole("menuitem", { name: "Supersede with another…" }));
@@ -661,26 +741,121 @@ describe("a list's page", () => {
       within(within(dialog).getByRole("combobox", { name: "Replaced by" }))
         .getAllByRole("option")
         .map((o) => o.textContent),
-    ).toEqual(["Choose one", "Protein A affinity (protein_a)"]);
+    ).toEqual(["Choose one", "Dialysis (dialysis)"]);
     await user.click(within(dialog).getByRole("button", { name: "Supersede" }));
     expect(
       within(dialog).getByRole("combobox", { name: "Replaced by" }),
     ).toHaveAccessibleDescription("Choose the option that replaces it.");
     await user.selectOptions(
       within(dialog).getByRole("combobox", { name: "Replaced by" }),
-      "protein_a",
+      "dialysis",
     );
     await user.type(within(dialog).getByRole("textbox", { name: /^Reason/ }), "Added twice");
     await user.click(within(dialog).getByRole("button", { name: "Supersede" }));
     await waitFor(() => {
       expect(calls("POST", `${OPTIONS}/sec/supersede`)[0]?.body).toEqual({
-        replacement: "protein_a",
+        replacement: "dialysis",
         reason: "Added twice",
       });
     });
     expect(
       await screen.findByText(/Each project whose records name it has been told/),
     ).toBeVisible();
+  });
+
+  it("shows a long list a page at a time, finds an option, and opens at a record's", async () => {
+    onList();
+    const many = Array.from({ length: 250 }, (_, i) =>
+      option(i + 1, `resin_${String(i + 1)}`, `Resin ${String(i + 1)}`),
+    );
+    onOptions(many);
+    const { user } = await renderApp(PAGE);
+    const table = await screen.findByRole("table", { name: /Purification methods, in the order/ });
+    const rows = () => within(table).getAllByRole("rowheader");
+    expect(rows()).toHaveLength(100);
+    const pages = screen.getByRole("navigation", { name: "Pages of options" });
+    expect(within(pages).getByRole("status")).toHaveTextContent("1–100 of 250");
+    await user.click(within(pages).getByRole("button", { name: "Next 100" }));
+    expect(within(pages).getByRole("status")).toHaveTextContent("101–200 of 250");
+    expect(rows()[0]).toHaveTextContent("Resin 101");
+    await user.click(within(pages).getByRole("button", { name: "Next 50" }));
+    expect(rows()).toHaveLength(50);
+    expect(within(pages).getByRole("button", { name: "Next 0" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    // Found by its label or code, from the first page of what matches.
+    await user.type(
+      screen.getByRole("searchbox", { name: "Find an option, by its label or code" }),
+      "resin_24",
+    );
+    expect(rows().map((r) => r.textContent)).toEqual([
+      "Resin 24",
+      ...Array.from({ length: 10 }, (_, i) => `Resin ${String(240 + i)}`),
+    ]);
+    expect(screen.queryByRole("navigation", { name: "Pages of options" })).toBeNull();
+    await user.type(screen.getByRole("searchbox"), "x");
+    expect(screen.getByText("No option’s label or code has “resin_24x” in it.")).toBeVisible();
+  });
+
+  it("opens a long list at the page of the option a record's link names", async () => {
+    const scrolled = vi.fn();
+    Element.prototype.scrollIntoView = scrolled;
+    onList();
+    onOptions(
+      Array.from({ length: 250 }, (_, i) =>
+        option(i + 1, `resin_${String(i + 1)}`, `Resin ${String(i + 1)}`),
+      ),
+    );
+    await renderApp(`${PAGE}#option-resin_230`);
+    const target = await screen.findByRole("row", { current: true });
+    expect(target).toHaveTextContent("Resin 230");
+    expect(scrolled.mock.contexts).toContain(target);
+    expect(
+      within(screen.getByRole("navigation", { name: "Pages of options" })).getByRole("status"),
+    ).toHaveTextContent("201–250 of 250");
+  });
+
+  it("moves an option to a position in a long list's order, by keyboard", async () => {
+    onList({ can: { curate: true } });
+    const many = Array.from({ length: 250 }, (_, i) =>
+      option(i + 1, `resin_${String(i + 1)}`, `Resin ${String(i + 1)}`),
+    );
+    onOptions(many);
+    answer(`PUT /api/v1/lists/${METHOD}/order`, many);
+    const { user } = await renderApp(PAGE);
+    await user.click(await screen.findByRole("button", { name: "Reorder" }));
+    const order = screen.getByRole("list", { name: "Purification methods, in their new order" });
+    expect(within(order).getAllByRole("listitem")).toHaveLength(100);
+    const pages = screen.getByRole("navigation", { name: "Pages of the order" });
+    await user.click(within(pages).getByRole("button", { name: "Next 100" }));
+    await user.click(within(pages).getByRole("button", { name: "Next 50" }));
+    await user.click(screen.getByRole("button", { name: "Move Resin 240 to a position" }));
+    const dialog = await screen.findByRole("dialog", { name: "Move Resin 240" });
+    const position = within(dialog).getByRole("textbox", { name: "New position" });
+    expect(position).toHaveValue("240");
+    await user.clear(position);
+    await user.type(position, "251");
+    await user.click(within(dialog).getByRole("button", { name: "Move" }));
+    expect(position).toHaveAccessibleDescription(/Enter a whole number from 1, the top, to 250/);
+    await user.clear(position);
+    await user.type(position, "1{Enter}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    // Its page follows it, and focus stays with it.
+    expect(within(order).getAllByRole("listitem")[0]).toHaveTextContent("Resin 240");
+    expect(screen.getByText("Moved Resin 240 to position 1 of 250.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Move Resin 240 to a position" })).toHaveFocus();
+    // Its own form: the order isn't saved until it's asked to be.
+    expect(calls("PUT", `/api/v1/lists/${METHOD}/order`)).toEqual([]);
+    await user.type(screen.getByRole("textbox", { name: /^Reason/ }), "Most used first");
+    await user.click(screen.getByRole("button", { name: "Save order" }));
+    await waitFor(() => {
+      expect(
+        (calls("PUT", `/api/v1/lists/${METHOD}/order`)[0]?.body as { codes: string[] }).codes,
+      ).toEqual(["resin_240", ...many.map((o) => o.code).filter((c) => c !== "resin_240")]);
+    });
   });
 
   it("is read-only while its plugin is detached", async () => {

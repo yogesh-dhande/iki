@@ -1123,20 +1123,35 @@ class Resolver:
         return out
 
     def _options(self, type_name: str, texts: set[str]) -> dict[str, str | uuid.UUID]:
-        """A lab list's options (ADR 0270), by code, by label in any case, by HRID or by
-        ID, in the project's registry. An archived one is found, and refused when it's saved
-        unless the record names it already."""
+        """A lab list's options (ADR 0270), in the project's registry: by its code, as
+        exports give it; by its code or its label in any case; by HRID or by ID. A text
+        that names more than one in another case names none, and says which it could be.
+        An archived one is found, and refused when it's saved unless the record names it
+        already."""
         every = lists.options(self.project.registry_id, type_name, archived=True)
         by_code = {o.code: o.entry.pk for o in every}
-        by_label = {o.label.casefold(): o.entry.pk for o in every}
+        # What each name, in any case, could be: the option, and whether by code or label.
+        by_name: dict[str, dict[uuid.UUID, tuple[str, str]]] = {}
+        for o in every:
+            by_name.setdefault(o.label.casefold(), {}).setdefault(o.entry.pk, (o.code, "label"))
+            by_name.setdefault(o.code.casefold(), {}).setdefault(o.entry.pk, (o.code, "code"))
         by_hrid = {o.entry.hrid: o.entry.pk for o in every}
         by_id = {str(o.entry.pk): o.entry.pk for o in every}
         label = registry.types()[type_name].label_plural
         out: dict[str, str | uuid.UUID] = {}
         for text in texts:
+            named = by_name.get(text.casefold(), {})
+            if text not in by_code and len(named) > 1:
+                said = [f"`{code}` by its {how}" for code, how in sorted(named.values())]
+                which = ", ".join(said[:-1]) + " and " + said[-1]
+                out[text] = (
+                    f"names more than one option of {label}: {which}. Give the one you mean "
+                    "by its code, exactly."
+                )
+                continue
             found = (
                 by_code.get(text)
-                or by_label.get(text.casefold())
+                or next(iter(named), None)
                 or by_hrid.get(text.upper())
                 or by_id.get(text.lower())
             )
