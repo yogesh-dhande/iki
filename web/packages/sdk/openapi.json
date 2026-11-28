@@ -661,13 +661,19 @@
             "title": "Label",
             "type": "string"
           },
+          "revision": {
+            "description": "One more with each movement. Its ETag: send it as If-Match to recount it.",
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
           "unit": {
             "description": "The unit its type keeps it in.",
             "title": "Unit",
             "type": "string"
           },
           "updated_at": {
-            "description": "The balance revision. Send this exact string in If-Balance-Revision when recording an absolute count.",
+            "description": "When it last moved.",
             "format": "date-time",
             "title": "Updated At",
             "type": "string"
@@ -685,6 +691,7 @@
           "label",
           "display",
           "held_by",
+          "revision",
           "updated_at"
         ],
         "title": "AmountOut",
@@ -2653,12 +2660,6 @@
       },
       "CancelReceiptIn": {
         "properties": {
-          "plan_revision": {
-            "description": "The receipt revision you reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
-          },
           "reason": {
             "maxLength": 2000,
             "minLength": 1,
@@ -2667,7 +2668,6 @@
           }
         },
         "required": [
-          "plan_revision",
           "reason"
         ],
         "title": "CancelReceiptIn",
@@ -2675,12 +2675,6 @@
       },
       "CancelReconciliationIn": {
         "properties": {
-          "plan_revision": {
-            "description": "The revision of the reconciliation plan being reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
-          },
           "reason": {
             "description": "Why this count is being cancelled.",
             "maxLength": 2000,
@@ -2690,7 +2684,6 @@
           }
         },
         "required": [
-          "plan_revision",
           "reason"
         ],
         "title": "CancelReconciliationIn",
@@ -3413,12 +3406,6 @@
             "description": "The put-away preview hash. Required when choosing the next free position.",
             "title": "Plan"
           },
-          "plan_revision": {
-            "description": "The receipt revision you reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
-          },
           "put_away": {
             "items": {
               "$ref": "#/components/schemas/PutAwayIn"
@@ -3428,9 +3415,6 @@
             "type": "array"
           }
         },
-        "required": [
-          "plan_revision"
-        ],
         "title": "CompleteReceiptIn",
         "type": "object"
       },
@@ -3453,17 +3437,8 @@
             ],
             "description": "Completion note. Defaults to empty.",
             "title": "Note"
-          },
-          "plan_revision": {
-            "description": "The revision of the reconciliation plan being reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
           }
         },
-        "required": [
-          "plan_revision"
-        ],
         "title": "CompleteReconciliationIn",
         "type": "object"
       },
@@ -7317,6 +7292,21 @@
           }
         },
         "title": "ExportSearchIn",
+        "type": "object"
+      },
+      "ExtraReasonIn": {
+        "properties": {
+          "reason": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ExtraReasonIn",
         "type": "object"
       },
       "FacetParams": {
@@ -14826,6 +14816,22 @@
             "title": "Codes",
             "type": "array"
           },
+          "expected_revisions": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Each option's revision as you read it, by code: every option's. An option changed, added or removed since answers 412, as a second curator's order would otherwise undo the first's.",
+            "title": "Expected Revisions"
+          },
           "reason": {
             "description": "Why: every project's dropdowns follow it.",
             "maxLength": 2000,
@@ -19859,16 +19865,9 @@
                 "$ref": "#/components/schemas/ScanMode"
               }
             ]
-          },
-          "plan_revision": {
-            "description": "The receipt revision you reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
           }
         },
         "required": [
-          "plan_revision",
           "box"
         ],
         "title": "ReceiptBoxIn",
@@ -19902,12 +19901,6 @@
             "description": "Omit to keep the current note. Send null, an empty string, or whitespace to clear it.",
             "title": "Note"
           },
-          "plan_revision": {
-            "description": "The receipt revision you reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
-          },
           "reason": {
             "anyOf": [
               {
@@ -19922,27 +19915,11 @@
             "title": "Reason"
           }
         },
-        "required": [
-          "plan_revision"
-        ],
         "title": "ReceiptIn",
         "type": "object"
       },
       "ReceiptLineIn": {
         "properties": {
-          "line_revision": {
-            "anyOf": [
-              {
-                "minimum": 1,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Version of the line being corrected.",
-            "title": "Line Revision"
-          },
           "note": {
             "anyOf": [
               {
@@ -19972,7 +19949,7 @@
                 "type": "null"
               }
             ],
-            "description": "Null clears an expected line. First observations can omit line_revision.",
+            "description": "Null clears an expected line, which takes its If-Match.",
             "title": "Outcome"
           },
           "reason": {
@@ -20044,12 +20021,6 @@
             "title": "Id",
             "type": "string"
           },
-          "line_revision": {
-            "description": "The version of this line’s saved observation.",
-            "minimum": 1,
-            "title": "Line Revision",
-            "type": "integer"
-          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -20097,11 +20068,17 @@
                 "type": "null"
               }
             ]
+          },
+          "revision": {
+            "description": "One more with each change to its observation. Its ETag: send it as If-Match to correct, remove or restore it.",
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
           }
         },
         "required": [
           "id",
-          "line_revision",
+          "revision",
           "entity",
           "ref",
           "code",
@@ -20177,12 +20154,6 @@
             "title": "Outcomes",
             "type": "object"
           },
-          "plan_revision": {
-            "description": "The receipt revision shown for review.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
-          },
           "project": {
             "description": "The service receiving it.",
             "format": "uuid",
@@ -20210,6 +20181,12 @@
           "request": {
             "$ref": "#/components/schemas/StepOut"
           },
+          "revision": {
+            "description": "One more with each change to it or its lines. Its ETag: send it as If-Match to describe, complete or cancel it.",
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
           "started_at": {
             "format": "date-time",
             "title": "Started At",
@@ -20230,7 +20207,7 @@
         },
         "required": [
           "id",
-          "plan_revision",
+          "revision",
           "request",
           "project",
           "status",
@@ -20253,12 +20230,6 @@
       "ReceiptPlacementIn": {
         "additionalProperties": false,
         "properties": {
-          "plan_revision": {
-            "description": "The receipt revision you reviewed.",
-            "minimum": 1,
-            "title": "Plan Revision",
-            "type": "integer"
-          },
           "put_away": {
             "items": {
               "$ref": "#/components/schemas/PutAwayIn"
@@ -20268,9 +20239,6 @@
             "type": "array"
           }
         },
-        "required": [
-          "plan_revision"
-        ],
         "title": "ReceiptPlacementIn",
         "type": "object"
       },
@@ -20441,12 +20409,6 @@
             "title": "Id",
             "type": "string"
           },
-          "line_revision": {
-            "description": "The version of this line and its supporting slot evidence.",
-            "minimum": 1,
-            "title": "Line Revision",
-            "type": "integer"
-          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -20514,10 +20476,16 @@
               }
             ],
             "description": "The exact scan on which the saved decision was based."
+          },
+          "revision": {
+            "description": "One more with each change to the line or its slot's evidence. Its ETag: send it as If-Match to resolve it.",
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
           }
         },
         "required": [
-          "line_revision",
+          "revision",
           "observation",
           "reviewed_observation",
           "id",
@@ -20603,10 +20571,10 @@
             "title": "Note",
             "type": "string"
           },
-          "plan_revision": {
-            "description": "The version of the count's observations and decisions.",
+          "revision": {
+            "description": "One more with each change to its observations and decisions. Its ETag: send it as If-Match to complete or cancel it.",
             "minimum": 1,
-            "title": "Plan Revision",
+            "title": "Revision",
             "type": "integer"
           },
           "shape": {
@@ -20632,7 +20600,7 @@
         },
         "required": [
           "id",
-          "plan_revision",
+          "revision",
           "container",
           "shape",
           "status",
@@ -21736,6 +21704,36 @@
         "title": "ReleaseQuarantineIn",
         "type": "object"
       },
+      "ReplacedMappingIn": {
+        "additionalProperties": false,
+        "properties": {
+          "import": {
+            "description": "The spreadsheet import whose mapping replaces it.",
+            "format": "uuid",
+            "title": "Import",
+            "type": "string"
+          },
+          "import_revision": {
+            "description": "The import's revision you reviewed: its mapping is what's kept.",
+            "minimum": 1,
+            "title": "Import Revision",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "import",
+          "import_revision"
+        ],
+        "title": "ReplacedMappingIn",
+        "type": "object"
+      },
       "ReproduceIn": {
         "properties": {
           "consent": {
@@ -22062,11 +22060,6 @@
       },
       "ResolveIn": {
         "properties": {
-          "line_revision": {
-            "minimum": 1,
-            "title": "Line Revision",
-            "type": "integer"
-          },
           "note": {
             "anyOf": [
               {
@@ -22113,7 +22106,6 @@
           }
         },
         "required": [
-          "line_revision",
           "resolution"
         ],
         "title": "ResolveIn",
@@ -22203,39 +22195,18 @@
             "title": "Line Id",
             "type": "string"
           },
-          "line_revision": {
+          "revision": {
+            "description": "The line's revision you reviewed.",
             "minimum": 1,
-            "title": "Line Revision",
+            "title": "Revision",
             "type": "integer"
           }
         },
         "required": [
           "line_id",
-          "line_revision"
+          "revision"
         ],
         "title": "ReviewedCountLine",
-        "type": "object"
-      },
-      "ReviewedExtraIn": {
-        "properties": {
-          "line_revision": {
-            "description": "The reviewed version of the extra line.",
-            "minimum": 1,
-            "title": "Line Revision",
-            "type": "integer"
-          },
-          "reason": {
-            "maxLength": 2000,
-            "minLength": 1,
-            "title": "Reason",
-            "type": "string"
-          }
-        },
-        "required": [
-          "line_revision",
-          "reason"
-        ],
-        "title": "ReviewedExtraIn",
         "type": "object"
       },
       "RevisionDetailOut": {
@@ -24646,38 +24617,13 @@
         "type": "object"
       },
       "SavedMappingIn": {
+        "additionalProperties": false,
         "properties": {
           "name": {
             "maxLength": 100,
             "minLength": 1,
             "title": "Name",
             "type": "string"
-          },
-          "replace": {
-            "anyOf": [
-              {
-                "format": "uuid",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "A saved mapping to change, rather than add.",
-            "title": "Replace"
-          },
-          "target_revision": {
-            "anyOf": [
-              {
-                "minimum": 1,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The reviewed saved template revision, with replace.",
-            "title": "Target Revision"
           }
         },
         "required": [
@@ -35885,6 +35831,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -35897,6 +35844,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -35920,7 +35868,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -37992,6 +37976,34 @@
             },
             "description": "OK"
           },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
+          },
           "default": {
             "$ref": "#/components/responses/Problem"
           }
@@ -38485,7 +38497,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "304": {
             "description": "Not Modified"
@@ -38521,6 +38541,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -38533,6 +38554,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -38556,7 +38578,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -38632,7 +38690,7 @@
     },
     "/api/v1/entities/{ref}/amount": {
       "get": {
-        "description": "404 for a type without an amount, or a record with none recorded yet: adjust it to\nrecord one.",
+        "description": "404 for a type without an amount, or a record with none recorded yet: adjust it to\nrecord one. Its ETag is its `revision`, which a recount sends as If-Match.",
         "operationId": "iki_server_api_amounts_get_amount",
         "parameters": [
           {
@@ -38654,7 +38712,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -38676,7 +38742,7 @@
     },
     "/api/v1/entities/{ref}/amount/adjust": {
       "post": {
-        "description": "Records an absolute count, with a reason. Send the observed amount's exact\n`updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.\nA missing header answers 428. A changed balance answers 409 and must be recounted.",
+        "description": "Records an absolute count, with a reason. Send the amount's ETag you read as\nIf-Match, or `If-None-Match: *` if it had none recorded. Neither answers 428. A\nbalance that changed since answers 412: recount it.",
         "operationId": "iki_server_api_amounts_adjust",
         "parameters": [
           {
@@ -38689,8 +38755,9 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
-            "name": "If-Balance-Revision",
+            "name": "If-Match",
             "required": false,
             "schema": {
               "anyOf": [
@@ -38701,7 +38768,26 @@
                   "type": "null"
                 }
               ],
-              "title": "If-Balance-Revision"
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
+          },
+          {
+            "description": "`*` when nothing was recorded yet, in place of If-Match.",
+            "in": "header",
+            "name": "If-None-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`*` when nothing was recorded yet, in place of If-Match.",
+              "title": "If-None-Match"
             }
           }
         ],
@@ -38724,7 +38810,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -39674,6 +39796,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -39686,6 +39809,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           },
@@ -39726,7 +39850,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -39916,7 +40076,7 @@
     },
     "/api/v1/entities/{ref}/move": {
       "post": {
-        "description": "An Editor of its project. It keeps its data, history and runs; the project's own\nrecords that refer to the superseded entry are changed to refer to the new one, each a\nrevision with the reason. Refused if the project has a record of the new one already.\n\nA record can't change its type, so to a replacement of another type (ADR 0165) it's the\nproject's new record of the replacement that's returned: with this one's values for the\nfields the two types share and ``values``, while this one is archived, keeping its\nhistory, signatures and runs.",
+        "description": "An Editor of its project, from the record's revision they read (If-Match). It keeps\nits data, history and runs; the project's own records that refer to the superseded\nentry are changed to refer to the new one, each a revision with the reason. Refused if\nthe project has a record of the new one already.\n\nA record can't change its type, so to a replacement of another type (ADR 0165) it's the\nproject's new record of the replacement that's returned: with this one's values for the\nfields the two types share and ``values``, while this one is archived, keeping its\nhistory, signatures and runs.",
         "operationId": "iki_server_api_registries_move_entity",
         "parameters": [
           {
@@ -39926,6 +40086,24 @@
             "schema": {
               "title": "Ref",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -39948,7 +40126,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -40729,6 +40943,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -40741,6 +40956,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -40765,6 +40981,34 @@
               }
             },
             "description": "Created"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -40825,6 +41069,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -40837,6 +41082,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -40860,7 +41106,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -40912,6 +41194,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -40924,6 +41207,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -40947,7 +41231,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -40982,6 +41302,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -40994,6 +41315,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -41017,7 +41339,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -41894,7 +42252,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -41927,6 +42293,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -41939,6 +42306,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -41962,7 +42330,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -42215,7 +42619,7 @@
     },
     "/api/v1/entries/{ref}/supersede": {
       "post": {
-        "description": "Its registry's registrars replace a mistaken entry with another in the registry, for\ngood: one of its type, or of another type under its identity; or with a new entry of its\nidentity as another type (``type``, ADR 0165). Each holding project's Admins, and\nwhoever added its record, are told, to move their records to the replacement. A lab\nlist's option is superseded on its list (`/lists/{name}/options/{code}/supersede`), not\nhere, either way.",
+        "description": "Its registry's registrars replace a mistaken entry with another in the registry, for\ngood, from the revision they read (If-Match): one of its type, or of another type under\nits identity; or with a new entry of its identity as another type (``type``, ADR 0165).\nEach holding project's Admins, and whoever added its record, are told, to move their\nrecords to the replacement. A lab list's option is superseded on its list\n(`/lists/{name}/options/{code}/supersede`), not here, either way.",
         "operationId": "iki_server_api_registries_supersede_entry",
         "parameters": [
           {
@@ -42225,6 +42629,24 @@
             "schema": {
               "title": "Ref",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -42247,7 +42669,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -44162,7 +44620,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -44241,6 +44707,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -44253,6 +44720,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -44276,7 +44744,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -44298,7 +44802,7 @@
     },
     "/api/v1/lists/{name}/options/{code}/archive": {
       "post": {
-        "description": "No dropdown offers it from now on. The records that name it keep it, and it's still\nin their search, filters, exports and the API.",
+        "description": "No dropdown offers it from now on. The records that name it keep it, and it's still\nin their search, filters, exports and the API. Send the ETag you read as If-Match.",
         "operationId": "iki_server_api_lists_archive_option",
         "parameters": [
           {
@@ -44355,6 +44859,24 @@
               "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
               "title": "Registry"
             }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -44376,7 +44898,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -44461,7 +45019,7 @@
     },
     "/api/v1/lists/{name}/options/{code}/restore": {
       "post": {
-        "description": "Dropdowns offer it again, in its place in the list.",
+        "description": "Dropdowns offer it again, in its place in the list. Send the ETag you read as\nIf-Match.",
         "operationId": "iki_server_api_lists_restore_option",
         "parameters": [
           {
@@ -44518,6 +45076,24 @@
               "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
               "title": "Registry"
             }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -44539,7 +45115,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -44561,7 +45173,7 @@
     },
     "/api/v1/lists/{name}/options/{code}/supersede": {
       "post": {
-        "description": "For a wrong code: the option is replaced for good by another of the list, which\ndropdowns offer instead. The Admins of each project whose records name it are told, to\nmove them to the replacement.",
+        "description": "For a wrong code: the option is replaced for good by another of the list, which\ndropdowns offer instead. The Admins of each project whose records name it are told, to\nmove them to the replacement. Send the option's ETag as If-Match.",
         "operationId": "iki_server_api_lists_supersede_option",
         "parameters": [
           {
@@ -44618,6 +45230,24 @@
               "description": "A registry you can see, by ID: for its registrars, its lists' curators and Org Admins, who may read none of its projects.",
               "title": "Registry"
             }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -44639,7 +45269,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -44735,6 +45401,34 @@
               }
             },
             "description": "OK"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -47420,6 +48114,34 @@
             },
             "description": "OK"
           },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
+          },
           "default": {
             "$ref": "#/components/responses/Problem"
           }
@@ -48569,6 +49291,7 @@
     },
     "/api/v1/receipts/{receipt_id}": {
       "get": {
+        "description": "Its ETag is its `revision`.",
         "operationId": "iki_server_api_storage_get_receipt",
         "parameters": [
           {
@@ -48591,7 +49314,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -48611,6 +49342,7 @@
         ]
       },
       "patch": {
+        "description": "Who handed it over and its note, from the revision you reviewed (If-Match).",
         "operationId": "iki_server_api_storage_update_receipt",
         "parameters": [
           {
@@ -48621,6 +49353,24 @@
               "format": "uuid",
               "title": "Receipt Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -48643,7 +49393,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -48665,7 +49451,7 @@
     },
     "/api/v1/receipts/{receipt_id}/cancel": {
       "post": {
-        "description": "An open receipt, abandoned: nothing is received with it. It's kept, cancelled.",
+        "description": "An open receipt, abandoned, from the revision you reviewed (If-Match): nothing is\nreceived with it. It's kept, cancelled.",
         "operationId": "iki_server_api_storage_cancel_receipt",
         "parameters": [
           {
@@ -48676,6 +49462,24 @@
               "format": "uuid",
               "title": "Receipt Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -48698,7 +49502,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -48720,7 +49560,7 @@
     },
     "/api/v1/receipts/{receipt_id}/complete": {
       "post": {
-        "description": "Name each matched or damaged line once in put_away or keep_in_custody. Custody,\nplacements and discrepancy notices are recorded together.",
+        "description": "From the revision you reviewed (If-Match). Name each matched or damaged line once in\nput_away or keep_in_custody. Custody, placements and discrepancy notices are recorded\ntogether.",
         "operationId": "iki_server_api_storage_complete_receipt",
         "parameters": [
           {
@@ -48731,6 +49571,24 @@
               "format": "uuid",
               "title": "Receipt Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -48753,7 +49611,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -48869,6 +49763,7 @@
     },
     "/api/v1/receipts/{receipt_id}/lines/{line_id}": {
       "delete": {
+        "description": "From the line's revision you reviewed (If-Match), with a reason.",
         "operationId": "iki_server_api_storage_drop_line",
         "parameters": [
           {
@@ -48890,13 +49785,31 @@
               "title": "Line Id",
               "type": "string"
             }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReviewedExtraIn"
+                "$ref": "#/components/schemas/ExtraReasonIn"
               }
             }
           },
@@ -48912,6 +49825,34 @@
               }
             },
             "description": "OK"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -48931,6 +49872,7 @@
         ]
       },
       "patch": {
+        "description": "A first check records what you saw and needs no If-Match: if someone checked it\nfirst, it answers `found: \"again\"` and keeps theirs. Correcting or clearing what was\nrecorded sends the line's ETag as If-Match (428 without it).",
         "operationId": "iki_server_api_storage_check_line",
         "parameters": [
           {
@@ -48951,6 +49893,24 @@
               "format": "uuid",
               "title": "Line Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -48975,6 +49935,34 @@
             },
             "description": "OK"
           },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
+          },
           "default": {
             "$ref": "#/components/responses/Problem"
           }
@@ -48995,6 +49983,7 @@
     },
     "/api/v1/receipts/{receipt_id}/lines/{line_id}/restore": {
       "post": {
+        "description": "From the line's revision you reviewed (If-Match), with a reason.",
         "operationId": "iki_server_api_storage_restore_line",
         "parameters": [
           {
@@ -49016,13 +50005,31 @@
               "title": "Line Id",
               "type": "string"
             }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ReviewedExtraIn"
+                "$ref": "#/components/schemas/ExtraReasonIn"
               }
             }
           },
@@ -49038,6 +50045,34 @@
               }
             },
             "description": "OK"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -49059,7 +50094,7 @@
     },
     "/api/v1/receipts/{receipt_id}/put-away/placeable": {
       "post": {
-        "description": "Each matched or damaged line, and why it can't be put in the box if it can't, whatever\nthe well: archived, a type the box doesn't hold, or a project the box's readers don't\nread. Completing checks the same again.",
+        "description": "Each matched or damaged line, and why it can't be put in the box if it can't, whatever\nthe well: archived, a type the box doesn't hold, or a project the box's readers don't\nread, for the receipt's revision you reviewed (If-Match). Completing checks the same\nagain.",
         "operationId": "iki_server_api_storage_receipt_placeable",
         "parameters": [
           {
@@ -49070,6 +50105,24 @@
               "format": "uuid",
               "title": "Receipt Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -49098,6 +50151,34 @@
             },
             "description": "OK"
           },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
+          },
           "default": {
             "$ref": "#/components/responses/Problem"
           }
@@ -49118,6 +50199,7 @@
     },
     "/api/v1/receipts/{receipt_id}/put-away/preview": {
       "post": {
+        "description": "What completing it would do, for the receipt's revision you reviewed (If-Match).",
         "operationId": "iki_server_api_storage_preview_receipt_placement",
         "parameters": [
           {
@@ -49128,6 +50210,24 @@
               "format": "uuid",
               "title": "Receipt Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -49151,6 +50251,34 @@
               }
             },
             "description": "OK"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -49227,6 +50355,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}": {
       "get": {
+        "description": "Its ETag is its `revision`.",
         "operationId": "iki_server_api_storage_get_reconciliation",
         "parameters": [
           {
@@ -49249,7 +50378,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -49271,6 +50408,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/cancel": {
       "post": {
+        "description": "From the revision you reviewed (If-Match), with a reason.",
         "operationId": "iki_server_api_storage_cancel_reconciliation",
         "parameters": [
           {
@@ -49281,6 +50419,24 @@
               "format": "uuid",
               "title": "Reconciliation Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -49303,7 +50459,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -49325,7 +50517,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/complete": {
       "post": {
-        "description": "Applies the reviewed plan atomically. A stale plan revision returns 409. A decision\nthat needs review or a change in the container's recorded contents returns 422.",
+        "description": "Applies the revision you reviewed (If-Match) atomically: a newer one answers 412. A\ndecision that needs review or a change in the container's recorded contents returns\n422.",
         "operationId": "iki_server_api_storage_complete_reconciliation",
         "parameters": [
           {
@@ -49336,6 +50528,24 @@
               "format": "uuid",
               "title": "Reconciliation Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -49358,7 +50568,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -49474,7 +50720,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/lines/{line_id}": {
       "patch": {
-        "description": "Save or clear the decision for the reviewed line_revision. A changed finding,\nsupporting scan, or decision on this line returns 409. Superseding a decision\nrequires a reason in addition to any note supporting the new decision.",
+        "description": "Save or clear the decision for the line's revision you reviewed (If-Match). A\nchanged finding, supporting scan, or decision on this line answers 412. Superseding a\ndecision requires a reason in addition to any note supporting the new decision.",
         "operationId": "iki_server_api_storage_resolve_line",
         "parameters": [
           {
@@ -49495,6 +50741,24 @@
               "format": "uuid",
               "title": "Line Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
             }
           }
         ],
@@ -49519,6 +50783,34 @@
             },
             "description": "OK"
           },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
+          },
           "default": {
             "$ref": "#/components/responses/Problem"
           }
@@ -49539,7 +50831,7 @@
     },
     "/api/v1/reconciliations/{reconciliation_id}/scans": {
       "post": {
-        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. A conflict returns 409 with the\ncurrently affected line IDs and versions in `affected_lines`. A shared label at its\nexpected slot records a positional match. An ambiguous label elsewhere returns 409\nwith the readable candidates and the zero-based scan index. A selected candidate\nis rechecked against the original label when the rack is submitted again.\n\nIdentical unregistered labels read at different positions in the same rack can represent\nseparate tubes. If a reading could be a move of an earlier unregistered observation,\n409 `count_unregistered_choice` identifies the scan's zero-based `index`, its\n`position`, and the prior `observations` by line ID, revision and position. Submit\n`unregistered: {\"action\":\"additional\"}` to record another tube, or\n`{\"action\":\"move\",\"line_id\":...}` to move that line with its reviewed revision and a reason.\nAny prior observation displaced at the destination must also be reviewed.",
+        "description": "Record the scans in one transaction. Fresh positions and tubes need no precondition.\nSupply the reviewed line revisions for observations being replaced or repeated.\nA change of slot or contents also needs a reason. One that changed since answers 412\n`stale`, with the affected line IDs and their revisions in `affected_lines`. A shared\nlabel at its expected slot records a positional match. An ambiguous label elsewhere returns 409\nwith the readable candidates and the zero-based scan index. A selected candidate\nis rechecked against the original label when the rack is submitted again.\n\nIdentical unregistered labels read at different positions in the same rack can represent\nseparate tubes. If a reading could be a move of an earlier unregistered observation,\n409 `count_unregistered_choice` identifies the scan's zero-based `index`, its\n`position`, and the prior `observations` by line ID, revision and position. Submit\n`unregistered: {\"action\":\"additional\"}` to record another tube, or\n`{\"action\":\"move\",\"line_id\":...}` to move that line with its reviewed revision and a reason.\nAny prior observation displaced at the destination must also be reviewed.",
         "operationId": "iki_server_api_storage_scan_positions",
         "parameters": [
           {
@@ -49573,6 +50865,34 @@
               }
             },
             "description": "OK"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52194,7 +53514,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}": {
       "delete": {
-        "description": "Before it's committed. The workbook stays in the project.",
+        "description": "Before it's committed, from the revision you read (If-Match). The workbook stays in\nthe project.",
         "operationId": "iki_server_api_spreadsheets_discard_import",
         "parameters": [
           {
@@ -52206,11 +53526,57 @@
               "title": "Import Id",
               "type": "string"
             }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52253,7 +53619,15 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52287,6 +53661,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -52299,6 +53674,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -52322,7 +53698,43 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52358,6 +53770,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -52370,6 +53783,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -52393,7 +53807,43 @@
                 }
               }
             },
-            "description": "Accepted"
+            "description": "Accepted",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52415,7 +53865,7 @@
     },
     "/api/v1/spreadsheet-imports/{import_id}/mappings": {
       "post": {
-        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself. Send the revision you read\n(If-Match): its mapping is what's kept. To replace a template send its ID and reviewed\ntarget_revision. A stale template returns 409; a stale import returns 412.",
+        "description": "Keeps how its columns map, by their headers, for the project's next sheet of the same\nkind: one from the same instrument or vendor maps itself. Send the revision you read\n(If-Match): its mapping is what's kept. To replace a saved mapping, PUT it.",
         "operationId": "iki_server_api_spreadsheets_save_mapping",
         "parameters": [
           {
@@ -52429,6 +53879,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -52441,6 +53892,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -52465,6 +53917,34 @@
               }
             },
             "description": "Created"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52500,6 +53980,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -52512,6 +53993,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
               "title": "If-Match"
             }
           }
@@ -52525,7 +54007,43 @@
                 }
               }
             },
-            "description": "Accepted"
+            "description": "Accepted",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52622,6 +54140,7 @@
             }
           },
           {
+            "description": "The ETag of the revision you're reading. Optional: a newer one answers 412.",
             "in": "header",
             "name": "If-Match",
             "required": false,
@@ -52634,6 +54153,7 @@
                   "type": "null"
                 }
               ],
+              "description": "The ETag of the revision you're reading. Optional: a newer one answers 412.",
               "title": "If-Match"
             }
           }
@@ -52648,6 +54168,24 @@
               }
             },
             "description": "OK"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: a newer revision replaced the one you're reading. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52669,6 +54207,7 @@
     },
     "/api/v1/spreadsheet-mappings/{mapping_id}": {
       "delete": {
+        "description": "From the revision of it you read (If-Match). Imports that used it keep saying so.",
         "operationId": "iki_server_api_spreadsheets_delete_mapping",
         "parameters": [
           {
@@ -52680,11 +54219,57 @@
               "title": "Mapping Id",
               "type": "string"
             }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
           "204": {
             "description": "No Content"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
           },
           "default": {
             "$ref": "#/components/responses/Problem"
@@ -52699,6 +54284,113 @@
           }
         ],
         "summary": "Delete a saved mapping",
+        "tags": [
+          "spreadsheets"
+        ]
+      },
+      "put": {
+        "description": "Replaces it with an import's mapping, from the revision of it you read (If-Match),\nand the import's revision whose mapping you reviewed (`import_revision`). If either\nchanged, it answers 412 and nothing changes.",
+        "operationId": "iki_server_api_spreadsheets_replace_mapping",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mapping_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Mapping Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The ETag of the revision you read, such as `\"3\"`. Required.",
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplacedMappingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedMappingOut"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`stale`: what you read isn't current. Nothing changed. Its current ETag comes with it.",
+            "headers": {
+              "ETag": {
+                "description": "Its revision, quoted: `\"7\"`. Send it as If-Match to change it.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "428": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`precondition_required`: send the ETag you read as If-Match."
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Replace a saved mapping",
         "tags": [
           "spreadsheets"
         ]

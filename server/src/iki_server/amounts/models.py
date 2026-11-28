@@ -28,6 +28,11 @@ class Amount(models.Model):
     )
     unit = models.CharField(max_length=50, db_comment="Its type's unit, in UCUM.")
     value = models.DecimalField(max_digits=DIGITS, decimal_places=PLACES)
+    revision = models.PositiveIntegerField(
+        default=1,
+        db_default=1,
+        db_comment="One more with each movement: its ETag, which a recount names (ADR 0289).",
+    )
     updated_at = models.DateTimeField(db_default=Now())
 
     class Meta:

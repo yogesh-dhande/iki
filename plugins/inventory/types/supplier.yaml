@@ -1,0 +1,38 @@
+# yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
+#
+# Who material comes from, registered once for every project in a registry (ADR 0115), so
+# a lot, a catalogue pack and a cell line's catalogue entry name the same supplier, and a
+# search by supplier finds each of them. Whether a supplier is approved for GMP material
+# is the lab's own procedure, which its own plugin adds.
+apiVersion: iki/v1
+kind: EntityType
+name: Supplier
+label: Supplier
+label_plural: Suppliers
+schema_version: 1
+description: >-
+  A company, culture collection or lab that material is bought or received from, such
+  as Sigma-Aldrich, ATCC or a contract manufacturer, named as its catalogue and labels
+  name it.
+hrid: { prefix: SUP }
+identity: [name]
+fields:
+  name:
+    type: string
+    required: true
+    immutable: true
+    max_length: 200
+    indexed: true
+    pattern: '.*\S.*'
+    pattern_help: its name, such as Thermo Fisher Scientific
+    description: >-
+      Its name, as its catalogue, labels and certificates give it. A culture collection
+      is named as Cellosaurus names it, such as ATCC or DSMZ, so its catalogue numbers
+      can be checked against a cell line's record.
+  website:
+    type: string
+    format: uri
+    max_length: 500
+    description: Its website or online catalogue.
+display:
+  title: "{{ name }}"

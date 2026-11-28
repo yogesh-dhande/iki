@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('iki__protein', '0002_bounded_word_search'),
-        ('iki__requests', '0002_bounded_word_search'),
+        ('iki__requests', '0001_initial'),
         ('iki_entities', '0002_history_append_only'),
     ]
 

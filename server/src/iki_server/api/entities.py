@@ -38,9 +38,10 @@ from pydantic import ConfigDict, ValidationError, field_serializer
 from iki_server.accounts.models import User
 from iki_server.amounts import eligibility
 from iki_server.amounts.models import DrawPurpose
-from iki_server.api import common, csvs
+from iki_server.api import common, csvs, preconditions
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import (
     AgentOut,
@@ -1101,10 +1102,12 @@ class AmountOut(Schema):
         description="The state field whose state holds it, such as quarantine: none of it is "
         "drawn, transferred or split off until that changes. None if nothing holds it."
     )
+    revision: int = Field(
+        ge=1,
+        description="One more with each movement. Its ETag: send it as If-Match to recount it.",
+    )
     updated_at: datetime = Field(
-        description="The balance revision. Send this exact string in If-Balance-Revision "
-        "when recording an absolute count.",
-        json_schema_extra={"format": "date-time"},
+        description="When it last moved.", json_schema_extra={"format": "date-time"}
     )
 
     @field_serializer("updated_at")
@@ -2573,7 +2576,7 @@ def _title(entity: Entity, values: dict[str, Any]) -> str:
 
 
 def _etag(entity: Entity) -> str:
-    return f'"{entity.revision}"'
+    return preconditions.etag(entity.revision)
 
 
 def _plain(value: Decimal) -> str:
@@ -2595,6 +2598,7 @@ def _amount(entity: Entity, amount: Any, values: dict[str, Any]) -> dict[str, An
         "label": wanted.label,
         "display": amounts.displayed(wanted, amount.value),
         "held_by": amounts.held(entity, values),
+        "revision": amount.revision,
         "updated_at": amount.updated_at,
     }
 
@@ -3020,6 +3024,7 @@ def count_entities(request: HttpRequest, project: UUID | None = None) -> dict[st
     "/entities/{ref}",
     response={200: EntityOut, 304: None},
     summary="An entity, by ID or HRID",
+    openapi_extra=preconditions.reads(),
 )
 def get_entity(
     request: HttpRequest,
@@ -3150,31 +3155,18 @@ def _created(me: User, saved: services.Saved, response: HttpResponse) -> Any:  #
     return Status(200 if saved.reused else 201, out)
 
 
-def _expected(if_match: str | None) -> int:
-    if if_match is None:
-        raise Problem(
-            428,
-            "Send If-Match with the ETag you read, so you can’t overwrite someone else’s change.",
-            code="precondition_required",
-        )
-    tags = _etags(if_match)
-    numbers = [int(t.strip('"')) for t in tags if t.strip('"').isdigit() and t.startswith('"')]
-    if len(numbers) != 1 or len(tags) != 1:
-        raise Problem(
-            412,
-            'If-Match must be the one ETag you read, such as "3".',
-            code="precondition_failed",
-        )
-    return numbers[0]
-
-
-@router.patch("/entities/{ref}", response=EntityOut, summary="Change, archive or restore")
+@router.patch(
+    "/entities/{ref}",
+    response=EntityOut,
+    summary="Change, archive or restore",
+    openapi_extra=preconditions.changes(),
+)
 def patch_entity(
     request: HttpRequest,
     ref: str,
     payload: EntityPatch,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Send only the values to change and the ETag you read. If `can.correct` is true,
     changing a value requires a reason. Each locking state returns to its declared `on_edit`
@@ -3187,7 +3179,7 @@ def patch_entity(
         # A request's service changes only its own fields (ADR 0132): archiving is the
         # asking project's.
         require(me, access.edit_action(entity.type), owner)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         with transaction.atomic():
             # Locked for the whole request, so its steps can't interleave with another's.
@@ -3228,13 +3220,7 @@ def patch_entity(
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except services.Stale as stale:
-        raise Problem(
-            412,
-            f"Someone changed it since you read it: it’s at revision {stale.current} now. "
-            "Read it again, then make your change.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
-        ) from None
+        raise preconditions.stale_revision(stale.current) from None
     except Invalid as error:
         raise _invalid(error) from None
     return _one(me, _find(me, str(entity.pk)), response)
@@ -3248,6 +3234,7 @@ def _current(entity: Entity) -> int:
     "/entities/{ref}/states/{field}",
     response=EntityOut,
     summary="Set one of a record's state fields",
+    openapi_extra=preconditions.changes(),
 )
 def set_entity_state(
     request: HttpRequest,
@@ -3256,7 +3243,7 @@ def set_entity_state(
     payload: StateIn,
     response: HttpResponse,
     project: UUID | None = None,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Sets one of the record's state fields (ADR 0125) to one of its states, from any other,
     as a revision of its own, with your reason. It needs one of the state's lab roles in the
@@ -3267,7 +3254,7 @@ def set_entity_state(
     for it. Send If-Match with the ETag you read."""
     me = caller(request)
     entity = _find(me, ref, project)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         states.set_state(
             me, entity, field, payload.state, expected_revision=expected, reason=payload.reason
@@ -3281,13 +3268,7 @@ def set_entity_state(
             409, str(refused), code="guard_refused", extensions={"guard": refused.guard}
         ) from None
     except services.Stale as stale:
-        raise Problem(
-            412,
-            f"Someone changed it since you read it: it’s at revision {stale.current} now. "
-            "Read it again, then make your change.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
-        ) from None
+        raise preconditions.stale_revision(stale.current) from None
     except Invalid as error:
         if getattr(error, "broken", ()):
             # It breaks the type's rules (ADR 0127): each named, as for a save.
@@ -3313,6 +3294,7 @@ def set_entity_state(
     "/entities/{ref}/holds/{hold_id}/review",
     response=EntityOut,
     summary="Review a hold",
+    openapi_extra=preconditions.changes(),
 )
 def review_hold(
     request: HttpRequest,
@@ -3320,7 +3302,7 @@ def review_hold(
     hold_id: UUID,
     payload: HoldReviewIn,
     response: HttpResponse,
-    if_match: Annotated[str | None, HeaderEx(alias="If-Match")] = None,
+    if_match: IfMatch = None,
     project: UUID | None = None,
 ) -> dict[str, Any]:
     """Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the
@@ -3330,7 +3312,7 @@ def review_hold(
     whoever saved what held it: `holds[].can_review` says whether you may."""
     me = caller(request)
     entity = _find(me, ref, project)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         holds.review(
             me,
@@ -3345,11 +3327,9 @@ def review_hold(
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except holds.ReviewChanged as changed:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            changed.current,
             "The record, hold or its rules changed. Read the record again before reviewing.",
-            code="hold_changed",
-            headers={"ETag": f'"{changed.current}"'},
         ) from None
     except Invalid as error:
         raise Problem(

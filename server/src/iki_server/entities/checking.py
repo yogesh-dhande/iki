@@ -23,6 +23,7 @@ import datetime as dt
 import hashlib
 import json
 import uuid
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
@@ -629,13 +630,26 @@ def apart(
 def kept(entity: Entity, changed: frozenset[str], found: Sequence[Broken]) -> None:
     """After a save: the record no longer breaks the rules it was reported for (ADR 0127)
     that this save checked and found kept."""
+    kept_each([(entity, changed, found)])
+
+
+def kept_each(saved: Sequence[tuple[Entity, frozenset[str], Sequence[Broken]]]) -> None:
+    """:func:`kept` for each of many records, (record, what changed, what it breaks): a
+    query for them all, and one for each that was reported."""
     from iki_server.entities.models import RuleBreach
 
-    reported = set(RuleBreach.objects.filter(entity_id=entity.pk).values_list("rule", flat=True))
-    if not reported:
+    if not saved:
         return
-    still = {b.rule.key for b in found}
-    checked = {r.key for r in rules_of(entity.type) if _applies(r, changed)}
-    cleared = (reported & checked) - still
-    if cleared:
-        RuleBreach.objects.filter(entity_id=entity.pk, rule__in=cleared).delete()
+    reported: dict[Any, set[str]] = defaultdict(set)
+    for entity_id, rule in RuleBreach.objects.filter(
+        entity_id__in=[e.pk for e, _, _ in saved]
+    ).values_list("entity_id", "rule"):
+        reported[entity_id].add(rule)
+    for entity, changed, found in saved:
+        if not reported[entity.pk]:
+            continue
+        still = {b.rule.key for b in found}
+        checked = {r.key for r in rules_of(entity.type) if _applies(r, changed)}
+        cleared = (reported[entity.pk] & checked) - still
+        if cleared:
+            RuleBreach.objects.filter(entity_id=entity.pk, rule__in=cleared).delete()

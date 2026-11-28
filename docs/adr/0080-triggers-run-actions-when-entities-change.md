@@ -125,6 +125,16 @@ replacement re-points even an immutable one (ADR 0115, ADR 0270). A recheck
 can't watch references, since a change to what they name has no editor whose
 credential could run it.
 
+Note of 2026-11-27: a recheck can watch a record's registry facts (ADR 0115).
+Any change to one clears the check's result on every record of the entry, in
+the change's transaction, and each shows **Needs re-verification**. A holder
+who fills the fact in by editing their record has the recheck run on it with
+their credential. The entry's other records, and all of them when a registrar
+changes the fact, had no editor in their project, so they wait for someone with
+access to recheck them. A record whose state locks it, an archived one, or one
+of a detached plugin keeps its result, and shows which check needs to run
+again.
+
 A fixed fact never changes, so what changes what a calculation read of it is
 supersession (ADR 0143). A lab whose A280 method should calculate nothing
 supersedes its option with one that doesn't; each record moved to the

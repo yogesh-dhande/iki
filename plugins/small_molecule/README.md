@@ -35,7 +35,9 @@ salt form, with RDKit's standardisation and descriptors.
     is computed: weigh doses out by it.
   - It keeps its structure as drawn, salts and all, its name as registered
     (such as aspirin sodium), its purity, amount, supplier, catalogue number,
-    supplier's lot and when it arrived.
+    supplier's lot and when it arrived. Its supplier is one of the registry's
+    (`iki/inventory.Supplier`): an SDF import registers each supplier its
+    Supplier fields name, or finds the one the registry has.
   - It has no identity: every batch is a batch of its own.
 
 - **`iki/small_molecule.ConformerSet`** (`CNF-000001`): 3D conformers of a

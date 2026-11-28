@@ -81,6 +81,16 @@ def create(api: Api, project: Project, values: dict[str, Any], type_name: str = 
     return api.post("/entities", {"type": type_name, "project": str(project.pk), "values": values})
 
 
+def entry_read(api: Api, record: dict[str, Any]) -> dict[str, str]:
+    """If-Match: a record's registry entry's revision, as read now (ADR 0289)."""
+    return {"If-Match": api.get(f"/entries/{record['entry']['id']}")["ETag"]}
+
+
+def record_read(api: Api, path: str) -> dict[str, str]:
+    """If-Match: a record's revision, as read now."""
+    return {"If-Match": api.get(path)["ETag"]}
+
+
 def registrar(world: World, principal: str = "auditor") -> Api:
     """Someone the Org Admin appoints a registrar of the default registry."""
     admin = api_as(world, "org_admin")
@@ -363,6 +373,7 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
         editor.post(
             f"/entries/{wrong['hrid']}/supersede",
             {"replacement": right["hrid"], "reason": "Mistyped residue"},
+            headers=entry_read(curator, wrong),
         ),
         403,
         "forbidden",
@@ -371,15 +382,23 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
         curator.post(
             f"/entries/{wrong['hrid']}/supersede",
             {"replacement": dna["hrid"], "reason": "Not the same kind"},
+            headers=entry_read(curator, wrong),
         ),
         422,
         "validation_failed",
     )
-    done = curator.post(
-        f"/entries/{wrong['hrid']}/supersede",
-        {"replacement": right["hrid"], "reason": "Mistyped residue"},
-    )
+    # It's made from the entry's revision the registrar read (ADR 0289).
+    supersede = f"/entries/{wrong['hrid']}/supersede"
+    replacing = {"replacement": right["hrid"], "reason": "Mistyped residue"}
+    problem(curator.post(supersede, replacing), 428, "precondition_required")
+    read = entry_read(curator, wrong)
+    stale = curator.post(supersede, replacing, headers={"If-Match": '"99"'})
+    problem(stale, 412, "stale")
+    assert stale["ETag"] == read["If-Match"]
+    assert not AuditEvent.objects.filter(action="entry.superseded").exists()
+    done = curator.post(supersede, replacing, headers=read)
     assert done.status_code == 200, done.content
+    assert done["ETag"] == f'"{done.json()["revision"]}"'
     assert done.json()["superseded"]["by"]["hrid"] == right["hrid"]
     # A holder learns which entry to move to and reads its facts once it holds it.
     ref = f"/entities/{theirs['id']}"
@@ -431,7 +450,11 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     assert right["hrid"] in str(again)
     # The rival's independent holder must state why it is moving its record.
     for body in ({}, {"reason": "   "}):
-        invalid = problem(outsider.post(f"{ref}/move", body), 422, "validation_failed")
+        invalid = problem(
+            outsider.post(f"{ref}/move", body, headers=record_read(outsider, ref)),
+            422,
+            "validation_failed",
+        )
         assert invalid["errors"][0]["pointer"] == "#/reason"
         unchanged = outsider.get(ref).json()
         assert unchanged["entry"]["id"] == wrong["entry"]["id"]
@@ -439,12 +462,23 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     assert not AuditEvent.objects.filter(action="entity.moved").exists()
 
     # The rival moves its record: its HRID is the replacement's now.
-    moved = outsider.post(f"{ref}/move", {"reason": "  Use the curator's corrected entry  "})
+    # From the record's revision its holder read: one changed since is refused.
+    why = {"reason": "  Use the curator's corrected entry  "}
+    problem(outsider.post(f"{ref}/move", why), 428, "precondition_required")
+    stale = outsider.post(f"{ref}/move", why, headers={"If-Match": '"99"'})
+    problem(stale, 412, "stale")
+    assert stale["ETag"] == record_read(outsider, ref)["If-Match"]
+    assert not AuditEvent.objects.filter(action="entity.moved").exists()
+    moved = outsider.post(f"{ref}/move", why, headers=record_read(outsider, ref))
     assert moved.status_code == 200, moved.content
     assert moved.json()["hrid"] == right["hrid"]
     assert moved.json()["entry"]["id"] == right["entry"]["id"]
     # The Atlas already has the replacement: it can't move onto it.
-    refused = editor.post(f"/entities/{wrong['id']}/move", {"reason": "Superseded"})
+    refused = editor.post(
+        f"/entities/{wrong['id']}/move",
+        {"reason": "Superseded"},
+        headers=record_read(editor, f"/entities/{wrong['id']}"),
+    )
     assert refused.status_code in (409, 422)
     # Its records that cite the old entry still do, until it moves.
     assert (
@@ -534,6 +568,8 @@ def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
     ]
     assert editor.get(f"/entries/{entry}").json()["can"]["supersede_as"] == []
     url = f"/entries/{multimer['hrid']}/supersede"
+    # Each try names the entry's revision as read (ADR 0289): a refused one changes nothing.
+    read = {"If-Match": curator.get(f"/entries/{multimer['hrid']}")["ETag"]}
     reason = "Its chains are emicizumab's: the lab registers bispecifics as one"
     arms = [
         {"heavy": mine[0], "light": mine[2], "target": "F9A"},
@@ -553,9 +589,21 @@ def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
         (MULTIMER, f"{multimer['hrid']} is a {MULTIMER} already."),
         ("acme/protein.Nothing", "There's no entity type acme/protein.Nothing."),
     ):
-        assert errors(curator.post(url, {"type": wrong, "reason": reason})) == {"#/type": detail}
+        assert errors(
+            curator.post(
+                url,
+                {"type": wrong, "reason": reason},
+                headers=read,
+            )
+        ) == {"#/type": detail}
     # A bispecific's parts take its roles, so the multimer's are refused until they're given.
-    assert errors(curator.post(url, {"type": BISPECIFIC, "reason": reason})) == {
+    assert errors(
+        curator.post(
+            url,
+            {"type": BISPECIFIC, "reason": reason},
+            headers=read,
+        )
+    ) == {
         **{
             f"#/values/components/{i}/role": "isn't one of its roles: heavy, light, linker."
             for i in range(3)
@@ -567,7 +615,11 @@ def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
     other = parts(mine, ANTIBODY)
     other[2]["copies"] = 1
     assert errors(
-        curator.post(url, {"type": BISPECIFIC, "values": {"components": other}, "reason": reason})
+        curator.post(
+            url,
+            {"type": BISPECIFIC, "values": {"components": other}, "reason": reason},
+            headers=read,
+        )
     ) == {
         "#/values/components": f"must be {multimer['hrid']}'s: an entry registered as another "
         "type has the same identity."
@@ -577,6 +629,7 @@ def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
         curator.post(
             url,
             {"type": BISPECIFIC, "values": {**as_bispecific, "name": "E"}, "reason": reason},
+            headers=read,
         )
     ) == {"#/values/name": f"{BISPECIFIC}'s entries have no field `name`."}
     assert "#/values/arms/0/target" in errors(
@@ -587,24 +640,43 @@ def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
                 "values": {**as_bispecific, "arms": [{**arms[0], "target": "factor IXa"}]},
                 "reason": reason,
             },
+            headers=read,
         )
     )
     # An existing entry or a type, and a reason.
     assert "#/replacement" in errors(
-        curator.post(url, {"type": BISPECIFIC, "replacement": PROTEIN, "reason": reason})
+        curator.post(
+            url,
+            {"type": BISPECIFIC, "replacement": PROTEIN, "reason": reason},
+            headers=read,
+        )
     )
     assert "#/values" in errors(
         curator.post(
-            url, {"replacement": multimer["hrid"], "values": {"arms": arms}, "reason": reason}
+            url,
+            {"replacement": multimer["hrid"], "values": {"arms": arms}, "reason": reason},
+            headers=read,
         )
     )
     assert errors(
-        curator.post(url, {"type": BISPECIFIC, "values": as_bispecific, "reason": "  "})
+        curator.post(
+            url,
+            {"type": BISPECIFIC, "values": as_bispecific, "reason": "  "},
+            headers=read,
+        )
     ) == {"#/reason": "Say why: its holders are told."}
+    # From the entry as the registrar read it: one changed since is refused (ADR 0289).
+    as_one = {"type": BISPECIFIC, "values": as_bispecific, "reason": reason}
+    problem(curator.post(url, as_one), 428, "precondition_required")
+    problem(curator.post(url, as_one, headers={"If-Match": '"99"'}), 412, "stale")
     assert not AuditEvent.objects.filter(action="entry.superseded").exists()
     assert Entity.objects.get(pk=entry).superseded_by_id is None
 
-    done = curator.post(url, {"type": BISPECIFIC, "values": as_bispecific, "reason": reason})
+    done = curator.post(
+        url,
+        {"type": BISPECIFIC, "values": as_bispecific, "reason": reason},
+        headers=read,
+    )
     assert done.status_code == 200, done.content
     superseded = done.json()["superseded"]
     assert superseded["by"]["type"] == BISPECIFIC and superseded["by"]["hrid"].startswith("BSP-")
@@ -650,12 +722,15 @@ def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
         editor.post(
             f"{ref}/move",
             {"reason": "Moved with the registry", "values": {"components": as_bispecific}},
+            headers=record_read(editor, ref),
         )
     ) == {
         "#/values/components": f"is {new['hrid']}'s registry entry's: the record has its own "
         "fields."
     }
-    moved = editor.post(f"{ref}/move", {"reason": "Moved with the registry"})
+    moved = editor.post(
+        f"{ref}/move", {"reason": "Moved with the registry"}, headers=record_read(editor, ref)
+    )
     assert moved.status_code == 200, moved.content
     body = moved.json()
     assert body["id"] != multimer["id"] and body["hrid"] == new["hrid"]
@@ -680,10 +755,22 @@ def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
     # The rival moves its own, once it isn't locked.
     there = f"/entities/{held['id']}"
     Entity.objects.filter(pk=held["id"]).update(locked_by=["review"])
-    problem(outsider.post(f"{there}/move", {"reason": "Moved with the registry"}), 409, "refused")
+    problem(
+        outsider.post(
+            f"{there}/move",
+            {"reason": "Moved with the registry"},
+            headers=record_read(outsider, there),
+        ),
+        409,
+        "refused",
+    )
     assert outsider.get(there).json()["entry"]["id"] == entry
     Entity.objects.filter(pk=held["id"]).update(locked_by=[])
-    theirs_moved = outsider.post(f"{there}/move", {"reason": "Moved with the registry"})
+    theirs_moved = outsider.post(
+        f"{there}/move",
+        {"reason": "Moved with the registry"},
+        headers=record_read(outsider, there),
+    )
     assert theirs_moved.status_code == 200, theirs_moved.content
     assert theirs_moved.json()["values"]["name"] == "ACE910"
     assert theirs_moved.json()["entry"]["id"] == new["id"]
@@ -725,6 +812,7 @@ def test_what_two_types_share_goes_with_the_identity_and_its_unique_values(
             "values": {"raised_against": "rabbit", "host": "goat"},
             "reason": "BA-1000 is a goat anti-rabbit IgG: a secondary antibody",
         },
+        headers=record_read(curator, f"/entries/{wrong['hrid']}"),
     )
     assert done.status_code == 200, done.content
     by = done.json()["superseded"]["by"]
@@ -747,7 +835,11 @@ def test_what_two_types_share_goes_with_the_identity_and_its_unique_values(
     )
     assert "#/values/rrid" in errors(other)
     ref = f"/entities/{wrong['id']}"
-    moved = editor.post(f"{ref}/move", {"reason": "Registered as a secondary"})
+    moved = editor.post(
+        f"{ref}/move",
+        {"reason": "Registered as a secondary"},
+        headers=record_read(editor, ref),
+    )
     assert moved.status_code == 200, moved.content
     assert moved.json()["values"]["lims_id"] == "AB-0412"
     # The LIMS ID is the new record's: the old one can't be restored with it.
@@ -792,11 +884,16 @@ def test_a_move_to_another_type_stops_at_what_cant_refer_to_it(world: World) -> 
     done = curator.post(
         f"/entries/{bispecific['hrid']}/supersede",
         {"type": MULTIMER, "reason": "A research reagent, not one of the lab's bispecifics"},
+        headers=record_read(curator, f"/entries/{bispecific['hrid']}"),
     )
     assert done.status_code == 200, done.content
     replacement = done.json()["superseded"]["by"]
     ref = f"/entities/{bispecific['id']}"
-    stuck = problem(editor.post(f"{ref}/move", {"reason": "Moved"}), 409, "refused")
+    stuck = problem(
+        editor.post(f"{ref}/move", {"reason": "Moved"}, headers=record_read(editor, ref)),
+        409,
+        "refused",
+    )
     assert f"{binding['hrid']}'s Bispecific must be a {BISPECIFIC}" in stuck["detail"]
     assert editor.get(ref).json()["archived"] is False
     # Archived, it keeps its reference, and the record moves.
@@ -806,7 +903,7 @@ def test_a_move_to_another_type_stops_at_what_cant_refer_to_it(world: World) -> 
         headers={"If-Match": f'"{binding["revision"]}"'},
     )
     assert archived.status_code == 200, archived.content
-    moved = editor.post(f"{ref}/move", {"reason": "Moved"})
+    moved = editor.post(f"{ref}/move", {"reason": "Moved"}, headers=record_read(editor, ref))
     assert moved.status_code == 200, moved.content
     assert moved.json()["type"] == MULTIMER and moved.json()["hrid"] == replacement["hrid"]
     kept = editor.get(f"/entities/{binding['id']}").json()
@@ -826,6 +923,7 @@ def test_a_mistaken_entry_is_superseded_by_another_type_of_its_kind(world: World
     done = curator.post(
         f"/entries/{wrong['hrid']}/supersede",
         {"replacement": right["hrid"], "reason": "Emicizumab has two copies of its light chain"},
+        headers=record_read(curator, f"/entries/{wrong['hrid']}"),
     )
     assert done.status_code == 200, done.content
     assert done.json()["superseded"]["by"]["hrid"] == right["hrid"]
@@ -833,7 +931,15 @@ def test_a_mistaken_entry_is_superseded_by_another_type_of_its_kind(world: World
     again = problem(create(editor, world.project, {"components": short}, MULTIMER), 409, "refused")
     assert right["hrid"] in again["detail"]
     # The project holds the replacement already: it archives one of the two.
-    problem(editor.post(f"/entities/{wrong['id']}/move", {"reason": "Moved"}), 409, "refused")
+    problem(
+        editor.post(
+            f"/entities/{wrong['id']}/move",
+            {"reason": "Moved"},
+            headers=record_read(editor, f"/entities/{wrong['id']}"),
+        ),
+        409,
+        "refused",
+    )
 
 
 @pytest.mark.parametrize("hold", [False, True], ids=["refuses", "holds"])
@@ -872,16 +978,21 @@ def test_a_move_to_another_type_keeps_the_new_types_rules(
         {"heavy": mine[0], "light": mine[2], "target": "F9A"},
         {"heavy": mine[1], "light": mine[2], "target": "F10"},
     ]
-    done = registrar(world).post(
+    curator = registrar(world)
+    done = curator.post(
         f"/entries/{multimer['hrid']}/supersede",
         {
             "type": BISPECIFIC,
             "values": {"components": parts(mine, ANTIBODY), "arms": arms},
             "reason": "Its chains are emicizumab's",
         },
+        headers=record_read(curator, f"/entries/{multimer['hrid']}"),
     )
     assert done.status_code == 200, done.content
-    moved = editor.post(f"/entities/{multimer['id']}/move", {"reason": "Moved with the registry"})
+    ref = f"/entities/{multimer['id']}"
+    moved = editor.post(
+        f"{ref}/move", {"reason": "Moved with the registry"}, headers=record_read(editor, ref)
+    )
     if not hold:
         body = problem(moved, 422, "validation_failed")
         assert body["errors"] == [

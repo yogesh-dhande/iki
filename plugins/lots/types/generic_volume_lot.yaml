@@ -5,7 +5,7 @@ name: GenericVolumeLot
 label: Generic lot by volume
 label_plural: Generic lots by volume
 extends: Lot
-schema_version: 1
+schema_version: 2
 description: >-
   A lot of any entity that has no lot type of its own, kept by volume, such as a solvent
   or a buffer: drawn as a mass too when its concentration is given.
@@ -38,9 +38,9 @@ fields:
     indexed: true
     description: How pure it is.
   purity_method:
-    type: string
+    type: ref
+    to: PurityMethod
     label: Purity by
-    max_length: 200
-    description: How its purity was measured, such as GC-FID.
+    description: How its purity was measured, from the lab's list, such as GC-FID.
 display:
   title: "{{ lot_number or hrid }}"

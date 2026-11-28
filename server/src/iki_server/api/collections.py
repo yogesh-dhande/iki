@@ -10,18 +10,19 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, HeaderEx, P, Router, Schema, Status
+from ninja import Field, Router, Schema, Status
 
+from iki_server.api import preconditions
 from iki_server.api.common import caller, project, require
 from iki_server.api.entities import (
     Condition,
     CreatedOut,
     EntityOut,
-    _expected,
     _find,
     _one,
     _searching,
 )
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.entities import collections, services
 from iki_server.entities.models import Entity
@@ -112,13 +113,18 @@ def create_collection(request: HttpRequest, payload: CollectionIn, response: Htt
     return Status(201, {**_one(me, entity, response), "reused": False, "registered": False})
 
 
-@router.post("/collections/{ref}/freeze", response=EntityOut, summary="Freeze a dynamic collection")
+@router.post(
+    "/collections/{ref}/freeze",
+    response=EntityOut,
+    summary="Freeze a dynamic collection",
+    openapi_extra=preconditions.changes(),
+)
 def freeze_collection(
     request: HttpRequest,
     ref: str,
     payload: FreezeIn,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Replace its search with the members it finds for you now, in its order, as one
     revision: a fixed list a run or a paper can cite. Send its ETag as If-Match."""
@@ -126,7 +132,7 @@ def freeze_collection(
     entity = _find(me, ref)
     owner = services.owner_of(entity)
     require(me, Action.PROJECT_EDIT, owner)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         with _searching():
             collections.freeze(me, entity, expected_revision=expected, reason=payload.reason)
@@ -135,12 +141,10 @@ def freeze_collection(
     except collections.TooMany as error:
         raise _too_many(error) from None
     except services.Stale as stale:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            stale.current,
             f"Someone changed it since you read it: it’s at revision {stale.current} now. "
             "Read it again, then freeze it.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
         ) from None
     except Invalid as error:
         raise _invalid(error) from None

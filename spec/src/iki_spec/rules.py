@@ -692,6 +692,7 @@ class _Rules:
             draw = self.guards(
                 draw, draw_variables(entity_type.label, fields), fields, source, ("draws", "guards")
             )
+        self.same_condition(entity_type, inherited, source)
         changed.update(self.computed(entity_type, fields, own, source))
         return replace(
             entity_type,
@@ -700,6 +701,49 @@ class _Rules:
             draws=replace(entity_type.draws, guards=draw),
             review=review,
         )
+
+    def same_condition(
+        self, entity_type: EntityType, inherited: Mapping[str, EntityType], source: Document
+    ) -> None:
+        """A rule whose check can't be worked out, because a value it reads is empty, passes
+        (ADR 0127); a guard's refuses (ADR 0128). The same expression in both reads an empty
+        value both ways, which its author is told: a warning, as both may be meant."""
+        checks: dict[str, str] = {}
+        for name, rule in [
+            *((n, inherited[n].rules[n]) for n in inherited if n not in entity_type.rules),
+            *entity_type.rules.items(),
+        ]:
+            if rule.check is not None:
+                checks.setdefault(" ".join(rule.check.split()), name)
+        if not checks:
+            return
+        guards: list[tuple[str, Guard, Path]] = [
+            (f"`{n}` on {f.name}'s {s} state", g, ("fields", f.name, "states", s, "guards", n))
+            for f in entity_type.fields.values()
+            if f.type == "state" and not f.removed
+            for s, state in f.states.items()
+            for n, g in state.guards.items()
+        ]
+        guards.extend(
+            (f"draw guard `{n}`", g, ("draws", "guards", n))
+            for n, g in entity_type.draws.guards.items()
+        )
+        for what, guard, at in guards:
+            same = checks.get(" ".join(guard.check.split()))
+            if same is None:
+                continue
+            self.add(
+                "same-condition-rule-and-guard",
+                f"Rule `{same}` and guard {what} check the same expression, and they treat an "
+                "empty value oppositely: the rule passes when a value it reads is empty, and "
+                "the guard refuses.",
+                source,
+                (*at, "check"),
+                severity=Severity.WARNING,
+                hint="If an empty value should be refused at every save, make the field "
+                "`required`; if the guard should allow it, say so in its check, as in "
+                "`record.x == null || …`.",
+            )
 
     def extension(self, extension: Extension, source: Document) -> Extension:
         target = self.s.types.get(extension.adds_to)

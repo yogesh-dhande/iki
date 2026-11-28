@@ -19,6 +19,10 @@ files: { stockroom: tests/data/stockroom.sdf }
 expect:
   output:
     creates:
+      # Its Supplier field names a supplier, registered by its name (iki/inventory.Supplier).
+      - type: iki/inventory.Supplier
+        key: supplier-1
+        values: { name: Stockroom }
       - type: iki/small_molecule.Compound
         values: { inchikey: BSYNRYMUTXBXSQ-UHFFFAOYSA-N, smiles: CC(=O)Oc1ccccc1C(=O)O }
       - type: iki/small_molecule.CompoundBatch
@@ -29,7 +33,7 @@ expect:
           formula_weight: 202.141
           purity: 98.5
           amount: 250
-          supplier: Stockroom
+          supplier: { $create: supplier-1 }
           supplier_lot: B-17
       - type: iki/small_molecule.Compound
         values: { inchikey: IJHNSHDBIRRJRN-UHFFFAOYSA-N }

@@ -8,7 +8,7 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
-import { answer, calls, ME, page, problem, respond } from "./test-server";
+import { answer, calls, ME, page, problem, respond, stale } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000a501";
 const DRAW_PATH = `/api/v1/entities/${SAMPLE_ID}/amount/draw`;
@@ -82,6 +82,7 @@ function amount(value: string, more: Partial<Schemas["AmountOut"]> = {}): Schema
     label: "Volume",
     display: null,
     held_by: null,
+    revision: 1,
     updated_at: "2026-11-18T10:00:00Z",
     ...more,
   };
@@ -507,7 +508,7 @@ describe("a record's amount", () => {
     );
   });
 
-  it("counts against the balance it showed, and records a first count as unrecorded", async () => {
+  it("counts against the balance it showed, from its revision", async () => {
     onSample();
     const { user } = await renderApp("/entities/SMP-000001/");
     const card = await screen.findByRole("region", { name: "Volume" });
@@ -522,11 +523,12 @@ describe("a record's amount", () => {
     await user.click(within(dialog).getByRole("button", { name: "Adjust" }));
     expect(await screen.findByText("SMP-000001 has 240 uL now.")).toBeInTheDocument();
     const [sent] = calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`);
-    expect(sent?.headers.get("If-Balance-Revision")).toBe("2026-11-18T10:00:00Z");
+    expect(sent?.headers.get("If-Match")).toBe('"1"');
+    expect(sent?.headers.get("If-None-Match")).toBeNull();
     expect(sent?.body).toEqual({ amount: { value: "240", unit: "uL" }, reason: "Recount" });
   });
 
-  it("sends unrecorded for a first count", async () => {
+  it("says nothing was recorded for a first count", async () => {
     onSample(sample({ amount: null }));
     const { user } = await renderApp("/entities/SMP-000001/");
     const card = await screen.findByRole("region", { name: "Volume" });
@@ -537,20 +539,16 @@ describe("a record's amount", () => {
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "First count");
     await user.click(within(dialog).getByRole("button", { name: "Record" }));
     expect(await screen.findByText("SMP-000001 has 100 uL now.")).toBeInTheDocument();
-    expect(
-      calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`)[0]?.headers.get(
-        "If-Balance-Revision",
-      ),
-    ).toBe("unrecorded");
+    const [sent] = calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`);
+    expect(sent?.headers.get("If-None-Match")).toBe("*");
+    expect(sent?.headers.get("If-Match")).toBeNull();
   });
 
   it("shows what changed a stale count, keeps it, and records it only once recounted", async () => {
     // Ines drew 20 uL after this count began, within the same millisecond as the balance
-    // it began from: only the microseconds tell them apart. Each movement is written just
-    // after the balance it made.
-    const began = "2026-11-18T10:00:00.000100+00:00";
-    const now = amount("230", { updated_at: "2026-11-18T10:00:00.000400+00:00" });
-    onSample(sample({ amount: amount("250", { updated_at: began }) }));
+    // it began from: its revision, not the time, tells them apart.
+    const now = amount("230", { revision: 3, updated_at: "2026-11-18T10:00:00.000Z" });
+    onSample(sample({ amount: amount("250", { revision: 2, updated_at: now.updated_at }) }));
     const { user } = await renderApp("/entities/SMP-000001/");
     const card = await screen.findByRole("region", { name: "Volume" });
     await user.click(within(card).getByRole("button", { name: "Adjust" }));
@@ -566,31 +564,25 @@ describe("a record's amount", () => {
           reason: "Western blot",
           user: { ...ME, name: "Ines" },
         }),
-        movement("recorded", "250", "250", { created_at: "2026-11-18T10:00:00.000150+00:00" }),
+        movement("adjusted", "+10", "250", { created_at: "2026-11-18T10:00:00.000150+00:00" }),
+        movement("recorded", "240", "240", { created_at: "2026-11-18T09:00:00.000000+00:00" }),
       ]),
       refs: {},
     });
-    answer(
-      ADJUST,
-      problem(
-        409,
-        "stale_balance",
-        "The stock balance changed. Refresh it and recount before submitting.",
-      ),
-    );
+    answer(ADJUST, stale(3));
     const count = within(dialog).getByRole("textbox", { name: "It has" });
     await user.type(count, "245");
     await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Recount");
     await user.click(within(dialog).getByRole("button", { name: "Adjust" }));
 
-    const stale = await within(dialog).findByRole("alert");
-    expect(stale).toHaveTextContent(
+    const said = await within(dialog).findByRole("alert");
+    expect(said).toHaveTextContent(
       "Your count wasn’t recorded: the volume changed after you started counting.",
     );
     expect(
-      await within(stale).findByText("It has 230 uL now, not the 250 uL you started from."),
+      await within(said).findByText("It has 230 uL now, not the 250 uL you started from."),
     ).toBeInTheDocument();
-    const since = within(stale).getByRole("list", { name: "Changed since you started" });
+    const since = within(said).getByRole("list", { name: "Changed since you started" });
     expect(within(since).getAllByRole("listitem")).toHaveLength(1);
     expect(within(since).getByRole("listitem")).toHaveTextContent(
       /^Drawn: −20 uL, by Ines, .+ \(“Western blot”\)\.$/,
@@ -601,7 +593,7 @@ describe("a record's amount", () => {
       "true",
     );
 
-    await user.click(within(stale).getByRole("button", { name: "Recount" }));
+    await user.click(within(said).getByRole("button", { name: "Recount" }));
     expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
     expect(dialog).toHaveTextContent("It had 230 uL when this count began.");
     expect(count).toHaveFocus();
@@ -614,10 +606,7 @@ describe("a record's amount", () => {
     await user.click(within(dialog).getByRole("button", { name: "Adjust" }));
     expect(await screen.findByText("SMP-000001 has 228 uL now.")).toBeInTheDocument();
     const adjusts = calls("POST", `/api/v1/entities/${SAMPLE_ID}/amount/adjust`);
-    expect(adjusts.map((c) => c.headers.get("If-Balance-Revision"))).toEqual([
-      began,
-      now.updated_at,
-    ]);
+    expect(adjusts.map((c) => c.headers.get("If-Match"))).toEqual(['"2"', '"3"']);
     expect(adjusts[1]?.body).toEqual({ amount: { value: "228", unit: "uL" }, reason: "Recount" });
   });
 

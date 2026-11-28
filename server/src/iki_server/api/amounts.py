@@ -19,12 +19,13 @@ from typing import Any, Literal
 from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
-from django.http import HttpRequest
-from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
+from django.http import HttpRequest, HttpResponse
+from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
 from iki_server.amounts import services
 from iki_server.amounts.models import Amount, DrawPurpose, Movement, MovementKind
+from iki_server.api import preconditions
 from iki_server.api.common import caller
 from iki_server.api.entities import (
     AmountIn,
@@ -37,6 +38,7 @@ from iki_server.api.entities import (
     _plain,
 )
 from iki_server.api.pagination import PageParams, page
+from iki_server.api.preconditions import IfMatch, IfNoneMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import AgentOut, Page, UserOut, agent_out
 from iki_server.api.storage import ConfirmationIn
@@ -249,16 +251,22 @@ def _moved(me: User, entity: Entity, movement: Movement) -> dict[str, Any]:
     }
 
 
-@router.get("/entities/{ref}/amount", response=AmountOut, summary="How much there is of it")
-def get_amount(request: HttpRequest, ref: str) -> dict[str, Any]:
+@router.get(
+    "/entities/{ref}/amount",
+    response=AmountOut,
+    summary="How much there is of it",
+    openapi_extra=preconditions.reads(),
+)
+def get_amount(request: HttpRequest, ref: str, response: HttpResponse) -> dict[str, Any]:
     """404 for a type without an amount, or a record with none recorded yet: adjust it to
-    record one."""
+    record one. Its ETag is its `revision`, which a recount sends as If-Match."""
     me = caller(request)
     entity = _record(me, ref, edit=False)
     found = Amount.objects.filter(pk=entity.pk).first()
     out = amount_out(entity, found)
     if out is None:
         raise Problem(404, f"{entity.hrid} has no amount recorded.")
+    preconditions.tagged(response, out["revision"])
     return out
 
 
@@ -336,20 +344,26 @@ def transfer(request: HttpRequest, ref: str, payload: TransferIn) -> dict[str, A
     return _moved(me, entity, sent)
 
 
-@router.post("/entities/{ref}/amount/adjust", response=AmountMovedOut, summary="Adjust its amount")
+@router.post(
+    "/entities/{ref}/amount/adjust",
+    response=AmountMovedOut,
+    summary="Adjust its amount",
+    openapi_extra=preconditions.changes(),
+)
 def adjust(
     request: HttpRequest,
     ref: str,
     payload: AdjustIn,
-    revision: HeaderEx[str | None, P(alias="If-Balance-Revision")] = None,
+    response: HttpResponse,
+    if_match: IfMatch = None,
+    if_none_match: IfNoneMatch = None,
 ) -> dict[str, Any]:
-    """Records an absolute count, with a reason. Send the observed amount's exact
-    `updated_at` string in `If-Balance-Revision`, or `unrecorded` if it had no amount.
-    A missing header answers 428. A changed balance answers 409 and must be recounted."""
+    """Records an absolute count, with a reason. Send the amount's ETag you read as
+    If-Match, or `If-None-Match: *` if it had none recorded. Neither answers 428. A
+    balance that changed since answers 412: recount it."""
     me = caller(request)
     entity = _record(me, ref)
-    if not revision:
-        raise Problem(428, "Send If-Balance-Revision with the balance revision you observed.")
+    revision = preconditions.expected_or_nothing(if_match, if_none_match)
     try:
         movement = services.adjust(
             me,
@@ -358,15 +372,15 @@ def adjust(
             reason=payload.reason,
             expected_revision=revision,
         )
-    except services.StaleBalanceError:
-        raise Problem(
-            409,
-            "The stock balance changed. Refresh it and recount before submitting.",
-            code="stale_balance",
+    except services.StaleBalanceError as stale:
+        raise preconditions.stale(
+            stale.current, "The stock balance changed. Refresh it and recount before submitting."
         ) from None
     except Invalid as error:
         raise _invalid(error) from None
-    return _moved(me, entity, movement)
+    moved = _moved(me, entity, movement)
+    preconditions.tagged(response, moved["amount"]["revision"])
+    return moved
 
 
 @router.post(

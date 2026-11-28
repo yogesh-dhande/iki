@@ -458,11 +458,39 @@ def change(
     )
 
 
+@dataclass(frozen=True)
+class StaleOption:
+    code: str
+    expected_revision: int | None
+    current_revision: int | None
+
+
+class StaleOrder(Exception):  # noqa: N818 - reads as "the order was stale"
+    """The list changed since the curator read it: options changed, came or went."""
+
+    def __init__(self, options: Sequence[StaleOption]) -> None:
+        super().__init__(
+            "The list changed since you read it: "
+            + ", ".join(f"`{o.code}`" for o in options)
+            + ". Read it again, then reorder it."
+        )
+        self.options = list(options)
+
+
 def reorder(
-    user: User, registry_: Registry, type_name: str, codes: Sequence[str], *, reason: str
+    user: User,
+    registry_: Registry,
+    type_name: str,
+    codes: Sequence[str],
+    *,
+    expected_revisions: Mapping[str, int],
+    reason: str,
 ) -> list[Revision]:
     """Puts a list's options in this order: every option's code, archived and superseded
-    ones too, as a curator's list shows them. Each option that moves gets a revision."""
+    ones too, as a curator's list shows them. Each option that moves gets a revision.
+    ``expected_revisions`` is each option's revision as the curator read it (ADR 0289):
+    an option changed, added or removed since raises :class:`StaleOrder`, so a second
+    curator's order can't silently undo the first's."""
     entity_type = _curator(user, registry_, type_name)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: every project's dropdowns follow the new order."]})
@@ -479,6 +507,15 @@ def reorder(
         current = [getattr(r, LIST_CODE) for r in rows]
         if len(set(codes)) != len(codes):
             raise Invalid({"codes": ["names an option twice."]})
+        now = dict(Entity.objects.filter(pk__in=[r.pk for r in rows]).values_list("pk", "revision"))
+        revisions_now = {getattr(r, LIST_CODE): now[r.pk] for r in rows}
+        changed = [
+            StaleOption(code, expected_revisions.get(code), revisions_now.get(code))
+            for code in sorted(set(revisions_now) | set(expected_revisions))
+            if expected_revisions.get(code) != revisions_now.get(code)
+        ]
+        if changed:
+            raise StaleOrder(changed)
         if set(codes) != set(current):
             missing = sorted(set(current) - set(codes))
             unknown = sorted(set(codes) - set(current))
@@ -525,9 +562,12 @@ def reorder(
     return revisions
 
 
-def archive(user: User, entry: Entity, *, archived: bool = True, reason: str) -> Revision | None:
-    """Archives an option, so no dropdown offers it, or restores it. Records that name it
-    keep it: it's valid on them, in search, filters, exports and the API."""
+def archive(
+    user: User, entry: Entity, *, archived: bool = True, expected_revision: int, reason: str
+) -> Revision | None:
+    """Archives an option, so no dropdown offers it, or restores it, from the revision the
+    curator read. Records that name it keep it: it's valid on them, in search, filters,
+    exports and the API. Raises :class:`services.Stale`."""
     registry_, entity_type = _option_registry(entry)
     _curator(user, registry_, entity_type.qualified_name)
     if not reason.strip():
@@ -537,6 +577,8 @@ def archive(user: User, entry: Entity, *, archived: bool = True, reason: str) ->
         locked = Entity.objects.select_for_update().get(pk=entry.pk)
         if locked.purged_at is not None:
             raise Refused(services.purged(locked))
+        if locked.revision != expected_revision:
+            raise services.Stale(locked.revision)
         if (locked.archived_at is not None) == archived:
             return None
         if not archived and locked.superseded_by_id is not None:

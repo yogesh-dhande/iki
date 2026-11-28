@@ -156,32 +156,62 @@ def test_preview_rows_use_the_reviewed_revision_on_every_page(
     assert "If-Match" not in fake.sent("GET", endpoint)[-1].headers
 
 
-def test_saving_a_mapping_sends_both_independently_reviewed_versions(
+def test_saving_a_mapping_makes_a_new_one_from_the_import_reviewed(
     fake: FakeIki, client: Client
 ) -> None:
     endpoint = f"{BASE}/mappings"
-    target = {"id": "m1", "revision": 4}
-    source = imported("mapping", revision=8)
-    fake.on(
-        "POST",
-        endpoint,
-        problem(409, "The target changed", "stale_template"),
-        {**target, "revision": 6},
-    )
-    with pytest.raises(iki.Conflict):
-        client.spreadsheets.save_mapping(source, "Keep", replace=target)
+    fake.on("POST", endpoint, {"id": "m2", "revision": 1})
+    client.spreadsheets.save_mapping(imported("mapping", revision=8), "Plate reader")
     (sent,) = fake.sent("POST", endpoint)
     assert sent.headers["If-Match"] == '"8"'
-    assert fake.body("POST", endpoint) == {"name": "Keep", "replace": "m1", "target_revision": 4}
+    assert fake.body("POST", endpoint) == {"name": "Plate reader"}
+
+
+def test_replacing_a_mapping_names_both_independently_reviewed_versions(
+    fake: FakeIki, client: Client
+) -> None:
+    endpoint = "/api/v1/spreadsheet-mappings/m1"
+    target = {"id": "m1", "name": "Keep", "revision": 4}
+    source = imported("mapping", revision=8)
+    fake.on(
+        "PUT",
+        endpoint,
+        problem(412, "The saved mapping changed", "stale"),
+        {**target, "revision": 6},
+    )
+    # The saved mapping's revision is If-Match; the import's, the body's.
+    with pytest.raises(iki.Stale):
+        client.spreadsheets.replace_mapping(target, source)
+    (sent,) = fake.sent("PUT", endpoint)
+    assert sent.headers["If-Match"] == '"4"'
+    assert fake.body("PUT", endpoint) == {"name": "Keep", "import": IMPORT, "import_revision": 8}
     assert not fake.sent("GET", BASE)
+    # Without either revision, nothing is sent.
     with pytest.raises(iki.IkiError):
-        client.spreadsheets.save_mapping(source, "Unchecked", replace="m1")
-    assert len(fake.sent("POST", endpoint)) == 1
-    result = client.spreadsheets.save_mapping(
-        IMPORT, "Fresh", revision=8, replace="m1", target_revision=5
+        client.spreadsheets.replace_mapping("m1", source, name="Unchecked")
+    with pytest.raises(iki.IkiError):
+        client.spreadsheets.replace_mapping(target, IMPORT)
+    assert len(fake.sent("PUT", endpoint)) == 1
+    result = client.spreadsheets.replace_mapping(
+        "m1", IMPORT, name="Fresh", revision=5, import_revision=9
     )
     assert result["revision"] == 6
-    assert fake.body("POST", endpoint)["target_revision"] == 5
+    assert fake.sent("PUT", endpoint)[-1].headers["If-Match"] == '"5"'
+    assert fake.body("PUT", endpoint) == {"name": "Fresh", "import": IMPORT, "import_revision": 9}
+
+
+def test_deleting_a_mapping_or_discarding_an_import_names_the_revision_read(
+    fake: FakeIki, client: Client
+) -> None:
+    fake.on("DELETE", "/api/v1/spreadsheet-mappings/m1", httpx2.Response(204))
+    fake.on("DELETE", BASE, httpx2.Response(204))
+    client.spreadsheets.delete_mapping({"id": "m1", "revision": 3})
+    client.spreadsheets.discard(imported("mapping", revision=8))
+    assert fake.sent("DELETE", "/api/v1/spreadsheet-mappings/m1")[0].headers["If-Match"] == '"3"'
+    assert fake.sent("DELETE", BASE)[0].headers["If-Match"] == '"8"'
+    with pytest.raises(iki.IkiError):
+        client.spreadsheets.delete_mapping("m1")
+    assert len(fake.sent("DELETE", "/api/v1/spreadsheet-mappings/m1")) == 1
 
 
 def test_a_run_that_didnt_write_it_raises_with_its_rows(fake: FakeIki, client: Client) -> None:

@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from api_client import Api
+from api_client import Api, problem, seen
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from test_receipt_observation_history import change, read
@@ -48,7 +48,7 @@ def test_empty_and_partial_dispositions_cannot_complete_or_take_custody(lab: Lab
     receipt = change(api, "POST", path + "/scan", code="RC000")["receipt"]
     receipt = change(api, "PATCH", f"{path}/lines/{damaged}", outcome="damaged", note="Bent cap")
     receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier 104")
-    base = {"plan_revision": receipt["plan_revision"], "missing_rest": True}
+    base = {"missing_rest": True}
     place = {"line": matched, "to": incoming["id"], "position": "A1"}
     ids = [tube["id"] for tube in tubes]
     before = custody_state(api, path, ids)
@@ -65,7 +65,9 @@ def test_empty_and_partial_dispositions_cannot_complete_or_take_custody(lab: Lab
         ({"box": incoming["id"], "keep_in_custody": [matched, damaged]}, "#/box"),
     ]
     for fields, pointer in invalid_dispositions:
-        response = api.post(path + "/complete", {**base, **fields})
+        response = api.post(
+            path + "/complete", {**base, **fields}, headers=seen(receipt["revision"])
+        )
         assert pointer in errors(response)
         assert custody_state(api, path, ids) == before
 
@@ -104,7 +106,7 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
         keep_in_custody=[a],
         put_away=[{"line": b, "to": incoming["id"], "position": "A2"}],
     )
-    assert done["plan_revision"] == receipt["plan_revision"] + 1
+    assert done["revision"] == receipt["revision"] + 1
     assert done["status"] == "completed" and read(api, path) == done
     assert [(line["id"], line["outcome"]) for line in done["lines"]] == [
         (a, "matched"),
@@ -137,17 +139,18 @@ def test_live_custody_and_receipt_history_after_mixed_dispositions(lab: Lab) -> 
     # A later box count locates the held tube without changing the historical receipt.
     recon = change(api, "POST", f"/storage/containers/{incoming['id']}/reconciliations", status=201)
     count = f"/reconciliations/{recon['id']}"
-    seen = change(
+    scanned = change(
         api,
         "POST",
         count + "/scans",
         scans=[{"position": "A1", "code": "RC000"}, {"position": "A2", "code": "RC001"}],
     )
-    observed = next(line for line in seen["lines"] if line["entity"] == tubes[0]["id"])
+    observed = next(line for line in scanned["lines"] if line["entity"] == tubes[0]["id"])
     assert (observed["finding"], observed["found"]) == ("unexpected", "A1")
     resolved = api.patch(
         f"{count}/lines/{observed['id']}",
-        {"resolution": "placed", "line_revision": observed["line_revision"]},
+        {"resolution": "placed"},
+        headers=seen(observed["revision"]),
     )
     assert resolved.status_code == 200, resolved.content
     change(api, "POST", count + "/complete", resolved.json())
@@ -218,18 +221,17 @@ def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab
     matched = opened["lines"][0]["id"]
     receipt = change(api, "POST", path + "/scan", code="RC000")["receipt"]
     receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier")
-    body = {
-        "plan_revision": receipt["plan_revision"],
-        "put_away": [{"line": matched, "to": dest["id"]}],
-    }
+    body: dict[str, Any] = {"put_away": [{"line": matched, "to": dest["id"]}]}
+    reviewed = seen(receipt["revision"])
     ids = [tubes[0]["id"]]
     before = custody_state(api, path, ids)
-    preview = api.post(path + "/put-away/preview", body)
+    assert api.post(path + "/put-away/preview", body).status_code == 428
+    preview = api.post(path + "/put-away/preview", body, headers=reviewed)
     assert preview.status_code == 200 and preview.json()["items"][0]["to"]["position"] == "A1"
     assert custody_state(api, path, ids) == before
     for expected in ["A1", "A2"]:
         before = custody_state(api, path, ids)
-        response = api.post(path + "/complete", body)
+        response = api.post(path + "/complete", body, headers=reviewed)
         assert response.status_code == 409, response.content
         current = response.json()["moves"]
         assert current["items"][0]["to"]["position"] == expected
@@ -238,7 +240,7 @@ def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab
         if expected == "A1":
             assert body["plan"] == preview.json()["plan"]
             moved(api, (other, dest, "A1"))
-    done = api.post(path + "/complete", body)
+    done = api.post(path + "/complete", body, headers=reviewed)
     assert done.status_code == 200, done.content
     assert done.json()["lines"][0]["put_away"]["position"] == "A2"
 
@@ -305,8 +307,7 @@ def test_receiving_says_which_tubes_a_box_can_take_before_a_well_is_chosen(lab: 
 
     def placeable(to: Any) -> dict[str, str | None]:
         checked = api.post(
-            path + "/put-away/placeable",
-            {"plan_revision": receipt["plan_revision"], "box": to["id"]},
+            path + "/put-away/placeable", {"box": to["id"]}, headers=seen(receipt["revision"])
         )
         assert checked.status_code == 200, checked.content
         return {row["line"]: row["problem"] for row in checked.json()}
@@ -325,24 +326,24 @@ def test_receiving_says_which_tubes_a_box_can_take_before_a_well_is_chosen(lab: 
     response = api.post(
         path + "/complete",
         {
-            "plan_revision": receipt["plan_revision"],
             "put_away": [{"line": first, "to": elsewhere["id"], "position": "A1"}],
             "keep_in_custody": [second],
         },
+        headers=seen(receipt["revision"]),
     )
     assert response.status_code == 422, response.content
     assert custody_state(api, path, ids) == before
     # A stale revision is refused like the preview's, and an unreadable box isn't found.
     stale = api.post(
-        path + "/put-away/placeable",
-        {"plan_revision": receipt["plan_revision"] - 1, "box": here["id"]},
+        path + "/put-away/placeable", {"box": here["id"]}, headers=seen(receipt["revision"] - 1)
     )
-    assert stale.status_code in (409, 412), stale.content
+    assert problem(stale, 412, "stale")
+    unnamed = api.post(path + "/put-away/placeable", {"box": here["id"]})
+    assert problem(unnamed, 428, "precondition_required")
     secret = Project.objects.create(team=lab.world.team, name="Secret", description="Not tech's")
     _member(secret, lab.users["editor"], ProjectRole.EDITOR)
     hidden = box(lab.api("editor"), secret, "Not yours", 1, 1)
     unseen = api.post(
-        path + "/put-away/placeable",
-        {"plan_revision": receipt["plan_revision"], "box": hidden["id"]},
+        path + "/put-away/placeable", {"box": hidden["id"]}, headers=seen(receipt["revision"])
     )
     assert unseen.status_code == 404, unseen.content

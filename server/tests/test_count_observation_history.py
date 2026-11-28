@@ -3,7 +3,7 @@
 from typing import Any
 
 import pytest
-from api_client import Api
+from api_client import Api, problem, seen
 from django.utils import timezone
 from org_world import World
 from test_storage import box, contents, errors, moved, tube, world
@@ -27,7 +27,7 @@ def begin(api: Api, world: World, cols: int = 4) -> tuple[str, dict[str, Any], d
 
 
 def review(line: dict[str, Any]) -> dict[str, Any]:
-    return {"line_id": line["id"], "line_revision": line["line_revision"]}
+    return {"line_id": line["id"], "revision": line["revision"]}
 
 
 def history(api: Api, path: str) -> list[dict[str, Any]]:
@@ -63,15 +63,14 @@ def test_correcting_an_observed_slot_reviews_all_superseded_evidence_atomically(
     audits = AuditEvent.objects.count()
     change = {"scans": [{"position": "A3", "code": "NEW"}, {"position": "A2", "code": "COUNT-A"}]}
     expected = [review(at["A1"]), review(at["A2"])]
-    for reviewed in ([], expected[:1], [{**expected[1], "line_revision": 99}, expected[0]]):
+    for reviewed in ([], expected[:1], [{**expected[1], "revision": 99}, expected[0]]):
         conflict = b.post(
             f"{path}/scans",
             {**change, "reviewed_lines": reviewed, "reason": "Rechecked the physical box"},
         )
-        assert conflict.status_code == 409, conflict.content
-        assert {x["line_id"]: x["line_revision"] for x in conflict.json()["affected_lines"]} == {
-            x["line_id"]: x["line_revision"] for x in expected
-        }
+        assert {
+            x["line_id"]: x["revision"] for x in problem(conflict, 412, "stale")["affected_lines"]
+        } == {x["line_id"]: x["revision"] for x in expected}
     for reason_fields in ({}, {"reason": None}, {"reason": ""}, {"reason": " "}):
         denied = b.post(f"{path}/scans", {**change, "reviewed_lines": expected, **reason_fields})
         assert "#/reason" in errors(denied)
@@ -99,7 +98,7 @@ def test_correcting_an_observed_slot_reviews_all_superseded_evidence_atomically(
         and move["after"]["position"] == "A2"
         and move["previous"] == positive["id"]
     )
-    assert move["after"]["line_revision"] > move["before"]["line_revision"]
+    assert move["after"]["revision"] > move["before"]["revision"]
     assert set(contents(a, container)) == {"A1"}
 
 
@@ -124,28 +123,24 @@ def test_decisions_review_the_physical_empty_observation_and_keep_its_original_n
         a.get(f"{path}/history", line_id=physical["line_id"]).json()["items"][0]["id"]
         == physical["id"]
     )
-    assert expected["line_revision"] > opened["lines"][0]["line_revision"]
-    first = {
-        "resolution": "kept",
-        "note": "Double-checked map",
-        "line_revision": expected["line_revision"],
-    }
+    assert expected["revision"] > opened["lines"][0]["revision"]
+    first = {"resolution": "kept", "note": "Double-checked map"}
     unrelated = b.post(f"{path}/scans", {"scans": [{"position": "A4", "code": "OTHER"}]})
     assert unrelated.status_code == 200
-    saved = a.patch(line, first)
+    saved = a.patch(line, first, headers=seen(expected["revision"]))
     assert saved.status_code == 200, saved.content
     before = saved.json()
     decision = next(x for x in before["lines"] if x["id"] == expected["id"])
     prior = history(a, path)
     assert prior[-1]["after"]["observation"] == prior[0]["id"]
-    identical = b.patch(line, {**first, "line_revision": decision["line_revision"]})
+    identical = b.patch(line, {**first}, headers=seen(decision["revision"]))
     assert identical.status_code == 200 and identical.json() == before and history(a, path) == prior
     for mutation in (
         {"resolution": "kept", "note": "Changed note"},
         {"resolution": "removed", "note": "Support"},
         {"resolution": None},
     ):
-        refused = b.patch(line, {"line_revision": decision["line_revision"], **mutation})
+        refused = b.patch(line, {**mutation}, headers=seen(decision["revision"]))
         assert "#/reason" in errors(refused)
     # A fresh, physical verification of exactly the same empty slot is a new observation.
     repeat = b.post(
@@ -153,7 +148,7 @@ def test_decisions_review_the_physical_empty_observation_and_keep_its_original_n
     )
     assert repeat.status_code == 200, repeat.content
     current = next(x for x in repeat.json()["lines"] if x["id"] == expected["id"])
-    assert current["resolution_stale"] and current["line_revision"] > decision["line_revision"]
+    assert current["resolution_stale"] and current["revision"] > decision["revision"]
     assert (
         current["reviewed_observation"] == physical
         and current["observation"]["id"] != physical["id"]
@@ -165,34 +160,35 @@ def test_decisions_review_the_physical_empty_observation_and_keep_its_original_n
         and actual["after"]["code"] is None
         and actual["previous"] == prior[0]["id"]
     )
-    assert (
-        b.patch(
-            line, {**first, "line_revision": decision["line_revision"], "reason": "Saw map again"}
-        ).status_code
-        == 409
+    outdated = b.patch(
+        line, {**first, "reason": "Saw map again"}, headers=seen(decision["revision"])
     )
-    assert "#/reason" in errors(b.patch(line, {**first, "line_revision": current["line_revision"]}))
+    assert problem(outdated, 412, "stale")["affected_lines"] == [
+        {"line_id": expected["id"], "revision": current["revision"]}
+    ]
+    assert outdated["ETag"] == f'"{current["revision"]}"'
+    assert "#/reason" in errors(b.patch(line, {**first}, headers=seen(current["revision"])))
     reheard = b.patch(
         line,
         {
             **first,
-            "line_revision": current["line_revision"],
             "reason": "Rechecked against latest empty scan",
         },
+        headers=seen(current["revision"]),
     )
     assert reheard.status_code == 200, reheard.content
     confirmed = next(x for x in reheard.json()["lines"] if x["id"] == expected["id"])
     assert not confirmed["resolution_stale"]
     event = history(a, path)[-1]
-    assert event["before"] == {**prior[-1]["after"], "line_revision": current["line_revision"]}
+    assert event["before"] == {**prior[-1]["after"], "revision": current["revision"]}
     assert event["after"]["observation"] == actual["id"] and event["previous"] == prior[-1]["id"]
     cleared = b.patch(
         line,
         {
-            "line_revision": confirmed["line_revision"],
             "resolution": None,
             "reason": "Reopen the count finding",
         },
+        headers=seen(confirmed["revision"]),
     )
     assert cleared.status_code == 200, cleared.content
     final = history(a, path)[-1]
@@ -202,7 +198,7 @@ def test_decisions_review_the_physical_empty_observation_and_keep_its_original_n
         and final["after"] is None
     )
     latest = next(x for x in cleared.json()["lines"] if x["id"] == expected["id"])
-    noop = b.patch(line, {"line_revision": latest["line_revision"], "resolution": None})
+    noop = b.patch(line, {"resolution": None}, headers=seen(latest["revision"]))
     assert noop.json() == cleared.json() and history(a, path)[-1] == final
 
 
@@ -238,19 +234,20 @@ def test_same_rack_file_rejects_conflicting_positions_and_canonical_tube_aliases
 def test_count_cancellation_requires_a_current_plan_and_who_why(world: World) -> None:
     a, b = Api(world.browser("editor")), Api(world.browser("admin"))
     path, _, opened = begin(a, world)
-    v = opened["plan_revision"]
+    v = opened["revision"]
     assert b.post(f"{path}/cancel").status_code == 422
     for reason_fields in ({}, {"reason": None}, {"reason": ""}, {"reason": "  "}):
-        rejected = b.post(f"{path}/cancel", {"plan_revision": v, **reason_fields})
+        rejected = b.post(f"{path}/cancel", {**reason_fields}, headers=seen(v))
         assert "#/reason" in errors(rejected)
     assert a.get(path).json() == opened
     changed = a.post(f"{path}/scans", {"scans": [{"position": "A2", "code": "UNCATALOGUED"}]})
     assert changed.status_code == 200
-    assert b.post(f"{path}/cancel", {"plan_revision": v, "reason": "Wrong box"}).status_code == 409
+    outdated = b.post(f"{path}/cancel", {"reason": "Wrong box"}, headers=seen(v))
+    problem(outdated, 412, "stale")
+    assert outdated["ETag"] == f'"{changed.json()["revision"]}"'
+    assert b.post(f"{path}/cancel", {"reason": "Wrong box"}).status_code == 428
     why = "Wrong physical box opened"
-    final = b.post(
-        f"{path}/cancel", {"plan_revision": changed.json()["plan_revision"], "reason": why}
-    )
+    final = b.post(f"{path}/cancel", {"reason": why}, headers=seen(changed.json()["revision"]))
     assert final.status_code == 200, final.content
     assert final.json()["status"] == "cancelled" and final.json()["cancel_reason"] == why
     actor = str(world.users["admin"].pk)
@@ -305,11 +302,11 @@ def test_legacy_count_requires_a_real_rescan_before_adjudication(world: World) -
     path = f"/reconciliations/{parent.pk}"
     legacy = b.get(path).json()
     row = legacy["lines"][0]
-    assert legacy["cancel_reason"] == "" and row["line_revision"] == 1
+    assert legacy["cancel_reason"] == "" and row["revision"] == 1
     assert row["resolution_stale"] and history(a, path) == []
     line = f"{path}/lines/{old.pk}"
     refused = b.patch(
-        line, {"line_revision": row["line_revision"], "resolution": "moved", "reason": "Revisit"}
+        line, {"resolution": "moved", "reason": "Revisit"}, headers=seen(row["revision"])
     )
     assert "Rescan" in errors(refused)["#/resolution"]
     refreshed = b.post(
@@ -327,11 +324,11 @@ def test_legacy_count_requires_a_real_rescan_before_adjudication(world: World) -
     new = b.patch(
         line,
         {
-            "line_revision": row["line_revision"],
             "resolution": "moved",
             "note": "Checked again",
             "reason": "Confirmed the new scan",
         },
+        headers=seen(row["revision"]),
     )
     assert new.status_code == 200, new.content
     decision = history(b, path)[-1]
@@ -378,7 +375,7 @@ def test_two_operators_can_scan_independent_slots_and_only_one_can_replace_the_s
     assert together(
         {**condition, "scans": [{"position": "A2", "code": "BLUE"}]},
         {**condition, "scans": [{"position": "A2", "code": "GREEN"}]},
-    ) == [200, 409]
+    ) == [200, 412]
     rows = history(a, path)
     assert len(rows) == 4
     assert {e["after"]["code"] for e in rows if e["after"] is not None} in (
@@ -398,10 +395,10 @@ def test_removing_an_unexpected_line_keeps_its_scan_choice_and_clear_by_line_id(
     saved = a.patch(
         line,
         {
-            "line_revision": unknown["line_revision"],
             "resolution": "kept",
             "note": "Label read; no registered tube",
         },
+        headers=seen(unknown["revision"]),
     )
     assert saved.status_code == 200, saved.content
     old = next(x for x in saved.json()["lines"] if x["id"] == unknown["id"])
@@ -418,10 +415,10 @@ def test_removing_an_unexpected_line_keeps_its_scan_choice_and_clear_by_line_id(
     clear = b.patch(
         line,
         {
-            "line_revision": gone["line_revision"],
             "resolution": None,
             "reason": "Release previously kept choice",
         },
+        headers=seen(gone["revision"]),
     )
     assert clear.status_code == 200 and unknown["id"] not in {
         x["id"] for x in clear.json()["lines"]
@@ -485,7 +482,8 @@ def test_a_newly_registered_tube_changes_the_identity_of_a_previously_unknown_sc
     )
     registered = tube(b, private, "LATER")
     retry = {"scans": [{"position": "A2", "code": "LATER"}]}
-    assert b.post(f"{path}/scans", retry).status_code == 409
+    unreviewed = problem(b.post(f"{path}/scans", retry), 412, "stale")
+    assert unreviewed["affected_lines"] == [review(old)]
     checked = {**retry, "reviewed_lines": [review(old)]}
     denied = b.post(f"{path}/scans", checked)
     assert "#/reason" in errors(denied) and history(b, path) == [original]
@@ -497,7 +495,8 @@ def test_a_newly_registered_tube_changes_the_identity_of_a_previously_unknown_sc
     assert evidence["previous"] == original["id"] and evidence["line_id"] == old["id"]
     resolved = b.patch(
         f"{path}/lines/{old['id']}",
-        {"line_revision": linked["line_revision"], "resolution": "placed"},
+        {"resolution": "placed"},
+        headers=seen(linked["revision"]),
     )
     assert resolved.status_code == 200, resolved.content
     for reader, visible in ((b, "LATER"), (viewer, "")):
@@ -548,8 +547,8 @@ def test_scan_reply_holds_its_parent_lock_through_the_returned_snapshot(
     second = b.post(f"{path}/scans", {"scans": [{"position": "A3"}]})
     assert first.status_code == second.status_code == 200
     assert lock_checks == [True, True]
-    assert first.json()["plan_revision"] == opened["plan_revision"] + 1
-    assert second.json()["plan_revision"] == opened["plan_revision"] + 2
+    assert first.json()["revision"] == opened["revision"] + 1
+    assert second.json()["revision"] == opened["revision"] + 2
     assert {x["found"] for x in first.json()["lines"] if x["found"]} == {"A2"}
     assert {x["found"] for x in second.json()["lines"] if x["found"]} == {"A2", "A3"}
 
@@ -564,9 +563,7 @@ def test_count_completion_accepts_an_optional_note(
     path, _, _ = begin(api, world)
     scanned = api.post(f"{path}/scans", {"scans": [{"position": "A1", "code": "COUNT-A"}]})
     assert scanned.status_code == 200, scanned.content
-    finished = api.post(
-        f"{path}/complete", {"plan_revision": scanned.json()["plan_revision"], **fields}
-    )
+    finished = api.post(f"{path}/complete", {**fields}, headers=seen(scanned.json()["revision"]))
     assert finished.status_code == 200, finished.content
     assert finished.json()["status"] == "completed" and finished.json()["note"] == ""
 
