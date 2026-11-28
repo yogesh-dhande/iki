@@ -1,8 +1,7 @@
 """The antibody plugin's own calculations: `assemble`, an antibody from its chains.
 
-It reads the run input from $IKI_INPUT and writes its results to $IKI_OUTPUT, as every
-action's command does. A run that can't do what it was asked says why in an `::error`
-line and exits 1.
+It reads the run and writes its results with Iki's action helper, iki_action.py. A run
+that can't do what it was asked says why in an `::error` line and exits 1.
 
 An antibody is its chains: a heavy chain and a light chain for a whole antibody (igg),
 one arm of one (fab) or its two variable domains alone (fv), and one chain for a single
@@ -54,13 +53,10 @@ a guess.
 
 from __future__ import annotations
 
-import json
-import os
-import sys
-from pathlib import Path
 from typing import Any
 
 import constant_regions
+import iki_action as iki
 import interchain
 
 #: Formats with a heavy and a light chain.
@@ -105,8 +101,7 @@ WHOLE = ("CH1", "CH2", "CH3")
 MAX_NAME = 255
 
 
-class RefusedError(Exception):
-    """What a run can't do, and why."""
+RefusedError = iki.Refused
 
 
 def _label(entity: dict[str, Any]) -> str:
@@ -772,18 +767,5 @@ def assemble(run: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def main() -> None:
-    kind = sys.argv[1]
-    compute = {"assemble": assemble}[kind]
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        result = compute(run)
-    except RefusedError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **result}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main({"assemble": assemble})

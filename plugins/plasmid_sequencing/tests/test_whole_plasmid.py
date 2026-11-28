@@ -302,7 +302,7 @@ def test_a_consensus_longer_than_the_plasmid_doesnt_match(
 def test_a_consensus_file_must_hold_one_sequence(script: ModuleType, tmp_path: Path) -> None:
     two = tmp_path / "two.fasta"
     two.write_text(">a\nACGT\n>b\nACGT\n", encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with pytest.raises(script.iki.Refused):
         script.verify(replay.consensus_run(two, replay.puc19()), tmp_path)
 
 

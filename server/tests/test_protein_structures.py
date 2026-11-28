@@ -120,7 +120,7 @@ def run(tmp_path: Path, text: str, name: str) -> tuple[subprocess.CompletedProce
     out = tmp_path / "out.json"
     out.unlink(missing_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(SCRIPT), "file"],
+        [sys.executable, "-E", "-s", str(SCRIPT), "file"],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(out),

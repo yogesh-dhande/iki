@@ -114,7 +114,11 @@ def ran(tmp_path: Path, foldcloud: tuple[StandIn, Tunnel], run: dict[str, Any]) 
         "IKI_API_FOLDCLOUD_CALLBACK_URL": "https://iki.example/api/v1/outside-apis/callbacks/x",
     }
     done = subprocess.run(  # noqa: S603 - this interpreter, on the plugin's script
-        [sys.executable, "-I", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+        [sys.executable, "-E", "-s", str(SCRIPT)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     return done, tmp_path
 
@@ -320,4 +324,4 @@ def test_what_the_api_refuses_fails_the_run_saying_why(tmp_path: Path) -> None:
         stand_in.server.shutdown()
         stand_in.server.server_close()
     assert done.returncode != 0
-    assert "FoldCloud answered 401" in done.stderr
+    assert "::error FoldCloud answered 401" in done.stdout

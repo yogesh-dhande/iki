@@ -1,11 +1,9 @@
 """Assign nominal sample concentrations and replicates to empty wells on a plate."""
 
-import json
 import math
-import os
-from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 from reader import DIMENSIONS, WELL
 
 
@@ -63,13 +61,4 @@ def assign(run: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    document = json.loads(Path(os.environ["IKI_INPUT"]).read_text("utf-8"))
-    try:
-        update = assign(document)
-    except ValueError as err:
-        print(f"::error {err}")
-        raise SystemExit(1) from err
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", "updates": {"plate": [update]}}),
-        encoding="utf-8",
-    )
+    iki.main(lambda run: {"updates": {"plate": [assign(run)]}}, refuse=ValueError)

@@ -40,7 +40,7 @@ def run(
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[-1].startswith("::progress 1.00 ")
+    assert result.stdout.splitlines()[-1].startswith("::progress 1 ")
     output: dict[str, Any] = json.loads((tmp_path / "out.json").read_text())
     assert not list(schemas.check("run-output", output))
     return {u["entity"][-1]: u["values"] for u in output["updates"][name]}
@@ -133,7 +133,7 @@ def test_every_field_the_action_declares_is_one_a_primer_can_get(tmp_path: Path)
 
 def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) -> None:
     """Run the same files a worker gets from its pinned plugin: the script, the checks
-    module's wrapper it imports, and the two modules they load."""
+    module's wrapper and the action helper it imports, and the two modules they load."""
     packed = tmp_path / "dna.tar.gz"
     code = workers.prepared_source("iki/dna", SCRIPT.parents[1], tmp_path / "worker-code")
     workers.bundle("iki/dna", code, packed)
@@ -142,6 +142,7 @@ def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) ->
         for path in (
             "scripts/sequences.py",
             "scripts/oligos.py",
+            "scripts/iki_action.py",
             "data/oligo-measurement.wasm",
             "data/oligo-checks.wasm",
         ):
@@ -176,7 +177,7 @@ def imported(
     out_dir = tmp_path / "out"
     out_dir.mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(IMPORTS)],
+        [sys.executable, "-E", "-s", str(IMPORTS)],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(out),

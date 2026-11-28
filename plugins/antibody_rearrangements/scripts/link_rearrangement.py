@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import gzip
-import json
-import os
 import zlib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 IG_LOCI = {"IGH", "IGK", "IGL"}
 #: The row's columns the link keeps, when the report has them (AIRR Rearrangement schema:
@@ -130,14 +130,12 @@ def link(run: dict[str, Any]) -> dict[str, Any]:
     pins = ("id", "revision", "entry_id", "entry_revision")
     pinned = [{key: record[key] for key in pins if key in record} for record in (result, antibody)]
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [
             {
                 "type": "iki/antibody_rearrangements.AntibodyRearrangement",
                 "derived_from": [result["id"], antibody["id"]],
                 "values": {
-                    "antibody": antibody.get("entry_id") or antibody["id"],
+                    "antibody": iki.ref(antibody),
                     "result": result["id"],
                     "sequence_id": sequence_id,
                     "repertoire_id": repertoire or None,
@@ -157,15 +155,5 @@ def link(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        output = link(run)
-    except (ValueError, OSError, EOFError, zlib.error) as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from None
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(link, refuse=(ValueError, OSError, EOFError, zlib.error))

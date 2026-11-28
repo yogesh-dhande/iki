@@ -309,6 +309,9 @@ def test_outputs_are_compared_by_what_a_test_gives() -> None:
         "metrics.score: expected true, got 1"
     ]
     assert action_tests.compare({"metrics": {"score": 0}}, {"metrics": {"score": 1e-12}}) == []
+    # Run output leaves out what's empty: expecting nothing passes for nothing written.
+    assert action_tests.compare({"updates": {"sample": []}, "messages": []}, {}) == []
+    assert action_tests.compare({"creates": [{}]}, {}) == ["creates: missing (expected [{}])"]
 
 
 def test_outputs_may_change_only_what_the_action_declares(

@@ -3,6 +3,8 @@
 - Status: Accepted
 - Date: 2026-11-10
 - Refines: [0010](0010-single-rust-worker.md), [0043](0043-workers-lease-jobs.md)
+- Extended by: [0287](0287-scripts-read-and-write-runs-with-one-vendored-helper.md),
+  a Python command reads and writes its run with Iki's vendored action helper
 
 ## Context
 

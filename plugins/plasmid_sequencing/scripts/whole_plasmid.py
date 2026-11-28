@@ -73,16 +73,16 @@ from __future__ import annotations
 
 import csv
 import gzip
-import json
 import os
 import re
 import subprocess
-import sys
 from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NoReturn, TextIO
+
+import iki_action as iki
 
 #: The bases each IUPAC code stands for (IUBMB, 1985,
 #: https://iupac.qmul.ac.uk/misc/naseq.html).
@@ -119,8 +119,7 @@ COMPLEMENT = str.maketrans("ACGTRYSWKMBDHVN", "TGCAYRSWMKVHDBN")
 
 
 def fail(why: str) -> NoReturn:
-    print(f"::error {why}"[:MAX_TEXT], flush=True)
-    raise SystemExit(1)
+    raise iki.Refused(why)
 
 
 def reverse_complement(bases: str) -> str:
@@ -1215,7 +1214,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         "members": [plasmid["values"]["sequence"]],
         "aligned": {"$file": "alignment.fasta", "media_type": "chemical/seq-na-fasta"},
         "method": method[:500],
-        "plasmid": plasmid.get("entry_id") or plasmid["id"],
+        "plasmid": iki.ref(plasmid),
         "plasmid_record_id": plasmid["id"],
         "plasmid_revision": plasmid["revision"],
         "source": source,
@@ -1268,15 +1267,5 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        **verify(run, Path(os.environ["IKI_OUT_DIR"])),
-    }
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    sys.exit(main())
+    iki.main(lambda run: verify(run, run.out_dir))

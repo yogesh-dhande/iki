@@ -132,9 +132,14 @@ def lims(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[Any]:
         sys.modules.pop(name, None)
 
 
+def given(lims: Any, run_input: dict[str, Any]) -> None:
+    """Writes the run input the worker would give the script."""
+    document = {"apiVersion": "iki/v1", "kind": "RunInput", **run_input}
+    (lims.dir / "input.json").write_text(json.dumps(document))
+
+
 def ran(lims: Any, script: Any, run_input: dict[str, Any]) -> dict[str, Any]:
-    run_input = {"settings": {"lims_host": HOST}, **run_input}
-    (lims.dir / "input.json").write_text(json.dumps(run_input))
+    given(lims, {"settings": {"lims_host": HOST}, **run_input})
     script.main()
     output: dict[str, Any] = json.loads((lims.dir / "out.json").read_text())
     assert not list(schemas.check("run-output", output))
@@ -244,7 +249,7 @@ def test_what_the_lims_refuses_fails_the_run(
     lims.fake.failures = change.get("failures", [])
     if "bad" in change:
         lims.fake.proteins[0]["sequence"] = change["bad"]
-    (lims.dir / "input.json").write_text(json.dumps({"settings": {"lims_host": HOST}}))
+    given(lims, {"settings": {"lims_host": HOST}})
     with pytest.raises(SystemExit):
         lims.sync.main()
     assert error in capsys.readouterr().out.splitlines()
@@ -254,11 +259,11 @@ def test_without_a_token_or_a_host_it_says_which(
     lims: Any, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("LIMS_TOKEN")
-    (lims.dir / "input.json").write_text(json.dumps({"settings": {"lims_host": HOST}}))
+    given(lims, {"settings": {"lims_host": HOST}})
     with pytest.raises(SystemExit):
         lims.sync.main()
     assert "::error The deployment hasn't set the `LIMS_TOKEN` secret." in capsys.readouterr().out
-    (lims.dir / "input.json").write_text(json.dumps({"settings": {}}))
+    given(lims, {"settings": {}})
     with pytest.raises(SystemExit):
         lims.send.main()
     assert "::error Set the plugin's `lims_host`" in capsys.readouterr().out

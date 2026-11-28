@@ -7,13 +7,10 @@ matched by its slug, which never changes. A request whose project has no agreed 
 none, so a project taken out of the ranking loses its rank the next time its requests are
 ranked.
 
-Like every action's command, it reads the run from $IKI_INPUT and writes its results to
-$IKI_OUTPUT.
+It reads the run and writes its results with Iki's action helper, iki_action.py.
 """
 
-import json
-import os
-from pathlib import Path
+import iki_action as iki
 
 
 def agreed_ranks(ranking: list[dict]) -> dict[str, int]:
@@ -25,20 +22,18 @@ def agreed_ranks(ranking: list[dict]) -> dict[str, int]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    ranks = agreed_ranks(run["inputs"].get("ranking", []))
-    updates = []
-    for request in run["inputs"]["requests"]:
+def rank(run: iki.Run) -> iki.Output:
+    ranks = agreed_ranks(run.inputs("ranking"))
+    out = run.output()
+    for request in run.inputs("requests"):
         asking = (request.get("request") or {}).get("asking_project") or {}
         rank = ranks.get(asking.get("slug", ""))
         if rank != request["values"].get("project_rank"):
-            updates.append({"entity": request["id"], "values": {"project_rank": rank}})
+            out.update("requests", request, {"project_rank": rank})
         said = f"rank {rank}" if rank is not None else "no agreed rank"
         print(f"{request['hrid']}: {asking.get('name', 'its project')}, {said}")
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "updates": {"requests": updates}}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+    return out
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(rank)

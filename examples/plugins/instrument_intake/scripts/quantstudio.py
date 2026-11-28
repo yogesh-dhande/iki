@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import csv
 import hashlib
-import json
-import os
 import re
-import sys
 from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 #: A 96- or 384-well block's wells, A1 to P24.
 WELL = re.compile(r"^[A-P](?:[1-9]|1[0-9]|2[0-4])$")
@@ -289,8 +288,6 @@ def run_output(run: dict[str, Any]) -> dict[str, Any]:
             }
         )
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "updates": {"run": [{"entity": record["id"], "require_unchanged": True, "values": values}]},
         "metrics": {
             "wells": len(values["wells"]),
@@ -300,15 +297,5 @@ def run_output(run: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        rendered = json.dumps(run_output(run), allow_nan=False, ensure_ascii=False)
-    except (ValueError, OSError) as error:
-        print(f"::error {error}", flush=True)
-        sys.exit(1)
-    Path(os.environ["IKI_OUTPUT"]).write_text(rendered, encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(run_output, refuse=(ValueError, OSError))

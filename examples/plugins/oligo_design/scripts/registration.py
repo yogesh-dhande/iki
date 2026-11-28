@@ -3,33 +3,18 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Iterable, Mapping
-from pathlib import Path
 from typing import Any
 
 import chemistry
 import helm
+import iki_action as iki
 
 MONOMER = "iki/oligo.Monomer"
 OLIGO = "iki/oligo.Oligonucleotide"
-MAX_OUTPUT_BYTES = 2_500_000
 
 
-class Refused(Exception):  # noqa: N818 - reads as "the run is refused"
-    """What keeps a run from doing what it was asked."""
-
-
-def run_input() -> dict[str, Any]:
-    loaded: dict[str, Any] = json.loads(Path(os.environ["IKI_INPUT"]).read_text("utf-8"))
-    return loaded
-
-
-def write_output(output: Mapping[str, Any]) -> None:
-    text = json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **output})
-    if len(text.encode("utf-8")) > MAX_OUTPUT_BYTES:
-        raise Refused("What it registers is over the 2.5 MB a run's output holds: give it fewer.")
-    Path(os.environ["IKI_OUTPUT"]).write_text(text, encoding="utf-8")
+Refused = iki.Refused
 
 
 def monomer_values(m: chemistry.Monomer, source: str | None = None) -> dict[str, Any]:

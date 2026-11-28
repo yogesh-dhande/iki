@@ -2,12 +2,11 @@
 
 import hashlib
 import json
-import os
-import sys
 import unicodedata
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 PREFIX = "iki/reagents."
 LOT_TYPES = {"mg": "MassStockLot", "mL": "VolumeStockLot", "1": "CountStockLot"}
@@ -160,19 +159,8 @@ def receive_stock(run: dict[str, Any]) -> dict[str, Any]:
     return {"creates": [lot]}
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    action = {"order": place_order, "receive": receive_delivery, "receive_stock": receive_stock}[
-        sys.argv[1]
-    ]
-    try:
-        output = action(run)
-    except ValueError as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from error
-    document = {"apiVersion": "iki/v1", "kind": "RunOutput", **output}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(document), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(
+        {"order": place_order, "receive": receive_delivery, "receive_stock": receive_stock},
+        refuse=ValueError,
+    )

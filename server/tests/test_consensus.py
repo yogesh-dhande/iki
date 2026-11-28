@@ -49,7 +49,7 @@ def run_script(
     out_dir = tmp_path / "out"
     out_dir.mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(script), *args],
+        [sys.executable, "-E", "-s", str(script), *args],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(output),

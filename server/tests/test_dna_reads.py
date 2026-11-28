@@ -121,7 +121,7 @@ def run(
         )
     )
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(SCRIPT)],
+        [sys.executable, "-E", "-s", str(SCRIPT)],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(output),

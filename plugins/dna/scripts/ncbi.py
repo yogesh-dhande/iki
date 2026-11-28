@@ -17,19 +17,17 @@ that names it.
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
-import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 from http.client import HTTPMessage
-from pathlib import Path
 from typing import IO, Any
 
+import iki_action as iki
 from imports import ACCESSION_BODY, Record, UnreadableError, finish, genbank
 
 EFETCH = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi"
@@ -155,8 +153,7 @@ def fetch(asked: list[str], email: str) -> list[Record]:
     return records
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
+def fetch_records(run: iki.Run) -> dict[str, Any]:
     email = (run.get("settings") or {}).get("ncbi_email")
     try:
         if not email:
@@ -166,8 +163,7 @@ def main() -> None:
             )
         records = fetch(accessions(run["params"]["accessions"]), email)
     except UnreadableError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
+        raise iki.Refused(str(why)) from None
     retrieved = datetime.now(UTC).isoformat(timespec="seconds")
 
     def origin(record: Record) -> dict[str, Any]:
@@ -181,7 +177,11 @@ def main() -> None:
             "sha256": hashlib.sha256(record.text.encode("utf-8")).hexdigest(),
         }
 
-    finish(records, origin)
+    return finish(records, origin)
+
+
+def main() -> None:
+    iki.main(fetch_records)
 
 
 if __name__ == "__main__":

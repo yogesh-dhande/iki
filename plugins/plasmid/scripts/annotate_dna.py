@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import os
 from functools import cache
 from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 import wasmtime
 
 MODULE = Path(__file__).resolve().parent.parent / "data" / "dna-annotation.wasm"
@@ -77,9 +77,8 @@ def annotate(bases: str, *, circular: bool, double_stranded: bool) -> dict[str, 
     return answer
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    (sequence,) = run["inputs"]["sequence"]
+def annotate_library(run: iki.Run) -> iki.Output:
+    sequence = run.input("sequence")
     values = sequence["values"]
     hrid = sequence["hrid"]
     try:
@@ -89,22 +88,17 @@ def main() -> None:
             double_stranded=values.get("strandedness", "double") == "double",
         )
     except AnnotationError as error:
-        print(f"::error {hrid}: {error}", flush=True)
-        raise SystemExit(1) from error
+        raise iki.Refused(f"{hrid}: {error}") from error
     features = result["features"]
     print(f"{hrid}: {len(features)} exact library matches")
-    update = {
-        "entity": sequence["id"],
-        "values": {
-            "library_features": features,
-            "library_annotated_with": result["annotated_with"],
-        },
-    }
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "updates": {"sequence": [update]}}
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps(output, separators=(",", ":")), encoding="utf-8"
+    out = run.output()
+    out.update(
+        "sequence",
+        sequence,
+        {"library_features": features, "library_annotated_with": result["annotated_with"]},
     )
+    return out
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(annotate_library)

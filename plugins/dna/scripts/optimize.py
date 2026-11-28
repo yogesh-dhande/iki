@@ -1,8 +1,7 @@
 """The `optimize_codons` command: a coding region rewritten in a host's own codons.
 
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, says
-why it can't go on with `::error`, and writes its results to $IKI_OUTPUT, as every
-action's command does.
+It reads the run and writes its results with Iki's action helper, iki_action.py,
+reports progress with `::progress` lines, and says why it can't go on with `::error`.
 
 The science is in `codons.py`, which says where every rule and every number comes from.
 This reads the design off the record, works the region out of the template, calls the
@@ -20,12 +19,11 @@ features come across unchanged.
 from __future__ import annotations
 
 import json
-import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import codons
+import iki_action as iki
 
 HERE = Path(__file__).resolve().parent
 USAGE = HERE.parent / "data" / "codon_usage.json"
@@ -274,17 +272,5 @@ def _say(value: float | None, places: int = 3) -> str:
     return "none" if value is None else f"{value:.{places}f}"
 
 
-def main() -> None:
-    given = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        found = run(given)
-    except (Stop, codons.Refused) as why:
-        print(f"::error {why}")
-        sys.exit(1)
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **found}), encoding="utf-8"
-    )
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(run, refuse=(Stop, codons.Refused))

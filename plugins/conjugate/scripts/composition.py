@@ -10,15 +10,13 @@ Explicitly labelled atoms contribute their isotope mass to both.
 
 from __future__ import annotations
 
-import json
-import os
 import re
 from collections import Counter
 from functools import cache
 from math import fsum, isfinite
-from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
 
@@ -203,25 +201,15 @@ def composition(entity: dict[str, Any]) -> dict[str, Any]:
     return values
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    updates = []
-    messages = []
-    for entity in run["inputs"]["conjugate"]:
+def compute(run: iki.Run) -> iki.Output:
+    out = run.output()
+    for entity in run.inputs("conjugate"):
         values = composition(entity)
-        updates.append({"entity": entity["id"], "values": values})
+        out.update("conjugate", entity, values)
         if values["molecular_formula"] is None:
-            messages.append(
-                {"entity": entity["id"], "level": "warning", "text": values["composition_note"]}
-            )
-    output = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        "updates": {"conjugate": updates},
-        "messages": messages,
-    }
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output, allow_nan=False), encoding="utf-8")
+            out.warning(values["composition_note"], entity=entity)
+    return out
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(compute)

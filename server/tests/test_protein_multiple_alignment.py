@@ -89,7 +89,7 @@ def run(
         )
     )
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(SCRIPT)],
+        [sys.executable, "-E", "-s", str(SCRIPT)],
         env={
             "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
             "IKI_INPUT": str(tmp_path / "input.json"),

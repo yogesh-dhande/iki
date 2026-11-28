@@ -51,7 +51,7 @@ def imported(
     out_dir = tmp_path / "out"
     out_dir.mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(IMPORTS)],
+        [sys.executable, "-E", "-s", str(IMPORTS)],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(out),

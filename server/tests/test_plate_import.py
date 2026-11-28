@@ -14,6 +14,7 @@ import pytest
 from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
+from iki_test_plugins import run_output
 from scan_fixtures import clean_blob
 from test_plugin_migrations import database, iki, migrate, orm, sync
 
@@ -112,7 +113,7 @@ def exercise_import(project: Project) -> None:
     def apply(run: ActionRun, output: dict[str, Any]) -> None:
         with transaction.atomic():
             locked = ActionRun.objects.select_for_update().get(pk=run.pk)
-            results.commit(locked, output)
+            results.commit(locked, run_output(output))
 
     # The edit lands between the worker reading the plate and its preview arriving.
     preview, old_output = reader_run("preview_reader")

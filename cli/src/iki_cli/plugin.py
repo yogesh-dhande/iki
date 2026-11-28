@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from iki_codegen import build as build_apps
-from iki_spec import API_VERSION, naming
+from iki_spec import API_VERSION, action_helper, naming
 from iki_spec.lockfile import redact_credentials
 from iki_spec.model import Plugin
 from iki_spec.problems import Problem
@@ -140,6 +140,30 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
         "--empty", action="store_true", help="Write an empty migration, to fill in by hand."
     )
     makemigrations.set_defaults(handler=run_makemigrations)
+
+    vendor = commands.add_parser(
+        "vendor",
+        help="Write Iki's action helper into a plugin's scripts.",
+        description=(
+            f"Write Iki's action helper, scripts/{action_helper.FILE_NAME} "
+            f"(version {action_helper.CURRENT}), which a plugin's scripts import to read "
+            "their run and write their output (ADR 0287). Commit it unchanged: `iki plugin "
+            "validate` refuses a copy that isn't a version Iki published."
+        ),
+    )
+    vendor.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        type=Path,
+        help="The plugin's directory (default: the current directory).",
+    )
+    vendor.add_argument(
+        "--check",
+        action="store_true",
+        help="Write nothing; fail if the copy isn't this Iki's version (for CI).",
+    )
+    vendor.set_defaults(handler=run_vendor)
     from iki_cli import preflight, testing, writer_commands
 
     preflight.add_command(commands)
@@ -150,6 +174,34 @@ def add_commands(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
 
 def _help(parser: argparse.ArgumentParser) -> int:
     parser.print_help()
+    return 0
+
+
+def run_vendor(args: argparse.Namespace, out: TextIO | None = None) -> int:
+    out = out or sys.stdout
+    root: Path = args.directory
+    if not (root / "plugin.yaml").is_file():
+        sys.stderr.write(f"error: {root} has no plugin.yaml, so it isn't a plugin.\n")
+        return 1
+    target = root / "scripts" / action_helper.FILE_NAME
+    wanted = action_helper.source()
+    current = target.read_bytes() if target.is_file() and not target.is_symlink() else None
+    if args.check:
+        if current == wanted:
+            out.write(f"{target} is Iki's action helper {action_helper.CURRENT}.\n")
+            return 0
+        found = action_helper.version_of(current) if current is not None else None
+        why = "is missing" if current is None else f"is {found}" if found else "was changed"
+        sys.stderr.write(
+            f"error: {target} {why}; this Iki's is {action_helper.CURRENT}. "
+            "Run `iki plugin vendor` to write it.\n"
+        )
+        return 1
+    if target.is_symlink():
+        target.unlink()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(wanted)
+    out.write(f"Wrote Iki's action helper {action_helper.CURRENT} to {target}.\n")
     return 0
 
 

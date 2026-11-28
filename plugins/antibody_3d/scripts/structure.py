@@ -6,18 +6,18 @@ closest to the others, refines it with OpenMM and writes it as PDB, with each re
 estimated error (the four models' spread, in Å) as its B-factor.
 
 The antibody's chains are what its input includes (ADR 0105): their sequences as of launch.
-It reads the run input from $IKI_INPUT, reports progress with `::progress` lines, and writes
-its results to $IKI_OUTPUT, as every action's command does.
+It reads the run and writes its results with Iki's action helper, iki_action.py, and reports
+progress with `::progress` lines.
 """
 
 from __future__ import annotations
 
-import json
 import math
 import os
-import sys
 from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 #: Where the image keeps the weights, checked against their SHA-256 when it was built.
 WEIGHTS = Path(os.environ.get("IMMUNEBUILDER_WEIGHTS", "/opt/immunebuilder/weights"))
@@ -116,12 +116,12 @@ def predict(run: dict[str, Any]) -> dict[str, Any]:
     single = list(sequences) == ["H"]
     name = "NanoBodyBuilder2" if single else "ABodyBuilder2"
     print(f"Modelling {label} with {name}", flush=True)
-    print("::progress 0.1 Loading the models", flush=True)
+    iki.progress(0.1, "Loading the models")
     builder = (NanoBodyBuilder2 if single else ABodyBuilder2)(weights_dir=str(WEIGHTS))
-    print("::progress 0.3 Predicting", flush=True)
+    iki.progress(0.3, "Predicting")
     model = builder.predict(sequences)
     mean, h3 = errors(model, model.numbered_sequences)
-    print("::progress 0.6 Refining with OpenMM", flush=True)
+    iki.progress(0.6, "Refining with OpenMM")
     out = Path(os.environ["IKI_OUT_DIR"]) / f"{antibody['hrid']}.pdb"
     model.save(str(out))
     print(f"Mean estimated error {mean:.2f} Å" + (f", CDR-H3 {h3:.2f} Å" if h3 else ""))
@@ -149,20 +149,16 @@ def _label(antibody: dict[str, Any]) -> str:
     return str(antibody["values"].get("name") or antibody["hrid"])
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    (antibody,) = run["inputs"]["antibody"]
+def model(run: iki.Run) -> dict[str, Any]:
+    antibody = run.input("antibody")
     try:
-        output = predict(run)
+        return predict(run)
     except (AssertionError, ValueError) as error:
         # ImmuneBuilder's own checks, such as a chain that isn't the type it's given as,
         # and ours: what's wrong with the antibody, said as the run's error.
         why = (str(error).splitlines() or ["it couldn't be modelled"])[0].rstrip(".:")
-        print(f"::error {_label(antibody)}: {why}.", flush=True)
-        sys.exit(1)
-    document = {"apiVersion": "iki/v1", "kind": "RunOutput", **output}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(document), encoding="utf-8")
+        raise iki.Refused(f"{_label(antibody)}: {why}.") from error
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(model)

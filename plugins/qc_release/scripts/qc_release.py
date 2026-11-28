@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import sys
 from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Context, Decimal, InvalidOperation
 from itertools import pairwise
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 PLUGIN = "iki/qc_release"
 MAX_ATTEMPTS = 250
@@ -53,8 +52,6 @@ def output(
 ) -> dict[str, Any]:
     """An update checks the pinned input revision before any creates are written."""
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "updates": {name: [{"entity": record["id"], "values": values, "require_unchanged": True}]},
         "creates": list(creates),
     }
@@ -864,8 +861,6 @@ def issue_certificate(run: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("The certificate record's certificate doesn't match its digest.")
     issued = {"coa": coa, "digest": values["coa_digest"], "review_flow": flow}
     return {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
         "creates": [create("CertificateOfAnalysis", issued, record)],
     }
 
@@ -972,16 +967,5 @@ ACTIONS = {
 }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        result = ACTIONS[sys.argv[1]](run)
-        rendered = json.dumps(result, allow_nan=False)
-    except ValueError as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from None
-    Path(os.environ["IKI_OUTPUT"]).write_text(rendered, encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(ACTIONS, refuse=ValueError)

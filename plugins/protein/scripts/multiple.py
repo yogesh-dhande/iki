@@ -14,15 +14,15 @@ the file of the alignment the run creates.
 
 from __future__ import annotations
 
-import json
 import math
 import os
 import re
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 from typing import Any, NoReturn
+
+import iki_action as iki
 
 #: The longest protein it takes: titin, the longest known, is 34,350 residues.
 MAX_LENGTH = 40_000
@@ -44,8 +44,7 @@ STANDARD = set("ACDEFGHIKLMNPQRSTVWYBZX")
 
 
 def fail(why: str) -> NoReturn:
-    print(f"::error {why}", flush=True)
-    sys.exit(1)
+    raise iki.Refused(why)
 
 
 def threads() -> int:
@@ -230,15 +229,5 @@ def align(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
     }
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {
-        "apiVersion": "iki/v1",
-        "kind": "RunOutput",
-        **align(run, Path(os.environ["IKI_OUT_DIR"])),
-    }
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(lambda run: align(run, run.out_dir))

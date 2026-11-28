@@ -22,10 +22,10 @@ salt's equivalents are blank when charge balance doesn't say how many
 from __future__ import annotations
 
 import json
-import sys
 import time
 from typing import Any
 
+import iki_action as iki
 from chemistry import (
     LAYOUT_SECONDS,
     MAX_OUTPUT_BYTES,
@@ -37,10 +37,8 @@ from chemistry import (
     from_smiles,
     identify,
     read_back,
-    run_input,
     standardise,
     unstated_equivalents,
-    write_output,
 )
 
 #: How long a run may spend laying out Molfiles, of the action's 10 minutes.
@@ -195,10 +193,5 @@ def _left_out(drawn: str | None, compound: str) -> list[str]:
     return standardise(from_smiles(drawn), parent=True).left_out
 
 
-def main() -> None:
-    compute = {"compounds": compounds, "batches": batches}[sys.argv[1]]
-    write_output(compute(run_input()))
-
-
 if __name__ == "__main__":
-    main()
+    iki.main({"compounds": compounds, "batches": batches})

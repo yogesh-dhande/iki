@@ -639,13 +639,16 @@ def effects(action: Action, output: Mapping[str, Any]) -> list[str]:
 
 def compare(expected: Any, got: Any, tolerance: float = TOLERANCE, at: str = "") -> list[str]:  # noqa: ANN401 - JSON data
     """Where ``got`` differs from ``expected``: each key ``expected`` gives, each list's items in
-    order, numbers within ``tolerance`` (relative)."""
+    order, numbers within ``tolerance`` (relative). A key run output leaves out is empty, as
+    the worker reads it, so ``updates: {sample: []}`` passes for an output with no updates."""
     where = at or "the output"
     if isinstance(expected, dict):
         if not isinstance(got, dict):
             return [f"{where}: expected a mapping, got {_show(got)}"]
         out = []
         for key, value in expected.items():
+            if key not in got and _empty(value):
+                continue
             if key not in got:
                 out.append(f"{_join(at, key)}: missing (expected {_show(value)})")
             else:
@@ -673,6 +676,13 @@ def compare(expected: Any, got: Any, tolerance: float = TOLERANCE, at: str = "")
     if expected != got or isinstance(expected, bool) != isinstance(got, bool):
         return [f"{where}: expected {_show(expected)}, got {_show(got)}"]
     return []
+
+
+def _empty(value: Any) -> bool:  # noqa: ANN401 - JSON data
+    """``value`` says nothing is there: an empty list or mapping, or mappings of those."""
+    if isinstance(value, dict):
+        return all(_empty(v) for v in value.values())
+    return isinstance(value, list) and not value
 
 
 def _join(at: str, key: str) -> str:

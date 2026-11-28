@@ -2,11 +2,11 @@
 
 import csv
 import hashlib
-import json
-import os
 import re
 from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 #: Each value a strain takes from the file, and the header Iki's own exchange format gives it.
 FIELDS = ("authority", "accession", "taxon_id", "scientific_name", "kind", "name", "genotype")
@@ -130,21 +130,16 @@ def catalogue(
     return creates
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    params = run["params"]
+def register(run: iki.Run) -> dict[str, Any]:
+    params = run.params
     file_id = params["file"]
     given = run["files"][file_id]
     try:
-        creates = catalogue(Path(given["path"]), file_id, params)
+        creates = catalogue(run.file(file_id), file_id, params)
     except (csv.Error, ValueError) as exc:
-        print(f"::error {given['name']}: {exc}", flush=True)
-        raise SystemExit(1) from exc
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "creates": creates}
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps(output, ensure_ascii=False), encoding="utf-8"
-    )
+        raise iki.Refused(f"{given['name']}: {exc}") from exc
+    return {"creates": creates}
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(register)

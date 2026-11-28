@@ -8,13 +8,11 @@ The stored fragments always come directly from the submitted text.
 
 from __future__ import annotations
 
-import json
-import os
 import re
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, NamedTuple
 
+import iki_action as iki
 from rdkit import Chem, rdBase
 
 # Both the registration and the computed JSON fields have these bounds. Limit each
@@ -239,6 +237,4 @@ def compute(run: Mapping[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **compute(run)}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+    iki.main(compute)

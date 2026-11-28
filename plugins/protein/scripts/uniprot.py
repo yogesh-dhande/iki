@@ -13,18 +13,15 @@ another, or made obsolete) fails the run with a `::error` line that names it.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
-import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
+import iki_action as iki
 from imports import ACCESSION, Record, UnreadableError, fasta, finish
 
 ACCESSIONS = "https://rest.uniprot.org/uniprotkb/accessions"
@@ -105,13 +102,11 @@ def fetch(asked: list[str]) -> list[tuple[Record, str]]:
     return records
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
+def fetch_records(run: iki.Run) -> dict[str, Any]:
     try:
         fetched = fetch(accessions(run["params"]["accessions"]))
     except UnreadableError as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
+        raise iki.Refused(str(why)) from None
     retrieved = datetime.now(UTC).isoformat(timespec="seconds")
     releases = {record.label: release for record, release in fetched}
 
@@ -136,7 +131,11 @@ def main() -> None:
             found["version"] = version
         return found
 
-    finish([record for record, _ in fetched], origin)
+    return finish([record for record, _ in fetched], origin)
+
+
+def main() -> None:
+    iki.main(fetch_records)
 
 
 if __name__ == "__main__":

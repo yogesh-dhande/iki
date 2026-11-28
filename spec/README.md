@@ -2925,6 +2925,43 @@ the attempt. Before failing, it can say why with a line like
 page shows. On SIGTERM (a cancel, its timeout, or the machine stopping)
 it has 10 seconds to stop.
 
+A Python command does all of this with Iki's action helper, `iki_action.py`
+([ADR 0287](../docs/adr/0287-scripts-read-and-write-runs-with-one-vendored-helper.md)):
+one standard-library file, Python 3.8 or later, that a plugin keeps unchanged
+beside its scripts, so it runs in any image, including ones a lab brings.
+`iki plugin vendor .` writes the version the CLI has, and
+`iki plugin validate` refuses a copy that isn't a version Iki published
+(`action-helper-changed`) and warns of an earlier one
+(`action-helper-outdated`).
+
+```python
+import iki_action as iki
+
+
+def store(run: iki.Run) -> iki.Output:
+    sample = run.input("sample")  # exactly one, or the run is refused
+    if sample["values"].get("storage"):
+        raise iki.Refused(f"{sample.hrid} is stored already.")  # its ::error line
+    out = run.output()
+    out.update("sample", sample, {"storage": run.params["location"]})
+    out.create("Label", {"sample": sample.id})  # acme/example.Label
+    return out
+
+
+if __name__ == "__main__":
+    iki.main(store)  # or iki.main({"store": store, ...}) by the first argument
+```
+
+`iki.main` reads `IKI_INPUT`, runs the function and writes what it returns
+(an `Output`, or run output's fields as a dict) to `IKI_OUTPUT`. It refuses
+output over the 2.5 MB the worker reads and numbers JSON can't hold, keeps
+the first 100 messages with every error, and prints `iki.Refused`'s reason,
+or that of an exception class given as `refuse=`, as the run's `::error`.
+`out.create("Chain", …)` qualifies a type of the plugin's own; `iki.ref`
+names an input by its registry entry if it has one; `iki.progress` prints
+`::progress`; `run.out_dir` is `IKI_OUT_DIR`. Compare an entity's type with
+`iki.is_a`, which reads its `types`, never by its name.
+
 A `checkpointable` action saves its progress in `IKI_CHECKPOINT_DIR`
 ([ADR 0069](../docs/adr/0069-checkpointable-runs-resume.md)). While the command
 runs, the worker saves the directory every 10 minutes (as the deployment sets

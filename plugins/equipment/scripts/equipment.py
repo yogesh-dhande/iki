@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
-import sys
 from bisect import bisect_right
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 SIGNED = frozenset({"signed_off", "released"})
 RFC3339 = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})")
@@ -18,10 +17,10 @@ PREFIX = "iki/equipment."
 Record = dict[str, Any]
 
 
-def equipments(record: dict[str, Any]) -> bool:
-    """Whether a run input's record is one of this plugin's, or of a lab's subtype of one:
-    an instrument or its calibration, use or maintenance, never a measured result."""
-    return any(name.startswith(PREFIX) for name in record["types"])
+def is_equipment(record: Record) -> bool:
+    """Whether ``record`` is one of this plugin's own, or a lab's subtype of one: an
+    instrument, a calibration or a use is never the measured result."""
+    return any(t.startswith(PREFIX) for t in iki.Entity(record).types)
 
 
 def timestamp(value: str) -> datetime:
@@ -70,7 +69,7 @@ def record_use(run: Record) -> list[Record]:
         raise ValueError("Select a signed passing calibration for this instrument.")
     if not timestamp(criteria["performed_at"]) <= reading_time < timestamp(criteria["valid_until"]):
         raise ValueError("The selected calibration does not cover the measurement time.")
-    if equipments(result) or result["id"] == instrument["id"]:
+    if is_equipment(result) or result["id"] == instrument["id"]:
         raise ValueError("Select the actual measured result.")
     at = reading_time.isoformat()
     return [
@@ -203,7 +202,7 @@ def open_case(run: Record) -> list[Record]:
         raise ValueError(
             "Select a signed out-of-tolerance calibration that says when the fault began."
         )
-    if equipments(result) or result["id"] == values["instrument"]:
+    if is_equipment(result) or result["id"] == values["instrument"]:
         raise ValueError("Select the actual measured result.")
     reading_time = timestamp(run["params"]["measurement_at"])
     if reading_time < timestamp(values["suspect_since"]):
@@ -234,22 +233,17 @@ def open_case(run: Record) -> list[Record]:
     ]
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    action = {
-        "schedule": schedule,
-        "record-use": record_use,
-        "trace": trace,
-        "open-case": open_case,
-    }[sys.argv[1]]
-    try:
-        creates = action(run)
-    except (ValueError, KeyError) as error:
-        print(f"::error {error}", flush=True)
-        raise SystemExit(1) from None
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", "creates": creates}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
+def creating(action: Any) -> Any:  # noqa: ANN401 - an action, which returns creates
+    return lambda run: {"creates": action(run)}
 
 
 if __name__ == "__main__":
-    main()
+    iki.main(
+        {
+            "schedule": creating(schedule),
+            "record-use": creating(record_use),
+            "trace": creating(trace),
+            "open-case": creating(open_case),
+        },
+        refuse=(ValueError, KeyError),
+    )

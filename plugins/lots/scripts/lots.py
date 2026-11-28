@@ -28,7 +28,7 @@ method, an option of the lab's list (ADR 0270), says it's that calculation's, or
 names none. The lab names its own methods; which of them Iki works out is the option's
 ``calculation``, so a lab's own A280 method, say one on a variable path length, is too.
 
-Each run reads $IKI_INPUT and writes $IKI_OUTPUT, as every action's command does. What
+Each run reads its input and writes its output with Iki's action helper, iki_action.py. What
 can't be worked out (a measurement left out, a mass not yet computed, a path length or
 an extinction coefficient of 0) is left empty, and the run says why; a computed value
 whose inputs are gone is emptied, so it never stays behind as if it followed from them.
@@ -44,13 +44,11 @@ an older measurement, of what was there before, gave.
 
 from __future__ import annotations
 
-import json
-import os
-import sys
 from collections.abc import Callable, Mapping
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
+
+import iki_action as iki
 
 #: Double-stranded DNA's concentration for an A260 of 1 over 1 cm, in ng/µL (50 µg/mL).
 DSDNA_PER_A260 = 50.0
@@ -521,11 +519,5 @@ def compute(kind: str, run: Mapping[str, Any]) -> dict[str, Any]:
     return {"updates": {"lot": updates}, "messages": messages[:100]}
 
 
-def main() -> None:
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    output = {"apiVersion": "iki/v1", "kind": "RunOutput", **compute(sys.argv[1], run)}
-    Path(os.environ["IKI_OUTPUT"]).write_text(json.dumps(output), encoding="utf-8")
-
-
 if __name__ == "__main__":
-    main()
+    iki.main({kind: lambda run, kind=kind: compute(kind, run) for kind in COMPUTE})

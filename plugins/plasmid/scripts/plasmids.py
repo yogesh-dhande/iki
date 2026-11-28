@@ -4,20 +4,17 @@ primers bind it, `pcr` what a PCR amplifies, `assemble` what a cloning plan make
 a plan against the sequence its clone turned out to have, and `digest` a plan's parts
 virtually, listing every fragment.
 
-Each reads the run input from $IKI_INPUT, reports progress with `::progress` lines, says
-why it can't go on with `::error`, and writes its results to $IKI_OUTPUT, as every
-action's command does.
+Each reads the run and writes its results with Iki's action helper, iki_action.py,
+reports progress with `::progress` lines, and says why it can't go on with `::error`.
 """
 
 from __future__ import annotations
 
-import json
-import os
-import sys
 from pathlib import Path
 from typing import Any
 
 import cloning
+import iki_action as iki
 import library
 import molecular
 import orfs as orf_finder
@@ -917,18 +914,5 @@ COMMANDS = {
 }
 
 
-def main() -> None:
-    command = COMMANDS[sys.argv[1]]
-    run = json.loads(Path(os.environ["IKI_INPUT"]).read_text(encoding="utf-8"))
-    try:
-        output = command(run)
-    except (Stop, cloning.Impossible, orf_finder.Refused, priming.Refused) as why:
-        print(f"::error {why}")
-        raise SystemExit(1) from why
-    Path(os.environ["IKI_OUTPUT"]).write_text(
-        json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **output}), encoding="utf-8"
-    )
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(COMMANDS, refuse=(Stop, cloning.Impossible, orf_finder.Refused, priming.Refused))

@@ -20,21 +20,19 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
-import os
 import re
-import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
 import chemistry
 import helm
+import iki_action as iki
 
 MONOMER = "iki/oligo.Monomer"
 OLIGO = "iki/oligo.Oligonucleotide"
 DUPLEX = "iki/oligo.Duplex"
 MAX_MESSAGES = 100
-MAX_OUTPUT_BYTES = 2_500_000
 #: The most an import registers at once.
 MAX_IMPORT = 2_000
 SDF_END = re.compile(r"^\$\$\$\$[ \t]*\r?$", re.MULTILINE)
@@ -43,20 +41,7 @@ SDF_END = re.compile(r"^\$\$\$\$[ \t]*\r?$", re.MULTILINE)
 CSV_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
 
 
-class Refused(Exception):  # noqa: N818 - reads as "the run is refused"
-    """What keeps a run from doing what it was asked."""
-
-
-def run_input() -> dict[str, Any]:
-    loaded: dict[str, Any] = json.loads(Path(os.environ["IKI_INPUT"]).read_text("utf-8"))
-    return loaded
-
-
-def write_output(output: Mapping[str, Any]) -> None:
-    text = json.dumps({"apiVersion": "iki/v1", "kind": "RunOutput", **output})
-    if len(text.encode("utf-8")) > MAX_OUTPUT_BYTES:
-        raise Refused("What it registers is over the 2.5 MB a run's output holds: give it fewer.")
-    Path(os.environ["IKI_OUTPUT"]).write_text(text, encoding="utf-8")
+Refused = iki.Refused
 
 
 def _and(items: Iterable[str]) -> str:
@@ -673,13 +658,5 @@ COMMANDS = {
 }
 
 
-def main() -> None:
-    try:
-        write_output(COMMANDS[sys.argv[1]](run_input()))
-    except Refused as why:
-        print(f"::error {why}", flush=True)
-        sys.exit(1)
-
-
 if __name__ == "__main__":
-    main()
+    iki.main(COMMANDS)
