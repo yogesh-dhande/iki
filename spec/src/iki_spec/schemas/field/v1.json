@@ -84,7 +84,7 @@
     },
     "unique": {
       "type": "boolean",
-      "description": "No two entities in a project have the same value, such as a LIMS or ELN record's ID. Strings only, and they must be indexed."
+      "description": "A key, such as the ID a LIMS or ELN gives the record: no two records in a project have the same value (for a registry's field, no two entries in a registry), the API finds a record by it, and a run's create can match on it. Strings and ints. It's a one-field `unique` rule named for the field, which the database holds."
     },
     "searchable": {
       "type": "boolean",
@@ -484,6 +484,8 @@
                 "computed",
                 "registry",
                 "indexed",
+                "unique",
+                "link",
                 "removed",
                 "default",
                 "min",

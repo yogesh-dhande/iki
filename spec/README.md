@@ -510,6 +510,10 @@ rules:
     unique: [box, position]
     while: { field: status, states: [stored] }
     message: Another tube is stored at {{ record.position }} in this box.
+  one_entry_per_catalogue_number:
+    unique: [supplier, catalogue_number]
+    within: registry
+    message: This supplier's catalogue number is another reagent's already.
   one_at_a_time:
     no_overlap: { from: starts_at, to: ends_at, per: [instrument] }
     while: { field: cancelled, states: [false] }
@@ -543,7 +547,14 @@ rules:
   and a bulk import hold with the run as their reason. A held record can't be
   set to a state that locks it. Only a `check` holds (`rule-kind`).
 - `unique` fields: no two of a project's records have the same values of all
-  of them. `no_overlap`: no two records' ranges, `from` one field `to`
+  of them, of the record's own fields. With `within: registry`, no two
+  entries in a registry, of the entries' fields (`registry: fact` or
+  `derived`), as two identifiers that together name one compound; it needs
+  a type with an identity, and every field its entries' (`rule-within-registry`),
+  and `within: project` (the default) refuses an entry's field (`rule-field`).
+  A single field that's a key, such as another system's ID, says
+  `unique: true` on the field instead (see [Fields](#fields)): that's a
+  one-field rule named for the field. `no_overlap`: no two records' ranges, `from` one field `to`
   another (dates, datetimes, ints, floats or quantities), overlap, `per` the
   values of other fields. A range includes where it starts but not where it
   ends, so a booking can end as the next starts; a date range includes both.
@@ -568,7 +579,8 @@ rules:
   changed or what it refers to has moved on. A signature can't then be given
   on an answer that no longer holds (ADR 0235).
 - A rule names fields of its type (`rule-field`, `unknown-field`), and a
-  subtype's can't share a name with its parent's (`rule-shadows-parent`). An
+  subtype's can't share a name with its parent's (`rule-shadows-parent`), nor
+  a rule with a unique field's, whose rule has that name (`rule-name-taken`). An
   extension's rules read the type's fields with its own; they're named
   `plugin:name`. A type has at most 50.
 
@@ -1353,16 +1365,24 @@ Every field has a `type`, and may have `label`, `description`, `required`,
 are also fast to search for text they contain), `default` and
 `removed`.
 
-A string field that's indexed may also be `unique`: no two entities in a
-project have the same value (no two entries in a registry, for a field marked
-`registry`), such as the ID a LIMS or ELN gives the record
-it keeps for an entity (ADR 0082). The database refuses a second one,
-whatever writes it. Another project may have an entity with the same value,
-since projects are kept apart. A field can be made unique after entities
-have values: the deploy fills them in, and stops, naming them, if any in a
-project share one.
+A string or int field may be `unique`, a key: no two records in a project
+have the same value (no two entries in a registry, for a field marked
+`registry`), such as the ID a LIMS or ELN gives the record it keeps for an
+entity (ADR 0082). It's a one-field [rule](#rules) named for the field, with
+the label `Unique <label>`, so the database holds it as it holds any `unique`
+rule, whatever writes, and a save that would share a value is told which
+record has it (ADR 0082). Another project may have a record with the same
+value, since projects are kept apart. A field can be made unique after
+records have values: the deploy fills them in, and stops, naming them, if any
+in a project share one. What makes it a key, beyond a rule: the API, SDK and
+MCP look records up by its value, a run's create can `match_on` it, and it
+may `link` out. Other kinds, and keys of several fields or that count only
+some records (`while`), are `unique` rules: a bool, enum or state alone
+would allow only as many records as it has values, a float or quantity is a
+measurement rather than a name, and a datetime an instant whose text depends
+on its precision.
 
-A string field may `link` to where its value leads in another system, such
+A string or int field may `link` to where its value leads in another system, such
 as the record in the LIMS. `{value}` is the value, and `{settings.name}` one
 of the plugin's settings, so each deployment can point at its own LIMS. A
 link starts with `https://` or a setting, and Iki shows only links that are
@@ -1374,7 +1394,6 @@ extends Protein with a field of this kind and uses it to match repeated imports.
 lims_id:
   type: string
   max_length: 64
-  indexed: true
   unique: true
   link: "{settings.lims_url}/samples/{value}"
 ```
@@ -3468,7 +3487,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `extends-list`, `list-field-reserved`, `list-refers-to-entry`, `list-among-types`, `list-extension-record-field`, `list-option-twice`, `list-label-twice`, `list-option-incomplete`, `list-option-unknown`, `list-option-value`, `reads-curated-fact`, `include-curated-fact`; `list-code-in-expression` (warning)                                                                                                                                                                                                                                                                                                                                    | Lab lists                       |
 | `row-role-not-enum`, `row-role-optional`, `unknown-row-role`, `unknown-row-field`, `row-role-not-reference`, `row-role-type-not-allowed`, `row-id-field`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Lists of rows                   |
 | `state-initial`, `state-removed`, `unknown-state`, `state-unreachable`, `state-signatures`, `state-on-edit`, `state-field-in-extension`, `state-field-in-list`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | States                          |
-| `rule-kind`, `rule-field`, `rule-while`, `rule-shadows-parent`, `invalid-expression`, `expressions-unchecked`; `same-condition-rule-and-guard` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Rules and guards                |
+| `rule-kind`, `rule-field`, `rule-while`, `rule-within-registry`, `rule-shadows-parent`, `rule-name-taken`, `invalid-expression`, `expressions-unchecked`; `same-condition-rule-and-guard` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Rules and guards                |
 | `assignment-not-people`, `assignment-without-states`, `due-not-a-date`, `due-in-registry`, `person-in-registry`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | People in records               |
 | `notification-when`, `notification-field`, `notification-values`, `notification-recipients`, `notification-where`, `notification-message`, `notification-shadows-parent`, `notification-in-registry`; `notification-repeats-ready` (warning)                                                                                                                                                                                                                                                                                                                                                                                                          | Notifications                   |
 | `service-field-inherited`, `service-field-refers`, `service-field-unique`, `service-field-immutable`, `service-field-required`, `request-sends-not-a-reference`, `request-sends-service-field`, `request-with-identity`, `request-redeclared`, `result-with-identity`, `result-is-a-request`, `result-of-not-a-request`, `result-of-changes`, `result-released-without-states`, `result-released-initial`, `result-release-on-edit`, `result-release-lock`                                                                                                                                                                                            | Requests between projects       |
@@ -3477,7 +3496,7 @@ Every problem has a stable `code`, shown in brackets and in `--format json`:
 | `missing-hrid`, `hrid-on-abstract`, `duplicate-hrid-prefix`; `reserved-hrid-prefix` (warning)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | HRIDs                           |
 | `unknown-field`, `identity-type`, `identity-not-fixed`, `identity-not-required`, `identity-removed`, `identity-inherited`, `identity-redeclared`, `identity-under-concrete`, `registry-without-identity`, `registry-on-identity`, `registry-fact-free-text`, `registry-refers-to-record`                                                                                                                                                                                                                                                                                                                                                              | Identities                      |
 | `computed-with-default`, `computed-required`, `computed-immutable`, `computed-unique`, `computed-registry`, `computed-kind`, `computed-reads`, `computed-cycle`, `invalid-default`, `min-above-max`, `invalid-pattern`                                                                                                                                                                                                                                                                                                                                                                                                                                | Field options                   |
-| `unsupported-index`, `index-needs-max-length`, `unique-needs-index`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Indexes                         |
+| `unsupported-index`, `index-needs-max-length`, `link-not-https`, `link-without-value`, `link-unknown-placeholder`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Indexes                         |
 | `unknown-unit`, `display-unit-mismatch`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               | Units                           |
 | `unknown-format`, `format-conflict`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | File formats                    |
 | `writer-memory`, `writer-format-dependency`, `writer-active-format`, `writer-format-extension`, `writer-module`, `writer-digest`, `writer-rejected`, `writer-dependency`, `unknown-writer`, `unknown-role`, `export-field`, `export-role-missing`                                                                                                                                                                                                                                                                                                                                                                                                     | Writers and their exports       |

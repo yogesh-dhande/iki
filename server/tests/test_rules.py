@@ -84,9 +84,16 @@ def test_a_type_lists_its_rules_and_what_forms_check_them_against(world: World) 
     variables = found["rule_variables"]
     assert variables["record"]["fields"]["purity"] == {"type": "double"}
     assert set(variables) == {"record", "now", "today"}
-    # An extension's rule is its type's, named by its plugin.
+    # A unique field is a rule named for it (ADR 0082); an extension's rule is its type's,
+    # named by its plugin.
     protein_type = api_as(world, "viewer").get("/entity-types/acme/protein.Protein").json()
-    assert [r["name"] for r in protein_type["rules"]] == ["acme/prediction:predictor_named"]
+    listed = {r["name"]: r for r in protein_type["rules"]}
+    assert list(listed) == ["lims_id", "chembl_target", "acme/prediction:predictor_named"]
+    assert [(r["unique"], r["within"], r["key_field"]) for r in list(listed.values())[:2]] == [
+        (["lims_id"], "project", "lims_id"),
+        (["chembl_target"], "registry", "chembl_target"),
+    ]
+    assert listed["acme/prediction:predictor_named"]["key_field"] is None
 
 
 # --- Checks that refuse -------------------------------------------------------------------------
@@ -1226,7 +1233,7 @@ def test_a_deploy_reports_records_that_break_rules_and_holds_those_that_hold(wor
 
 def test_the_rules_a_type_keeps_are_its_own_and_its_extensions() -> None:
     keys = [r.key for r in checking.rules_of("acme/protein.Protein")]
-    assert keys == ["acme/prediction:predictor_named"]
+    assert keys == ["lims_id", "chembl_target", "acme/prediction:predictor_named"]
     assert registry.types()[BATCH].rules["one_per_well"].kind == "unique"
 
 

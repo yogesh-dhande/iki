@@ -46,7 +46,7 @@ from iki_server.bundles.models import (
 )
 from iki_server.entities import access, identity, registry, requests, unique
 from iki_server.entities import services as entity_services
-from iki_server.entities.models import Entity, Revision, UniqueValue
+from iki_server.entities.models import Entity, Revision
 from iki_server.entities.services import frozen
 from iki_server.entities.values import Shape, reference_ids, shape
 from iki_server.files import services as files
@@ -1038,9 +1038,8 @@ def _unique_clashes(
             if not f.unique or f.removed or value is None:
                 continue
             holder = (
-                UniqueValue.objects.filter(
-                    project=project, key=unique.key(part.model, name), value=str(value)
-                )
+                unique.rows(unique.key(part.model, name), [value])
+                .filter(project=project)
                 .exclude(entity_id=entity_id)
                 .exclude(entity_id__in=bundled)
                 .values_list("entity__hrid", flat=True)
@@ -1063,9 +1062,11 @@ def _entry_clashes(registry_id: uuid.UUID, form: Shape, values: dict[str, Any]) 
             value = values.get(name)
             if not f.unique or f.removed or value is None:
                 continue
-            if UniqueValue.objects.filter(
-                registry_id=registry_id, key=unique.key(part.model, name), value=str(value)
-            ).exists():
+            if (
+                unique.rows(unique.key(part.model, name), [value])
+                .filter(registry_id=registry_id)
+                .exists()
+            ):
                 yield (
                     f"Its {f.label or name} {value} is another registry entry's here already: "
                     "no two in a registry share it."

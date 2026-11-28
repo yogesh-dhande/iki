@@ -407,10 +407,8 @@ def _new_record(
             for name, f in part.fields.items():
                 if name in given and not stored_in_list_table(f):
                     _set(instance, f, given[name])
+    # Its `unique` rules, a unique field's among them, were checked with its others.
     own = {n: v for n, v in given.items() if not form.part_of(n).entry}
-    clashes = unique.taken(project, form, own)
-    if clashes:
-        raise Invalid(clashes)
     instance.save()
     touched = [p for p in mine if not p.extension]
     for part in mine:
@@ -536,7 +534,8 @@ def _new_entry(
     """A new registry entry in the project's registry, with its values from ``given``. An
     import keeps the ID and HRID it had where it's from, when they're free here."""
     fields = form.entry_fields()
-    clashes = unique.taken(project, form, {n: v for n, v in given.items() if n in fields})
+    mine = {n: v for n, v in given.items() if n in fields}
+    clashes = unique.taken(registry_of(project), form, mine, holder=project)
     if clashes:
         raise Invalid(clashes)
     return register_entry(
@@ -640,7 +639,18 @@ def fill_entry(
         for name, why in refused.items()
     }
     if not errors and new:
-        errors = unique.taken(project, form, new, entry=locked.pk)
+        # The entry's `within: registry` rules read its other fields as they are.
+        whole = {
+            **{
+                n: rows.get(n)
+                for n, f in form.entry_fields().items()
+                if not stored_in_list_table(f)
+            },
+            **new,
+        }
+        errors = unique.taken(
+            registry_of(project), form, whole, entry=locked.pk, changed=new, holder=project
+        )
     if errors:
         raise Invalid(errors)
     if not new:
@@ -872,24 +882,18 @@ def _unique_values() -> Iterator[None]:
         yield
     except IntegrityError as error:
         found, is_rule = constraints.clash(error)
-        if is_rule:
-            # A plugin's `unique` or `no_overlap` rule (ADR 0127), as two saves at once
-            # broke it.
-            label = found.rule.label if found is not None else "a rule"
-            names = found.rule.fields or found.rule.reads if found is not None else ()
-            message = (
-                f"Another record has just been saved that this one would break “{label}” with."
-            )
-            raise Invalid({n: [message] for n in names or ("",)}) from None
         if unique.is_label_clash(error):
             raise Invalid(
                 {LIST_LABEL: ["Another option of the list has just been given this label."]}
             ) from None
-        if not unique.is_clash(error):
+        if not is_rule:
             raise
-        raise Invalid(
-            {"unique": ["Another entity has just been given one of these unique values."]}
-        ) from None
+        # A plugin's `unique` or `no_overlap` rule (ADR 0127), a unique field's among them
+        # (ADR 0082), as two saves at once broke it.
+        label = found.rule.label if found is not None else "a rule"
+        names = found.rule.fields or found.rule.reads if found is not None else ()
+        message = f"Another record has just been saved that this one would break “{label}” with."
+        raise Invalid({n: [message] for n in names or ("",)}) from None
 
 
 def _row_ids(
@@ -1262,8 +1266,6 @@ def update(
                 errors[name] = ["is required."]
             else:
                 new[name] = converted
-        if not errors and new:
-            errors = unique.taken(project, form, new, entity=locked.pk)
         if errors:
             raise Invalid(errors)
         if not reason.strip() and any(
@@ -1512,36 +1514,21 @@ def _reclaim_unique(record: Entity) -> None:
     """A record being restored holds its unique values again (ADR 0082), those it gave the
     record its move to an entry of another type made (ADR 0165) included. Refused if one is
     another record's now."""
-    from iki_server.entities.models import UniqueValue
-
     if record.owner_project_id is None:
         return
-    form = shape(record.type)
-    rows = Rows.of(_specific(record))
-    for part in form.parts:
-        if part.entry:
-            continue
-        for name, f in part.fields.items():
-            value = rows.value(part, f) if f.unique and not f.removed else None
-            if value is None:
-                continue
-            key = unique.key(part.model, name)
-            held = UniqueValue.objects.filter(
-                project_id=record.owner_project_id, key=key, value=str(value)
-            )
-            holder = held.exclude(entity_id=record.pk).values_list("entity__hrid", flat=True)
-            if found := holder.first():
-                raise Refused(
-                    f"Its {f.label or name} is {found}'s now, as a move gave it there: "
-                    f"{record.hrid} can't have it again, so it stays archived."
-                )
-            if not held.exists():
-                UniqueValue.objects.create(
-                    project_id=record.owner_project_id,
-                    key=key,
-                    value=str(value),
-                    entity_id=record.pk,
-                )
+    found = constraints.reclaim(record)
+    if found is None:
+        return
+    c, hrid = found
+    if c.rule.from_field:
+        name = c.rule.unique[0]
+        what, it = f"Its {c.fields[name].label or name} is", "it"
+    else:
+        what, it = f"Its values of “{c.rule.label}” are", "them"
+    raise Refused(
+        f"{what} {hrid}'s now, as a move gave {it} there: "
+        f"{record.hrid} can't have {it} again, so it stays archived."
+    )
 
 
 def link(user: User, entity: Entity, project: Project) -> bool:

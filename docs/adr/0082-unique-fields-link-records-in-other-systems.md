@@ -1,6 +1,6 @@
 # 0082. Unique fields link records in other systems
 
-- Status: Accepted
+- Status: Accepted (amended 2026-11-27: a unique field is a one-field rule, of strings or ints)
 - Date: 2026-11-13
 - Refines: [0033](0033-plugin-codegen-and-migrations.md),
   [0035](0035-entity-revisions-provenance-and-edit-rules.md),
@@ -118,3 +118,40 @@ an instrument use or Equipment QA may open first (ADR 0194).
   SQL, and a check without a constraint loses races.
 - **Unique across the deployment.** Rejected: it would leak whether a private
   project has a record, and stop two projects from tracking the same one.
+
+## Amendment of 2026-11-27 — a unique field is a one-field rule
+
+Rules (ADR 0127) came after this decision and hold combinations of fields the same
+way, so Iki had two mechanisms for one guarantee: unique fields' rows keyed
+`table.column` with one trigger function, and rules' keyed `table:rule` with
+another, told apart by whether the key has a colon. Each new writer had to know
+both, and the deploy cleaned each kind's rows with `LIKE '%:%'`.
+
+**`unique: true` on a field is sugar for a one-field `unique` rule named for the
+field**, labelled "Unique <label>". The validator adds the rule; the database
+holds it as it holds every `unique` rule, with one trigger function and one key
+shape, `table:rule`. A rule can't take a unique field's name (`rule-name-taken`).
+The rows' values are the rule's fields' values as a JSON array, unique by their
+SHA-256, so a combination of long strings fits the index. What makes a field a
+key beyond its rule is unchanged: lookups by its value, a run's `match_on`, its
+`link`, and the wording "is PRT-000003's already".
+
+**Strings and ints.** "Strings only, because IDs are strings" doesn't hold: a
+PubChem CID or a LIMS's numeric sample ID is an int. A key needn't be `indexed`
+either: lookups read the rule's rows, not the column. Other types stay rules
+rather than keys: a bool, enum or state alone allows only as many records as it
+has values, a float or quantity is a measurement rather than a name, and a
+datetime's text depends on its precision.
+
+**Within a registry.** A rule may say `within: registry`: no two entries in a
+registry share its fields, which are then entries' fields (ADR 0115), such as a
+vendor and catalogue number that together name one compound. A unique fact is
+that rule, of one field. A project's rule can't name an entry's field, and a
+registry's rule only entries' fields. Who has the value is told to a registrar,
+and to a project only if it holds a record of that entry, as before. `within`
+was chosen over the review's `per: registry` because `per` already means
+"grouped by these fields" in `no_overlap`.
+
+There's no separate `kind` column: with one mechanism every row is a rule's.
+Existing rows are dropped by the migration and filled in again by the deploy's
+sync, as for a rule just added.

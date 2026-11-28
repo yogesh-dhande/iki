@@ -245,6 +245,79 @@ def test_rules_that_dont_fit_their_type(tmp_path: Path, body: str, code: str) ->
     assert codes(make(tmp_path, rules(body), ROLES)) == [code]
 
 
+COMPOUND = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Compound
+schema_version: 1
+hrid: { prefix: CPD }
+identity: [smiles]
+fields:
+  smiles: { type: string, max_length: 200, required: true, immutable: true }
+  supplier: { type: string, max_length: 40, registry: fact, pattern: "^[A-Za-z ]+$" }
+  catalogue_number: { type: string, max_length: 40, registry: fact, pattern: "^[A-Z0-9-]+$" }
+  chembl_id:
+    type: string
+    label: ChEMBL ID
+    max_length: 20
+    registry: fact
+    pattern: "^CHEMBL[1-9][0-9]*$"
+    unique: true
+  batch_note: { type: string, max_length: 40 }
+rules:
+"""
+
+
+def test_a_unique_rule_holds_within_a_registry_of_its_entries_fields(tmp_path: Path) -> None:
+    body = (
+        COMPOUND + "  one_per_catalogue_number:\n    unique: [supplier, catalogue_number]\n"
+        "    within: registry\n    message: Another compound has this catalogue number.\n"
+    )
+    result = make(tmp_path, body, ROLES)
+    assert result.problems == [], [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    built = plugin_from_dict(plugin_to_dict(result.plugin))
+    compound = built.types["acme/lab.Compound"]
+    assert compound.rules["one_per_catalogue_number"].within == "registry"
+    # A unique fact is a one-field rule within the registry.
+    chembl = compound.rules["chembl_id"]
+    assert (chembl.within, chembl.from_field, chembl.unique) == ("registry", True, ("chembl_id",))
+    assert chembl.message == "Each entry in a registry has its own ChEMBL ID."
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        # Facts are the entry's: a project's rule can't name them, nor its identity.
+        ("unique: [supplier, catalogue_number]", "rule-field"),
+        ("unique: [smiles, batch_note]", "rule-field"),
+        # A registry's rule is of its entries' fields.
+        ("unique: [supplier, batch_note]\n    within: registry", "rule-within-registry"),
+        # It's for unique rules.
+        ("check: record.batch_note != ''\n    within: registry", "rule-kind"),
+    ],
+)
+def test_where_a_unique_rule_holds(tmp_path: Path, body: str, code: str) -> None:
+    rule = f"  x:\n    {body}\n    message: No.\n"
+    # Each field it names that doesn't fit is reported.
+    assert set(codes(make(tmp_path, COMPOUND + rule, ROLES))) == {code}
+
+
+def test_a_type_without_entries_has_no_registry_to_hold_a_rule_in(tmp_path: Path) -> None:
+    body = "  x:\n    unique: [plate, well]\n    within: registry\n    message: No.\n"
+    message = only(make(tmp_path, rules(body), ROLES), "rule-within-registry")
+    assert "has no registry entries" in message
+
+
+def test_a_rule_cant_take_a_unique_fields_name(tmp_path: Path) -> None:
+    body = (
+        TYPE
+        + FIELDS.replace("max_length: 20 }", "max_length: 20, unique: true }")
+        + "rules:\n  plate:\n    unique: [plate, well]\n    message: No.\n"
+    )
+    assert "is a unique field" in only(make(tmp_path, body, ROLES), "rule-name-taken")
+
+
 def test_a_rule_and_a_guard_on_the_same_check_are_told_they_read_empty_values_oppositely(
     tmp_path: Path,
 ) -> None:

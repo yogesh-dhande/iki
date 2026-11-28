@@ -5,7 +5,7 @@
   "description": "Rules a type's records keep at every save (ADR 0127), and guards on setting a state (ADR 0128). Expressions are Google's Common Expression Language (CEL): pure, typed and bounded, checked against the type's fields when the plugin is validated.",
   "$defs": {
     "rules": {
-      "description": "Rules every save of the type's records keeps, by name, on every path: the web app, the API, agents, runs' results and bulk imports. Each is a `check`, a combination of fields that is `unique` in a project, or a range that mustn't overlap another (`no_overlap`). The last two the database holds.",
+      "description": "Rules every save of the type's records keeps, by name, on every path: the web app, the API, agents, runs' results and bulk imports. Each is a `check`, a combination of fields that is `unique` in a project (or a registry), or a range that mustn't overlap another (`no_overlap`). The last two the database holds.",
       "type": "object",
       "maxProperties": 50,
       "propertyNames": {
@@ -81,7 +81,7 @@
           }
         },
         "unique": {
-          "description": "One field or a combination of fields whose values two records in a project cannot share. A record with any of them empty doesn't count. The database refuses a second, whatever writes it.",
+          "description": "One field or a combination of fields whose values two records in a project cannot share (or two entries in a registry, `within: registry`). A record with any of them empty doesn't count. The database refuses a second, whatever writes it. A single field that's a key, such as another system's ID, is marked `unique: true` on the field instead.",
           "type": "array",
           "minItems": 1,
           "maxItems": 5,
@@ -89,6 +89,10 @@
           "items": {
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
           }
+        },
+        "within": {
+          "description": "For `unique`: where no two share the values. `project` (unless set): no two of a project's records, of the record's own fields. `registry`: no two entries in a registry, of the entries' fields (`registry: fact` or `derived`), such as two identifiers that together name one compound.",
+          "enum": ["project", "registry"]
         },
         "no_overlap": {
           "description": "A range no two of a project's records' ranges overlap, such as two bookings of one instrument: from one field to another, each a date, a datetime, an int or a float. A range includes where it starts but not where it ends, so one booking can end as the next starts; dates include both. The database refuses an overlap, whatever writes it.",

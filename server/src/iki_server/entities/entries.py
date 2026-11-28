@@ -83,7 +83,7 @@ from iki_server.org import permissions
 from iki_server.org.models import Project, ProjectRole, Registry
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_spec.model import LIST_LABEL, LIST_POSITION
+from iki_spec.model import LIST_LABEL, LIST_POSITION, stored_in_list_table
 
 __all__ = [
     "Supersession",
@@ -220,7 +220,7 @@ def curate(
             if converted != rows.get(name):
                 new[name] = converted
         if not errors and new:
-            errors = _taken_in_registry(form, locked, new)
+            errors = _taken_in_registry(form, locked, rows, new)
         if not errors and listed and isinstance(new.get(LIST_LABEL), str):
             errors = lists.names_taken(
                 form, locked.registry_id, label=new[LIST_LABEL], besides=locked.pk
@@ -308,31 +308,20 @@ def _registry_refs(entry: Entity) -> Any:  # noqa: ANN401 - Refs
     return Refs(Entity.objects.none(), None, entries=entries, project="the registry")
 
 
-def _taken_in_registry(form: Any, entry: Entity, new: Mapping[str, Any]) -> dict[str, list[str]]:  # noqa: ANN401 - a Shape
-    """A registrar sees every entry: each fact another has already, with which."""
-    from iki_server.entities.models import UniqueValue
-
-    errors: dict[str, list[str]] = {}
-    registry_id = entry.registry_id
-    assert registry_id is not None  # noqa: S101 - it's an entry
-    for part in form.parts:
-        for name, f in part.fields.items():
-            value = new.get(name)
-            if not part.entry or not f.unique or value is None:
-                continue
-            found = (
-                UniqueValue.objects.filter(
-                    registry_id=registry_id,
-                    key=unique.key(part.model, name),
-                    value=str(value),
-                )
-                .exclude(entity_id=entry.pk)
-                .values_list("entity__hrid", flat=True)
-                .first()
-            )
-            if found is not None:
-                errors[name] = [f"is {found}'s already: no two entries in the registry share it."]
-    return errors
+def _taken_in_registry(
+    form: Any,  # noqa: ANN401 - a Shape
+    entry: Entity,
+    rows: services.Rows,
+    new: Mapping[str, Any],
+) -> dict[str, list[str]]:
+    """A registrar sees every entry: each of the entry's ``within: registry`` rules, a
+    unique fact's among them, another entry breaks with these changes, naming which."""
+    assert entry.registry_id is not None  # noqa: S101 - it's an entry
+    whole = {
+        **{n: rows.get(n) for n, f in form.entry_fields().items() if not stored_in_list_table(f)},
+        **new,
+    }
+    return unique.taken(entry.registry_id, form, whole, entry=entry.pk, changed=new)
 
 
 # --- Superseding --------------------------------------------------------------------------------
@@ -504,7 +493,10 @@ def supersede_as(
                     for name in identity.identity_of(form.entity_type)
                 }
             )
-        errors = _taken_in_registry(form, locked, given)
+        # The new entry's values are all its own: each of its registry's rules is checked,
+        # against every entry but this one, whose carried rows go below.
+        assert locked.registry_id is not None  # noqa: S101 - it's an entry
+        errors = unique.taken(locked.registry_id, form, given, entry=locked.pk)
         if errors:
             raise Invalid(errors)
         # Its identity, and the unique facts that come with what the types share, are the
@@ -577,7 +569,7 @@ def _registered_as(
     refs = _registry_refs(entry)
     errors: dict[str, list[str]] = {}
     given: dict[str, Any] = {}
-    carried_unique: list[str] = []
+    carried_fields: list[str] = []
     for part in form.parts:
         before = theirs.get(part.name) if part.entry else None
         if before is None:
@@ -586,8 +578,8 @@ def _registered_as(
             if f.removed:
                 continue
             value = stored.value(before, before.fields[name])
-            if f.unique and value is not None:
-                carried_unique.append(unique.key(part.model, name))
+            if value is not None:
+                carried_fields.append(name)
             if name in values or value is None or value == []:
                 continue
             if f == before.fields[name]:
@@ -634,7 +626,7 @@ def _registered_as(
                 errors.setdefault(name, []).append(broken.message)
     if errors:
         raise Invalid(errors)
-    return given, carried_unique
+    return given, unique.carried(entry.type, carried_fields, in_registry=True)
 
 
 def _tell_holders(user: User, entry: Entity, replacement: Entity, reason: str) -> None:
@@ -876,10 +868,10 @@ def _move_across(
     named = ids_in(was.fields(), {n: mine.get(n) for n in taking})
     services.set_archived(user, record, True, reason=reason)
     # The unique values it carries are the new record's from now on (ADR 0082): an ID in
-    # another system it links, say.
+    # another system it links, say, or the values a rule of its type holds together.
     UniqueValue.objects.filter(
         entity_id=record.pk,
-        key__in=[unique.key(was.part_of(n).model, n) for n in taking if was.fields()[n].unique],
+        key__in=unique.carried(record.type, taking, in_registry=False),
     ).delete()
     saved = services.create(
         user,

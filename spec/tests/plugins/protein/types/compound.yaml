@@ -16,8 +16,25 @@ fields:
   heavy_atoms: { type: int, registry: derived, computed: true }
   stereochemistry: { type: enum, values: [achiral, absolute, racemic, unknown] }
   supplier: { type: ref, to: iki/core.Entity }
+  # Its compound in PubChem, a key the registry holds once (ADR 0082).
+  pubchem_cid:
+    type: int
+    label: PubChem CID
+    min: 1
+    registry: fact
+    unique: true
+    link: "https://pubchem.ncbi.nlm.nih.gov/compound/{value}"
+  # Where it's bought: a vendor's catalogue number names one compound.
+  vendor: { type: string, max_length: 100, registry: fact, pattern: "^[A-Za-z0-9 .,&()-]+$" }
+  catalogue_number: { type: string, max_length: 40, registry: fact, pattern: "^[A-Za-z0-9-]+$" }
   # Machine text, with no words to search (ADR 0233).
   molfile: { type: text, max_length: 4000000, registry: derived, computed: true, searchable: false }
+rules:
+  one_entry_per_catalogue_number:
+    label: One compound per catalogue number
+    unique: [vendor, catalogue_number]
+    within: registry
+    message: Another compound is this vendor's catalogue number already.
 display:
   title: "{{ name or hrid }}"
 exports:

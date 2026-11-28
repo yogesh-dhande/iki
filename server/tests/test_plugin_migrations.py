@@ -892,11 +892,12 @@ def test_reversing_an_added_field_only_drops_its_column_guards(lab: Path, databa
             for (name,) in query(
                 database,
                 "SELECT tgname FROM pg_trigger WHERE tgrelid = 'acme__lab_sample'::regclass "
-                "AND (starts_with(tgname, 'iki_unique__') OR starts_with(tgname, 'iki_rule__'))",
+                "AND starts_with(tgname, 'iki_rule__')",
             )
         }
 
-    expected = {"iki_unique__name", "iki_unique__alias", "iki_rule__one_alias_per_name"}
+    # Each unique field's is its one-field rule's (ADR 0082).
+    expected = {"iki_rule__name", "iki_rule__alias", "iki_rule__one_alias_per_name"}
     assert guards() == expected
     # A local trigger belongs to the deployment. Dropping the column must still fail and
     # leave Iki's guards intact until the deployment removes that dependency.
@@ -911,7 +912,7 @@ def test_reversing_an_added_field_only_drops_its_column_guards(lab: Path, databa
     query(database, "DROP TRIGGER local_alias_guard ON acme__lab_sample")
     migrate(out, database, "acme__lab", "0001")
     assert "alias" not in columns(database, "acme__lab_sample")
-    assert guards() == {"iki_unique__name"}
+    assert guards() == {"iki_rule__name"}
     migrate(out, database)
     sync(out, database)
     assert guards() == expected

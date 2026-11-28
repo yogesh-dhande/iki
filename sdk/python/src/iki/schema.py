@@ -5035,7 +5035,8 @@ class RowRoleOut(TypedDict):
 
 
 #: A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
-#: database holds (`unique` together, ranges that don't overlap).
+#: database holds (`unique` together, ranges that don't overlap). A unique field is a
+#: one-field `unique` rule named for it (ADR 0082).
 RuleOut = TypedDict(
     'RuleOut',
     {
@@ -5043,6 +5044,7 @@ RuleOut = TypedDict(
         'description': 'NotRequired[str | None]',
         'fields': 'list[str]',
         'hold': 'NotRequired[HoldRuleOut | None]',
+        'key_field': 'NotRequired[str | None]',
         'kind': "Literal['check', 'unique', 'no_overlap']",
         'label': 'str',
         'message': 'str',
@@ -5053,6 +5055,7 @@ RuleOut = TypedDict(
         'unique': 'NotRequired[list[str]]',
         'when': 'NotRequired[str | None]',
         'while': 'NotRequired[WhileOut | None]',
+        'within': "NotRequired[Literal['project', 'registry'] | None]",
     },
 )
 

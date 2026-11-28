@@ -186,7 +186,9 @@ controlled-substance or hazard class, a biosafety class, a curated UniProt
 cross-reference. They're never free text: the spec refuses a fact of type
 `text` or `json`, and a string fact needs a pattern or a format. A fact is
 never required or computed. A `unique` fact is unique within its registry,
-as a record's unique field is within its project (ADR 0082). Organism is a
+as a record's unique field is within its project (ADR 0082); since 2026-11-27 it's
+a one-field `unique` rule `within: registry`, and a rule may hold several facts
+together that way. Organism is a
 record field: the same sequence occurs in several species.
 
 - Anyone who may edit a record of the entry may set a fact while it's

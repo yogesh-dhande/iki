@@ -996,15 +996,13 @@ def _write(imported: RunImport, run: ActionRun, document: Mapping[str, Any]) -> 
             constraints.clash(error) if isinstance(error, IntegrityError) else (None, False)
         )
         if is_rule:
-            # A plugin's `unique` or `no_overlap` rule (ADR 0127), between two lines or a
-            # line and a record saved meanwhile.
+            # A plugin's `unique` or `no_overlap` rule (ADR 0127), a unique field's among
+            # them (ADR 0082), between two lines or a line and a record saved meanwhile.
             label = rule.rule.label if rule is not None else "a plugin's rule"
             detail = (
                 f"Its records break “{label}”: two of its lines, or a line and a record the "
                 "project has."
             )
-        elif isinstance(error, IntegrityError) and unique.is_clash(error):
-            detail = unique.clash_message(error)
         else:
             detail = _first_line(error)
         raise results.InvalidOutput(
@@ -1151,14 +1149,14 @@ def _update_matches_of(
         match = (
             "iki_unique_value u JOIN iki_entity m ON m.entry_id = u.entity_id"
             " AND m.owner_project_id = %(project)s WHERE u.registry_id = %(registry)s"
-            f" AND u.key = %(key)s AND u.value = {value}",
+            f" AND u.key = %(key)s AND {unique.match(value)}",
             "m.id",
             True,
         )
     else:
         match = (
             "iki_unique_value u WHERE u.project_id = %(project)s AND u.key = %(key)s"
-            f" AND u.value = {value}",
+            f" AND {unique.match(value)}",
             "u.entity_id",
             False,
         )
@@ -1310,7 +1308,7 @@ def _claims(
     holder = "x.id" if on_entry else "e.id"
     cursor.execute(
         f"SELECT s.line, s.parts, s.origin, s.parents, s.made_with,"  # noqa: S608 - ours; values are parameters
-        " e.id, e.hrid, u.value, prev.match_line"
+        " e.id, e.hrid, u.value::jsonb ->> 0, prev.match_line"
         f" FROM {table} s"
         " JOIN iki_entity x ON x.registry_id = %(registry)s"
         "  AND x.identity_hash = s.identity_hash"

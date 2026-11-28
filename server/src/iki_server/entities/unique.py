@@ -1,59 +1,55 @@
-"""Unique fields: no two entities in a project share a value (ADR 0082).
+"""Keys: fields marked ``unique`` (ADR 0082), such as the ID of the record a LIMS or ELN
+keeps for an entity.
 
-A plugin marks an indexed string field ``unique``, such as the ID of the
-record a LIMS or ELN keeps for an entity. Each value is held once per owner
-project in :class:`UniqueValue`, which triggers on the plugin tables keep in
-step (``sync_plugins`` installs them, see :func:`install`), so the database
-refuses a duplicate whoever writes it. Before writing, :func:`taken` finds
-which entity has a value already, so a person is told which.
+A unique field is a one-field ``unique`` rule named for it (ADR 0127), which
+:mod:`~iki_server.entities.constraints` installs and the database holds as it holds any:
+no two records in a project share its value, whatever writes it, or for a registry fact,
+no two entries in a registry (ADR 0115). What makes the field a key beyond its rule is
+here: a record is found by its value (the API's lookup, a run's ``match_on``, a
+spreadsheet's and a bundle's imports), its value may link to the other system, and a
+vendor barcode's reserved prefix is refused.
 
-Projects are kept apart: the same record may be in two projects, as two
-entities, and nothing here says what another project holds.
-
-A registry fact marked unique (a ChEMBL ID) is held once per registry instead
-(ADR 0115), as the entries hold it: two entries in a registry can't share
-one. Who holds the other is told only to someone who can read it.
+Projects are kept apart: the same record may be in two projects, as two entities, and
+nothing here says what another project holds. Who holds an entry's value in a registry is
+told only to someone who can read it.
 """
 
 from __future__ import annotations
 
+import json
 import re
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from collections.abc import Collection, Iterable, Mapping
 from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, models
+from django.db.models.expressions import RawSQL
 from psycopg import sql
 
-from iki_server.entities import registry
-from iki_server.entities.models import (
-    LIST_LABEL_INDEX,
-    UNIQUE_CONSTRAINT,
-    UNIQUE_IN_REGISTRY,
-    UniqueValue,
-)
+from iki_server.entities import constraints, registry
+from iki_server.entities.models import LIST_LABEL_INDEX, Entity, UniqueValue
 from iki_server.entities.values import Shape
 from iki_server.org.models import Project, Registry, registry_of
 from iki_spec.model import Field
 
 __all__ = [
-    "Clash",
-    "Column",
-    "clash_message",
-    "columns",
+    "BARCODE_TRIGGER_PREFIX",
     "holders",
-    "install",
-    "is_clash",
+    "in_registry",
+    "install_barcodes",
     "is_label_clash",
     "key",
     "link",
+    "match",
     "owned",
+    "rows",
     "taken",
+    "text",
 ]
 
-#: The triggers' names start with this; ``sync_plugins`` drops those no field needs.
-TRIGGER_PREFIX = "iki_unique__"
+#: The vendor barcodes' triggers' names start with this; ``sync_plugins`` drops those no
+#: type needs.
+BARCODE_TRIGGER_PREFIX = "iki_vendor_barcode__"
 
 # Match codes.has_iki_prefix under any database locale. These are Python's leading
 # whitespace characters and the characters that uppercase to I and K.
@@ -62,83 +58,86 @@ _RESERVED_VENDOR = (
     r"\u2028\u2029\u202F\u205F\u3000]*[Ii\u0131][Kk][Ii\u0131]:"
 )
 
-
-@dataclass(frozen=True)
-class Column:
-    table: str
-    column: str
-
-    @property
-    def key(self) -> str:
-        return f"{self.table}.{self.column}"
+#: The digest of one value as its rule's row holds it, from SQL text: what
+#: ``iki_rule_values`` makes of a one-field rule's column.
+_ONE = "sha256(convert_to(jsonb_build_array(({})::text)::text, 'UTF8'))"
 
 
 def key(model: type[models.Model], name: str) -> str:
-    """The key a field's values are held under: ``table.column``."""
-    field = model._meta.get_field(name)
-    return f"{model._meta.db_table}.{field.column}"  # type: ignore[union-attr]
+    """The key a unique field's values are held under: its rule's, ``table:field``."""
+    return f"{model._meta.db_table}:{name}"[:127]
 
 
-def columns(tables: Iterable[tuple[type[models.Model], Mapping[str, Any]]]) -> list[Column]:
-    """The unique columns of these (model, fields) tables, fields removed or not unique left out."""
-    out = []
-    for model, fields in tables:
-        for f in fields.values():
-            if f.unique and not f.removed:
-                column = model._meta.get_field(f.name).column  # type: ignore[union-attr]
-                out.append(Column(model._meta.db_table, str(column)))
-    return out
+def match(value_sql: str) -> str:
+    """SQL true of an ``iki_unique_value u`` row holding ``value_sql``, a text expression, as
+    a unique field's value."""
+    return f"u.digest = {_ONE.format(value_sql)}"
+
+
+def rows(field_key: str, values: Iterable[object]) -> models.QuerySet[UniqueValue]:
+    """The rows holding any of ``values`` of the unique field ``field_key``: :func:`text`
+    reads each one's value. Narrow them to a project or registry before reading any."""
+    texts = sorted({str(v) for v in values})
+    digests = f"SELECT {_ONE.format('v')} FROM unnest(%s::text[]) AS v"  # noqa: S608 - ours
+    return UniqueValue.objects.filter(
+        key=field_key,
+        digest__in=RawSQL(digests, [texts]),  # noqa: S611 - ours; values are parameters
+    )
+
+
+def text(stored: str) -> str:
+    """A unique field's value from its rule's row's ``value``, a one-item JSON array."""
+    return str(json.loads(stored)[0])
 
 
 def taken(
-    project: Project,
+    registry_id: UUID,
     form: Shape,
     values: Mapping[str, Any],
     *,
-    entity: UUID | None = None,
     entry: UUID | None = None,
+    changed: Iterable[str] | None = None,
+    holder: Project | None = None,
 ) -> dict[str, list[str]]:
-    """Each of ``values`` that a unique field of ``form`` has on another entity in the
-    project, or for a registry fact, on another entry in its registry: field name → what's
-    wrong. ``entity`` is the record being changed and ``entry`` the entry, if any.
+    """What a registry entry with these values (each of its fields' a rule reads, as
+    stored) would break of its type's ``within: registry`` rules, a unique fact's among
+    them, against the other entries in the registry: field name → what's wrong. ``entry``
+    is the entry being changed, if any, and ``changed`` what it changes.
 
-    Another entry's ID is named only if the project holds it: a registry doesn't tell a
-    project what others registered (ADR 0115)."""
+    Another entry is named to a registrar, who sees every entry, but to a ``holder``
+    project registering or filling in its entry only if it holds a record of it: a
+    registry doesn't tell a project what others registered (ADR 0115). A project's
+    record's own ``unique`` rules, a unique field's among them, are checked with its other
+    rules (``checking.apart``)."""
     errors: dict[str, list[str]] = {}
-    for part in form.parts:
-        for name, f in part.fields.items():
-            value = values.get(name)
-            if not f.unique or f.removed or value is None:
-                continue
-            field_key = key(part.model, name)
-            if part.entry:
-                rows = UniqueValue.objects.filter(
-                    registry_id=registry_of(project), key=field_key, value=str(value)
-                )
-                if entry is not None:
-                    rows = rows.exclude(entity_id=entry)
-                found = rows.values_list("entity_id", "entity__hrid").first()
-                if found is not None:
-                    errors[name] = [_entry_clash(project, *found)]
-                continue
-            rows = UniqueValue.objects.filter(project=project, key=field_key, value=str(value))
-            if entity is not None:
-                rows = rows.exclude(entity_id=entity)
-            found_hrid = rows.values_list("entity__hrid", flat=True).first()
-            if found_hrid is not None:
-                errors[name] = [
-                    f"is {found_hrid}’s already: no two entities in a project share it."
-                ]
+    found = constraints.taken(
+        None, form, values, entity=entry, changed=changed, registry_id=registry_id
+    )
+    for c, hrid, other in found:
+        shown = (
+            holder is None or Entity.objects.filter(entry_id=other, owner_project=holder).exists()
+        )
+        if c.rule.from_field:
+            whose = f"{hrid}’s" if shown else "another entry’s"
+            message = f"is {whose} already: no two entries in the registry share it."
+        else:
+            message = f"{c.rule.message} {hrid if shown else 'Another entry'} has the same."
+        for name in c.rule.fields or c.rule.reads:
+            errors.setdefault(name, []).append(message)
     return errors
 
 
-def _entry_clash(project: Project, entry: UUID, hrid: str) -> str:
-    from iki_server.entities.models import Entity
-
-    held = Entity.objects.filter(entry_id=entry, owner_project=project).exists()
-    if held:
-        return f"is {hrid}’s already: no two entries in the registry share it."
-    return "is another entry’s in the registry already: no two entries share it."
+def carried(type_name: str, fields: Collection[str], *, in_registry: bool) -> list[str]:
+    """The keys of a type's unique rules whose fields ``fields`` all are: a record moved to
+    another type, or an entry superseded by one, hands on its values of them, so its rows
+    of those rules go with them (ADR 0082). Those of a registry's entries' rules, or of a
+    project's records'."""
+    names = set(fields)
+    return [
+        c.key
+        for c in constraints.constraints_of(type_name)
+        if c.rule.kind == "unique" and c.in_registry == in_registry and set(c.rule.unique) <= names
+    ]
 
 
 def link(f: Field, plugin: str) -> str | None:
@@ -159,20 +158,19 @@ def link(f: Field, plugin: str) -> str | None:
 def owned(project: Project, field_key: str, value: object) -> models.QuerySet[UniqueValue, UUID]:
     """The ID of the entity of ``project``'s own with this value of a unique field, if any.
     For a registry fact's key, the project's record of the entry with it."""
-    from iki_server.entities.models import Entity
-
-    rows = UniqueValue.objects.filter(key=field_key, value=str(value))
-    in_registry = rows.filter(registry_id=registry_of(project)).values("entity_id")
-    records = Entity.objects.filter(owner_project=project, entry_id__in=in_registry)
+    found = rows(field_key, [value])
+    in_registry_ = found.filter(registry_id=registry_of(project)).values("entity_id")
+    records = Entity.objects.filter(owner_project=project, entry_id__in=in_registry_)
     if records.exists():
         return records.values_list("pk", flat=True)  # type: ignore[return-value]
-    return rows.filter(project=project).values_list("entity_id", flat=True)
+    return found.filter(project=project).values_list("entity_id", flat=True)
 
 
-def in_registry(registry: Registry, field_key: str, value: object) -> UUID | None:
-    """The entry in ``registry`` with this value of a unique fact, if any."""
+def in_registry(registry_: Registry, field_key: str, value: object) -> UUID | None:
+    """The entry in ``registry_`` with this value of a unique fact, if any."""
     return (
-        UniqueValue.objects.filter(registry=registry, key=field_key, value=str(value))
+        rows(field_key, [value])
+        .filter(registry=registry_)
         .values_list("entity_id", flat=True)
         .first()
     )
@@ -181,21 +179,7 @@ def in_registry(registry: Registry, field_key: str, value: object) -> UUID | Non
 def holders(field_key: str, value: str) -> models.QuerySet[UniqueValue, UUID]:
     """The IDs of the entities, in any project, with this value of a unique field: narrow
     them to what the reader can see before showing any."""
-    return UniqueValue.objects.filter(key=field_key, value=value).values_list(
-        "entity_id", flat=True
-    )
-
-
-class Clash(Exception):  # noqa: N818 - reads as "the values clash"
-    """Entities already share a value of a field marked unique, so it can't be."""
-
-
-def is_clash(error: IntegrityError) -> bool:
-    """Whether a database error is a unique field's value written twice in a project, or a
-    unique fact's twice in a registry."""
-    cause = error.__cause__
-    diag = getattr(cause, "diag", None)
-    return getattr(diag, "constraint_name", None) in (UNIQUE_CONSTRAINT, UNIQUE_IN_REGISTRY)
+    return rows(field_key, [value]).values_list("entity_id", flat=True)
 
 
 def is_label_clash(error: IntegrityError) -> bool:
@@ -205,131 +189,58 @@ def is_label_clash(error: IntegrityError) -> bool:
     return str(getattr(diag, "constraint_name", None) or "").startswith(LIST_LABEL_INDEX)
 
 
-def clash_message(error: IntegrityError) -> str:
-    """What a unique field's value written twice in a project was, in a sentence."""
-    diag = getattr(error.__cause__, "diag", None)
-    if getattr(diag, "constraint_name", None) == UNIQUE_IN_REGISTRY:
-        return "An entry in the registry has one of these unique values already, or two lines do."
-    detail = getattr(diag, "message_detail", None) or ""
-    # Key (project_id, key, value)=(…, protein_protein.lims_id, LIMS-1) already exists.
-    found = re.search(r"=\([^,]+, ([^,]+), (.*)\) already exists", detail)
-    if found is None:
-        return "An entity in the project has one of these unique values already."
-    return f"An entity in the project has `{found[1]}` “{found[2]}” already, or two lines do."
-
-
-def install(
+def install_barcodes(
     cursor: Any,  # noqa: ANN401 - Django's cursor
-    wanted: list[Column],
-    barcode_types: Mapping[str, list[str]],
+    barcodes: Mapping[tuple[str, str], list[str]],
 ) -> list[str]:
-    """Triggers keeping ``wanted`` columns' values, and the values already there. Drops
-    triggers and values of fields no longer unique. Raises :class:`Clash` when entities in
-    a project already share a value or use a reserved vendor barcode. The deploy stops,
+    """Triggers refusing the reserved ``IKI:`` prefix in each (table, column) a concrete
+    type reads as its vendor barcode, for those types. Drops those no type needs any more.
+    Raises :class:`constraints.Clash` when records already have one: the deploy stops,
     saying which."""
-    keys = [c.key for c in wanted]
     cursor.execute(
         "SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid "
         "WHERE NOT t.tgisinternal AND t.tgname LIKE %s",
-        [TRIGGER_PREFIX.replace("_", r"\_") + "%"],
+        [BARCODE_TRIGGER_PREFIX.replace("_", r"\_") + "%"],
     )
     current = {(table, name) for table, name in cursor.fetchall()}
-    needed = {(c.table, _trigger(c)) for c in wanted}
+    needed = {(table, _barcode_trigger(column)) for table, column in barcodes}
     for table, name in sorted(current - needed):
         cursor.execute(
             sql.SQL("DROP TRIGGER {} ON {}").format(sql.Identifier(name), sql.Identifier(table))
         )
-    # A field's key is `table.column`; a plugin rule's (ADR 0127) has a colon, and is
-    # kept by `constraints.install`.
-    cursor.execute(
-        "DELETE FROM iki_unique_value WHERE key NOT LIKE %s AND NOT (key = ANY(%s))",
-        ["%:%", keys],
-    )
-    clashes = [found for c in wanted for found in _clashes(cursor, c)]
-    if clashes:
-        raise Clash(
-            "Some entities share a value of a field marked unique, so it can't be until they "
-            "don't: " + "; ".join(clashes) + ". Change or clear one of each, or leave "
-            "`unique` off, then deploy again."
-        )
-    for c in wanted:
-        args = [c.column, c.key]
-        types = barcode_types.get(c.key)
-        if types:
-            # Plugin type names cannot contain array punctuation.
-            args.extend(["{" + ",".join(sorted(types)) + "}", _RESERVED_VENDOR])
+    for (table, column), types in sorted(barcodes.items()):
         cursor.execute(
             sql.SQL(
                 "CREATE OR REPLACE TRIGGER {name} AFTER INSERT OR UPDATE OF {column} ON {table} "
-                "FOR EACH ROW EXECUTE FUNCTION iki_unique_value_keep({args})"
+                "FOR EACH ROW EXECUTE FUNCTION iki_vendor_barcode_check({args})"
             ).format(
-                name=sql.Identifier(_trigger(c)),
-                column=sql.Identifier(c.column),
-                table=sql.Identifier(c.table),
-                args=sql.SQL(", ").join(sql.Literal(arg) for arg in args),
+                name=sql.Identifier(_barcode_trigger(column)),
+                column=sql.Identifier(column),
+                table=sql.Identifier(table),
+                # Plugin type names cannot contain array punctuation.
+                args=sql.SQL(", ").join(
+                    sql.Literal(arg)
+                    for arg in (column, "{" + ",".join(sorted(types)) + "}", _RESERVED_VENDOR)
+                ),
             )
         )
-        if types:
-            # The trigger now holds the writer lock through this transaction. Check
-            # old rows before a deployment accepts writes with the new declaration.
-            _check_vendor_codes(cursor, c, types)
-        _fill(cursor, c)
-    return keys
-
-
-def _check_vendor_codes(cursor: Any, c: Column, types: list[str]) -> None:  # noqa: ANN401
-    cursor.execute(
-        sql.SQL(
-            "SELECT e.hrid FROM {table} t JOIN iki_entity e ON e.id = t.entity_id "
-            'WHERE e.type = ANY(%s) AND t.{column} COLLATE "C" ~ %s ORDER BY e.hrid LIMIT 10'
-        ).format(table=sql.Identifier(c.table), column=sql.Identifier(c.column)),
-        [types, _RESERVED_VENDOR],
-    )
-    if records := cursor.fetchall():
-        raise Clash(
-            f"Existing vendor barcodes in `{c.key}` start with the reserved IKI: prefix "
-            f"on {', '.join(hrid for (hrid,) in records)}. Correct them and deploy again."
+        # The trigger now holds the writer lock through this transaction. Check old rows
+        # before a deployment accepts writes with the new declaration.
+        cursor.execute(
+            sql.SQL(
+                "SELECT e.hrid FROM {table} t JOIN iki_entity e ON e.id = t.entity_id "
+                'WHERE e.type = ANY(%s) AND t.{column} COLLATE "C" ~ %s ORDER BY e.hrid LIMIT 10'
+            ).format(table=sql.Identifier(table), column=sql.Identifier(column)),
+            [sorted(types), _RESERVED_VENDOR],
         )
+        if records := cursor.fetchall():
+            raise constraints.Clash(
+                f"Existing vendor barcodes in `{table}.{column}` start with the reserved IKI: "
+                f"prefix on {', '.join(hrid for (hrid,) in records)}. Correct them and deploy "
+                "again."
+            )
+    return [f"{table}.{column}" for table, column in sorted(barcodes)]
 
 
-def _trigger(c: Column) -> str:
-    return (TRIGGER_PREFIX + c.column)[:63]
-
-
-def _clashes(cursor: Any, c: Column) -> list[str]:  # noqa: ANN401
-    cursor.execute(
-        sql.SQL(
-            "SELECT coalesce(p.name, r.name), t.{column}::text, array_agg(e.hrid ORDER BY e.hrid) "
-            "FROM {table} t JOIN iki_entity e ON e.id = t.entity_id "
-            "LEFT JOIN iki_project p ON p.id = e.owner_project_id "
-            "LEFT JOIN iki_registry r ON r.id = e.registry_id "
-            "WHERE t.{column} IS NOT NULL GROUP BY 1, t.{column} HAVING count(*) > 1 "
-            "ORDER BY 1, t.{column} LIMIT 10"
-        ).format(table=sql.Identifier(c.table), column=sql.Identifier(c.column))
-    )
-    return [
-        f"{', '.join(hrids)} in {project} have `{c.key}` “{value}”"
-        for project, value, hrids in cursor.fetchall()
-    ]
-
-
-def _fill(cursor: Any, c: Column) -> None:  # noqa: ANN401
-    """Values written while no trigger kept them: a field just marked unique."""
-    names = {"table": sql.Identifier(c.table), "column": sql.Identifier(c.column)}
-    cursor.execute(
-        sql.SQL(
-            "DELETE FROM iki_unique_value u USING {table} t WHERE u.key = %s "
-            "AND u.entity_id = t.entity_id AND u.value IS DISTINCT FROM t.{column}::text"
-        ).format(**names),
-        [c.key],
-    )
-    cursor.execute(
-        sql.SQL(
-            "INSERT INTO iki_unique_value (project_id, registry_id, key, value, entity_id) "
-            "SELECT e.owner_project_id, e.registry_id, %s, t.{column}::text, e.id "
-            "FROM {table} t JOIN iki_entity e ON e.id = t.entity_id "
-            "WHERE t.{column} IS NOT NULL AND NOT EXISTS ("
-            "SELECT 1 FROM iki_unique_value u WHERE u.entity_id = e.id AND u.key = %s)"
-        ).format(**names),
-        [c.key, c.key],
-    )
+def _barcode_trigger(column: str) -> str:
+    return (BARCODE_TRIGGER_PREFIX + column)[:63]

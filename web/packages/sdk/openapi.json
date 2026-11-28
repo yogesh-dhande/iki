@@ -22727,7 +22727,7 @@
         "type": "object"
       },
       "RuleOut": {
-        "description": "A rule its records keep at every save (ADR 0127): a CEL `check`, or one the\ndatabase holds (`unique` together, ranges that don't overlap).",
+        "description": "A rule its records keep at every save (ADR 0127): a CEL `check`, or one the\ndatabase holds (`unique` together, ranges that don't overlap). A unique field is a\none-field `unique` rule named for it (ADR 0082).",
         "properties": {
           "check": {
             "anyOf": [
@@ -22770,6 +22770,18 @@
               }
             ],
             "description": "It holds a record that breaks it for review, rather than refuse it: a save that breaks it needs `hold_reason`."
+          },
+          "key_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The field whose `unique: true` this rule is: a key, which lookups and a run's `match_on` use (ADR 0082).",
+            "title": "Key Field"
           },
           "kind": {
             "enum": [
@@ -22817,7 +22829,7 @@
             "type": "array"
           },
           "unique": {
-            "description": "No two of a project's records share these together.",
+            "description": "No two of a project's records share these together, or with `within` `registry`, no two entries in a registry.",
             "items": {
               "type": "string"
             },
@@ -22846,6 +22858,22 @@
               }
             ],
             "description": "For `unique` and `no_overlap`: only records whose `field` is in one of these `states` count."
+          },
+          "within": {
+            "anyOf": [
+              {
+                "enum": [
+                  "project",
+                  "registry"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For `unique`: where no two share the values, a project's records or a registry's entries.",
+            "title": "Within"
           }
         },
         "required": [

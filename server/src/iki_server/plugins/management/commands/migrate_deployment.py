@@ -10,7 +10,7 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from iki_server.core.management.commands.grant_app_privileges import app_role, wait_for
-from iki_server.entities import constraints, unique
+from iki_server.entities import constraints
 from iki_server.plugins import sync
 from iki_server.plugins.deploy import KEPT_NOTHING, DeployError, migrate_deployment
 from iki_spec import naming
@@ -71,7 +71,7 @@ class Command(BaseCommand):
             )
         except DeployError as error:
             raise CommandError(str(error)) from None
-        except (unique.Clash, constraints.Clash) as error:
+        except constraints.Clash as error:
             raise CommandError(f"{error}\n{KEPT_NOTHING}") from None
         for line in report.purged:
             self.stdout.write(f"  Purged {line}")

@@ -15,7 +15,7 @@ from test_oauth import bearer, signed_in_token
 from test_states import QA
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import checking, entries, lists, registry, services
+from iki_server.entities import checking, constraints, entries, lists, registry, services
 from iki_server.entities.models import Entity, RuleHold
 from iki_server.entities.values import Invalid
 from iki_server.notifications.models import Notification
@@ -913,7 +913,6 @@ def test_the_database_holds_a_label_once_in_its_list_in_any_case(world: World) -
 def test_deploying_stops_while_a_list_has_a_label_twice_in_any_case(world: World) -> None:
     from django.db import connection
 
-    from iki_server.entities import unique
     from iki_server.entities.values import shape
 
     # Its fields are the list's, which the type checker doesn't know.
@@ -924,7 +923,7 @@ def test_deploying_stops_while_a_list_has_a_label_twice_in_any_case(world: World
         dropped = lists.install_label_indexes(cursor, wanted=[])
         assert dropped == []
         model._default_manager.filter(pk=dialysis["id"]).update(label="size exclusion")
-        with pytest.raises(unique.Clash) as stopped:
+        with pytest.raises(constraints.Clash) as stopped:
             lists.install_label_indexes(cursor)
     assert "“size exclusion”" in str(stopped.value) and METHOD in str(stopped.value)
 

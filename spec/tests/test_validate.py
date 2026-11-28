@@ -909,17 +909,45 @@ def test_machine_text_can_go_without_word_search(tmp_path: Path) -> None:
     assert assay["remarks"].searchable
 
 
+def test_a_unique_field_is_a_one_field_rule_named_for_it(tmp_path: Path) -> None:
+    result = make(
+        tmp_path,
+        fields("""\
+            lims_id: { type: string, label: LIMS ID, max_length: 64, unique: true }
+            accession: { type: int, unique: true, link: "https://example.org/a/{value}" }
+            barcode: { type: string, unique: true, removed: true }
+        """),
+    )
+    assert result.ok, result.problems
+    assert result.plugin is not None
+    assay = result.plugin.types["acme/lab.Assay"]
+    rule = assay.rules["lims_id"]
+    assert (rule.kind, rule.unique, rule.within, rule.from_field) == (
+        "unique",
+        ("lims_id",),
+        "project",
+        True,
+    )
+    assert rule.label == "Unique LIMS ID"
+    assert rule.message == "Each record in a project has its own LIMS ID."
+    assert assay.rules["accession"].message == "Each record in a project has its own accession."
+    # A field that's gone keeps no rule: its column is.
+    assert "barcode" not in assay.rules
+
+
 @pytest.mark.parametrize(
-    ("spec", "code"),
+    "spec",
     [
-        ("{ type: string, max_length: 64, unique: true }", "unique-needs-index"),
-        # A list's items, and other types, can't be: the schema says so.
-        ("{ type: list, items: { type: string, unique: true } }", "schema"),
-        ("{ type: int, indexed: true, unique: true }", "schema"),
+        # A key is a string or an int: the schema says so of the others, and of a list's items.
+        "{ type: list, items: { type: string, unique: true } }",
+        "{ type: float, unique: true }",
+        "{ type: bool, unique: true }",
+        "{ type: enum, values: [a, b], unique: true }",
+        "{ type: datetime, unique: true }",
     ],
 )
-def test_unique_fields(tmp_path: Path, spec: str, code: str) -> None:
-    only(make(tmp_path, fields(f"x: {spec}\n")), code)
+def test_only_strings_and_ints_are_keys(tmp_path: Path, spec: str) -> None:
+    only(make(tmp_path, fields(f"x: {spec}\n")), "schema")
 
 
 def test_a_unique_external_id(tmp_path: Path) -> None:

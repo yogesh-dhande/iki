@@ -771,7 +771,7 @@ class _Rules:
                 "unique fields can be matched on.",
                 source,
                 path,
-                hint=f"Mark `{name}` `unique: true` (and `indexed: true`).",
+                hint=f"Mark `{name}` `unique: true`.",
             )
         elif found.registry is not None:
             self.add(

@@ -605,19 +605,22 @@ def apart(
     changed: frozenset[str] | None = None,
 ) -> list[Broken]:
     """The ``unique`` and ``no_overlap`` rules a record with these values would break
-    against another of the project's, each naming the other: so a person is told, before
-    the database refuses it."""
+    against another of the project's, a unique field's among them (ADR 0082), each naming
+    the other: so a person is told, before the database refuses it."""
     from iki_server.entities import constraints
 
     found = constraints.taken(project_id, form, values, entity=entity, changed=changed)
     if not found:
         return []
     type_name = form.entity_type.qualified_name
-    texts = render(type_name, [c.rule for c, _ in found], Saving(values.get, id=entity))
+    texts = render(type_name, [c.rule for c, _, _ in found], Saving(values.get, id=entity))
     out = []
-    for (c, hrid), text in zip(found, texts, strict=True):
+    for (c, hrid, _), text in zip(found, texts, strict=True):
         if c.rule.kind == "no_overlap":
             told = f"{text} It overlaps {hrid}."
+        elif c.rule.from_field:
+            # A unique field's: said of the field, as a key is.
+            told = f"is {hrid}’s already: no two entities in a project share it."
         else:
             told = f"{text} {hrid} has the same."
         out.append(Broken(c.rule, told, c.rule.fields or c.rule.reads))
