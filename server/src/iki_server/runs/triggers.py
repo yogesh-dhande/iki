@@ -222,7 +222,7 @@ def _calculations(entity_type: str) -> Iterator[tuple[Trigger, Action, frozenset
             spec.on != "entity.updated"
             or spec.recheck
             or not spec.input
-            or not services.is_a(entity_type, spec.type)
+            or not registry.is_a(entity_type, spec.type)
         ):
             continue
         action = catalog.action(f"{spec.plugin}.{spec.run}")
@@ -385,7 +385,7 @@ def source_changed(parent: Entity, revision: Revision) -> None:
 
 
 def _fires(spec: Trigger, event: str, entity_type: str, changed: list[str]) -> bool:
-    if spec.on != event or not services.is_a(entity_type, spec.type):
+    if spec.on != event or not registry.is_a(entity_type, spec.type):
         return False
     if event == "entity.state_changed":
         field, state = changed

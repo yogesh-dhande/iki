@@ -549,9 +549,9 @@ def _plugins(found: _Found) -> list[dict[str, Any]]:
     """Each plugin with types or extensions in the bundle, as installed."""
     types: dict[str, dict[str, Any]] = {}
     for entity in found.entities.values():
-        entity_type = registry.types()[entity.type]
-        for t in [entity_type, *registry.ancestors(entity_type)]:
-            types[t.qualified_name] = {
+        for name in registry.effective(entity.type).chain:
+            t = registry.types()[name]
+            types[name] = {
                 "schema_version": t.schema_version,
                 "units": _units(t.fields),
             }

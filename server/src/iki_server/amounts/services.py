@@ -59,7 +59,7 @@ from iki_server.storage import scan_identity
 from iki_server.storage import services as storage
 from iki_spec import units
 from iki_spec.model import Amount as AmountSpec
-from iki_spec.model import DrawTarget, EntityType, amount_of
+from iki_spec.model import DrawTarget, EntityType
 
 
 class Wrong(Invalid):
@@ -134,7 +134,7 @@ class Given:
 
 def spec(type_name: str) -> AmountSpec | None:
     """The amount ``type_name``'s records have, its own or a parent's."""
-    return amount_of(type_name, registry.types())
+    return registry.effective(type_name).amount if type_name in registry.types() else None
 
 
 def amounts_of(entities: Sequence[Entity]) -> dict[Any, Amount]:
@@ -287,7 +287,7 @@ def draw(
         raise Wrong({"purpose": ["Choose routine use or QA sampling."]})
     if used_in is not None and used_in.pk == entity.pk:
         raise Wrong({"used_in": [f"is {entity.hrid}, what it's drawn from."]})
-    receipt = registry.draws_received(used_in.type) if used_in is not None else None
+    receipt = registry.effective(used_in.type).draws_received if used_in is not None else None
     policy = _draw_target_of(used_in)
     pin_source = receipt is not None or policy is not None
     with transaction.atomic():
@@ -403,13 +403,9 @@ def _receive_draw(
 def _draw_target_of(entity: Entity | None) -> DrawTarget | None:
     if entity is None:
         return None
-    entity_type = registry.types().get(entity.type)
-    if entity_type is None:
+    if entity.type not in registry.types():
         return None
-    return next(
-        (t.draw_target for t in [entity_type, *registry.ancestors(entity_type)] if t.draw_target),
-        None,
-    )
+    return registry.effective(entity.type).draw_target
 
 
 def _check_draw_target(
@@ -980,10 +976,7 @@ def _copied(source: Entity, current: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def _fields(entity_type: EntityType) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for t in reversed([entity_type, *registry.ancestors(entity_type)]):
-        out.update(t.fields)
-    return out
+    return registry.effective(entity_type.qualified_name).fields
 
 
 def _pool(

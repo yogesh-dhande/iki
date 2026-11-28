@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/analytical_testing
-version: 0.1.0
+version: 0.2.0
 title: Analytical testing
 description: >-
   An analytical core's own request and result for a protein panel: the

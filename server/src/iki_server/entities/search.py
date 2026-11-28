@@ -1146,7 +1146,11 @@ def _in_projects_named(user: Any) -> Q:  # noqa: ANN401 - User
 def title_text_fields(type_name: str) -> list[str]:
     """The text fields a type's title shows, which ``q`` searches."""
     entity_type = registry.types().get(type_name)
-    template = registry.display_title(entity_type) if entity_type is not None else None
+    template = (
+        registry.effective(entity_type.qualified_name).display_title
+        if entity_type is not None
+        else None
+    )
     if template is None:
         return []
     fields = shape(type_name).fields()

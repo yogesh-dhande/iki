@@ -23,12 +23,12 @@ from iki_server.entities.values import FOREIGN_KEYS, is_list_table, row_columns,
 from iki_server.plugins.preflight_rules import projected_changes
 from iki_server.plugins.preflight_types import Record
 from iki_spec import naming
+from iki_spec.effective import Effective, resolve_one
 from iki_spec.model import (
     BUILTIN_TYPES,
     EntityType,
     Field,
     Plugin,
-    as_refined,
     split_entry,
 )
 
@@ -47,21 +47,30 @@ class Table:
     extension: bool
 
 
-def lineage(qualified: str, plugins: Mapping[str, Plugin]) -> list[EntityType]:
-    """The type and its ancestors, nearest first, as described by this build."""
+def _types(plugins: Mapping[str, Plugin]) -> dict[str, EntityType]:
     types = dict(BUILTIN_TYPES)
     for plugin in plugins.values():
         types.update(plugin.types)
-    chain: list[EntityType] = []
-    seen = set()
-    while qualified != naming.ENTITY:
-        if qualified in seen or qualified not in types:
-            raise ValueError(f"Invalid type ancestry at {qualified}.")
-        seen.add(qualified)
-        item = types[qualified]
-        chain.append(item)
-        qualified = item.extends or naming.ENTITY
-    return chain
+    return types
+
+
+def effective(qualified: str, plugins: Mapping[str, Plugin]) -> Effective:
+    """What the type's records have (ADR 0282), as this build describes it. Raises
+    ``ValueError`` for a type whose ancestry the build doesn't have, or that loops."""
+    types = _types(plugins)
+    found = resolve_one(types, qualified)
+    if qualified != naming.ENTITY:
+        top = types.get(found.chain[-1])
+        if top is None or (top.extends or naming.ENTITY) != naming.ENTITY:
+            at = top.extends if top is not None else found.chain[-1]
+            raise ValueError(f"Invalid type ancestry at {at}.")
+    return found
+
+
+def lineage(qualified: str, plugins: Mapping[str, Plugin]) -> list[EntityType]:
+    """The type and its ancestors, nearest first, as described by this build."""
+    types = _types(plugins)
+    return [types[n] for n in effective(qualified, plugins).chain]
 
 
 def layout(
@@ -70,10 +79,11 @@ def layout(
     """The effective current fields grouped by the physical table holding them."""
     if chain is None:
         chain = lineage(qualified, plugins)
+    declared = effective(qualified, plugins)
     names = {t.qualified_name for t in chain}
     parts = []
     for t in reversed(chain):
-        fields = {n: as_refined(chain, n, f) for n, f in t.current_fields.items()}
+        fields = {n: f for n, f in declared.own_fields(t.qualified_name).items() if not f.removed}
         parts.append((t.table, t.qualified_name, t.plugin, False, split_entry(fields, t.identity)))
     parts.extend(
         (ext.table, ext.extends_type, ext.plugin, True, split_entry(ext.current_fields))

@@ -12,6 +12,7 @@ be checked when they are there.
 from __future__ import annotations
 
 import dataclasses
+import json
 import keyword
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -28,6 +29,7 @@ from iki_spec import (
     apis,
     components,
     conditions,
+    effective,
     helm,
     naming,
     notifications,
@@ -73,6 +75,7 @@ from iki_spec.model import (
     Plugin,
     PluginExport,
     ProteinExport,
+    Refinement,
     ReportExport,
     RequestSpec,
     ResultSpec,
@@ -93,8 +96,6 @@ from iki_spec.model import (
     matches_format,
     names_people,
     qualify,
-    reference_refinement,
-    refinement,
     split_entry,
 )
 from iki_spec.problems import Location, Path, Problem, Severity
@@ -894,23 +895,9 @@ def _entity_type(plugin: str, body: dict[str, Any], document: Document) -> Entit
         else None,
         storage=_storage(body.get("storage"), plugin),
         refines={
-            name: {
-                role: RowRole.from_manifest(role, r, plugin=plugin)
-                for role, r in (body_refines.get("roles") or {}).items()
-                if isinstance(r, dict)
-            }
-            for name, body_refines in (body.get("refines") or {}).items()
-            if isinstance(body_refines, dict) and "to" not in body_refines
-        },
-        refines_to={
-            name: (
-                (qualify(to, plugin),)
-                if isinstance(to, str)
-                else tuple(qualify(t, plugin) for t in to if isinstance(t, str))
-            )
+            name: Refinement.from_manifest(body_refines, plugin=plugin)
             for name, body_refines in (body.get("refines") or {}).items()
             if isinstance(body_refines, dict)
-            and isinstance(to := body_refines.get("to"), str | list)
         },
         list_spec=list_spec,
         review=review,
@@ -1522,18 +1509,18 @@ class _Semantics:
         return schemas._did_you_mean(name, [t.name for t in types.values()])
 
     def ancestors(self, entity_type: EntityType) -> list[EntityType]:
-        """Parents, nearest first, stopping at a cycle or a type that can't be found."""
-        chain: list[EntityType] = []
-        seen = {entity_type.qualified_name}
-        current = entity_type
-        while current.extends and current.extends in self.types:
-            parent = self.types[current.extends]
-            if parent.qualified_name in seen:
-                break
-            seen.add(parent.qualified_name)
-            chain.append(parent)
-            current = parent
-        return chain
+        """Parents, nearest first, without ``iki/core.Entity``, stopping at a cycle or a type
+        that can't be found (:func:`effective.ancestors`)."""
+        return effective.ancestors(self.types, entity_type)
+
+    def effective_of(self, entity_type: EntityType) -> effective.Effective:
+        """What ``entity_type``'s records have (ADR 0282), as far as its ancestors are here."""
+        return effective.resolve_one(self.types, entity_type.qualified_name)
+
+    def registered(self, entity_type: EntityType) -> bool:
+        """Whether its entities are registry entries (ADR 0115): it, or an ancestor, has an
+        identity."""
+        return self.effective_of(entity_type).identity_owner is not None
 
     def all_fields(self, entity_type: EntityType) -> dict[str, tuple[Field, EntityType]]:
         out: dict[str, tuple[Field, EntityType]] = {}
@@ -1557,21 +1544,17 @@ class _Semantics:
                     hint="Give the type a field referring to the list instead.",
                 )
             if parent is not None:
-                chain = [entity_type.qualified_name]
-                current: EntityType | None = parent
-                while current is not None:
-                    if current.qualified_name in chain:
-                        self.add(
-                            "extends-cycle",
-                            "These types extend each other in a circle: "
-                            + " → ".join(f"`{t}`" for t in [*chain, current.qualified_name])
-                            + ".",
-                            source,
-                            ("extends",),
-                        )
-                        break
-                    chain.append(current.qualified_name)
-                    current = self.types.get(current.extends) if current.extends else None
+                chain = list(effective.lineage(self.types, entity_type.qualified_name)[:-1])
+                top = self.types.get(chain[-1])
+                if top is not None and top.extends in chain:
+                    self.add(
+                        "extends-cycle",
+                        "These types extend each other in a circle: "
+                        + " → ".join(f"`{t}`" for t in [*chain, top.extends])
+                        + ".",
+                        source,
+                        ("extends",),
+                    )
         if entity_type.abstract and entity_type.hrid_prefix:
             self.add(
                 "hrid-on-abstract",
@@ -2348,10 +2331,7 @@ class _Semantics:
     def storage_of(self, entity_type: EntityType) -> Storage | None:
         """Where ``entity_type``'s records are kept: its own ``storage`` or its nearest
         ancestor's."""
-        return next(
-            (t.storage for t in [entity_type, *self.ancestors(entity_type)] if t.storage),
-            None,
-        )
+        return self.effective_of(entity_type).storage
 
     def storage(
         self, entity_type: EntityType, source: Document, every: dict[str, tuple[Field, EntityType]]
@@ -2532,7 +2512,7 @@ class _Semantics:
                 return
             self.service_fields(entity_type, spec, source, every)
             return
-        if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
+        if self.registered(entity_type):
             self.add(
                 "request-with-identity",
                 f"`{entity_type.name}` has an identity, so its records are registry entries' "
@@ -2829,7 +2809,7 @@ class _Semantics:
         to the asking project in."""
         spec = entity_type.result
         assert spec is not None  # noqa: S101 - only called with one
-        if any(t.identity for t in [entity_type, *self.ancestors(entity_type)]):
+        if self.registered(entity_type):
             self.add(
                 "result-with-identity",
                 f"`{entity_type.name}` has an identity, but a result is the service's own "
@@ -3627,7 +3607,7 @@ class _Semantics:
                 # Unknown ones are reported as such; `iki/core.Entity` in an entry is any
                 # entry, as the database holds it (ADR 0161).
                 continue
-            if not any(t.identity for t in [found, *self.ancestors(found)]):
+            if not self.registered(found):
                 self.add(
                     "registry-refers-to-record",
                     f"`{f.name}` is its registry entry's, but refers to `{found.qualified_name}`, "
@@ -3878,7 +3858,7 @@ class _Semantics:
         target = self.types.get(qualified)
         if target is None:
             return False
-        declared = next((t.exports for t in [target, *self.ancestors(target)] if t.exports), ())
+        declared = self.effective_of(target).exports
         fields = {n: f for n, (f, _) in self.all_fields(target).items()}
         return any(
             isinstance(e, Export)
@@ -4119,7 +4099,7 @@ class _Semantics:
                         )
             if f.registry is None:
                 continue
-            if not any(t.identity for t in [target, *self.ancestors(target)]):
+            if not self.registered(target):
                 self.add(
                     "registry-without-identity",
                     f"`{name}` is marked `registry: {f.registry}`, but `{extension.extends_type}` "
@@ -4463,7 +4443,7 @@ class _Semantics:
                     named = self.reference(target, source, where)
                     if named is None:
                         continue
-                    if entries and not any(t.identity for t in [named, *self.ancestors(named)]):
+                    if entries and not self.registered(named):
                         self.add(
                             "registry-refers-to-record",
                             f"`{target}`'s entities are each project's own records, and these "
@@ -4545,100 +4525,222 @@ class _Semantics:
                 )
 
     def refines(self, entity_type: EntityType, source: Document) -> None:
-        """A subtype's roles for lists of rows it inherits (ADR 0164): each a list of rows
-        with roles by a field, the roles each one its rows may have, within its ancestors'.
-        And the types for references it inherits (ADR 0235), within its ancestors'."""
+        """What a subtype's records take in fields it inherits (ADR 0283): each part of a
+        refinement one the field's kind has, and narrower than its parent's, so each of the
+        subtype's records is one of its parent's too (ADR 0164, 0235)."""
+        if not entity_type.refines:
+            return
+        parent = entity_type.extends
+        inherited = (
+            effective.resolve_one(self.types, parent).fields
+            if parent is not None and parent in self.types
+            else {}
+        )
         lineage = [entity_type, *self.ancestors(entity_type)]
-        self.refines_to(entity_type, lineage, source)
-        for name, roles in entity_type.refines.items():
+        for name, r in entity_type.refines.items():
             at: Path = ("refines", name)
             if name in entity_type.fields:
                 self.add(
                     "refines-own-field",
-                    f"`{name}` is this type's own field: give its roles there.",
+                    f"`{name}` is this type's own field: say what it takes there.",
                     source,
                     at,
                     key=True,
                 )
                 continue
-            owner = next((t for t in lineage[1:] if name in t.fields), None)
-            f = owner.fields[name] if owner is not None else None
-            if f is None or not f.is_rows or f.items is None or f.items.by is None:
+            above = inherited.get(name)
+            if above is None or above.removed:
                 self.add(
-                    "refines-not-rows",
-                    f"`refines` gives the roles of a list of rows this type inherits, with "
-                    f"roles by one of its fields, and `{name}` "
-                    + (
-                        "isn't a field of its parents."
-                        if f is None
-                        else "isn't a list of rows."
-                        if not f.is_rows
-                        else "has no `by`."
-                    ),
+                    "refines-unknown-field",
+                    f"`refines` narrows a field this type inherits, and `{name}` isn't a "
+                    "field of its parents"
+                    + (" now: it was removed." if above is not None else "."),
                     source,
                     at,
                     key=True,
+                    hint=schemas._did_you_mean(name, [n for n, f in inherited.items()]),
                 )
                 continue
-            row = f.items
-            by = row.fields.get(row.by) if row.by else None
-            if by is None:
-                continue  # reported on the type that declares it
-            above = refinement(lineage[1:], name)
-            if above is None and row.roles:
-                above = row.roles
-            identity_owner = next((t for t in lineage if t.identity), None)
-            entries = identity_owner is not None and name in identity_owner.identity
-            self.row_roles(row, by, roles, source, (*at, "roles"), within=above, entries=entries)
+            self.narrowing(above, r, source, at)
+            if r.to:
+                self.refines_to(name, above, r.to, source, at)
+            if r.roles:
+                self.refines_roles(name, above, r.roles, lineage, source, at)
+
+    def narrowing(self, above: Field, r: Refinement, source: Document, at: Path) -> None:
+        """A refinement's ``required``, ``values``, ``min``, ``max`` and ``default``: each one
+        the field's kind takes, and within what its parent's records take."""
+        name = above.name
+        item = above.items if above.type == "list" else None
+        if r.required and above.computed:
+            self.add(
+                "refines-computed",
+                f"`{name}` is computed: its action or calculation sets it, so a subtype can't "
+                "require it.",
+                source,
+                (*at, "required"),
+                key=True,
+            )
+        if r.values:
+            enum = item if item is not None else above
+            if enum.type != "enum":
+                self.add(
+                    "refines-not-enum",
+                    f"`values` narrows an enum, or a list of them, and `{name}` is "
+                    f"{_a(above.type)} field.",
+                    source,
+                    (*at, "values"),
+                    key=True,
+                )
+            else:
+                for index, value in enumerate(r.values):
+                    if value not in enum.values:
+                        self.add(
+                            "refines-wider",
+                            f"`{value}` isn't one of the values `{name}` takes in this type's "
+                            f"parent ({', '.join(f'`{v}`' for v in enum.values)}).",
+                            source,
+                            (*at, "values", index),
+                            hint="A subtype narrows what its parent's records take: give some "
+                            "of its values.",
+                        )
+        for bound in ("min", "max"):
+            mine = getattr(r, bound)
+            if mine is None:
+                continue
+            if above.type not in ("int", "float", "quantity"):
+                self.add(
+                    "refines-not-a-number",
+                    f"`{bound}` narrows a number or a quantity, and `{name}` is "
+                    f"{_a(above.type)} field.",
+                    source,
+                    (*at, bound),
+                    key=True,
+                )
+                continue
+            if above.type == "int" and (isinstance(mine, bool) or not float(mine).is_integer()):
+                self.add(
+                    "refines-not-whole",
+                    f"`{name}` is a whole number, so its `{bound}` is one too.",
+                    source,
+                    (*at, bound),
+                )
+            theirs = getattr(above, bound)
+            if theirs is not None and (mine < theirs if bound == "min" else mine > theirs):
+                self.add(
+                    "refines-wider",
+                    f"`{name}`'s `{bound}` is {theirs} in this type's parent, and a subtype "
+                    f"narrows what its parent's records take, so its `{bound}` can't be {mine}.",
+                    source,
+                    (*at, bound),
+                    hint=f"Give `{bound}: {theirs}`, or one within it.",
+                )
+        low = r.min if r.min is not None else above.min
+        high = r.max if r.max is not None else above.max
+        if low is not None and high is not None and low > high:
+            self.add(
+                "min-above-max",
+                f"`min` ({low}) is more than `max` ({high}).",
+                source,
+                (*at, "min" if r.min is not None else "max"),
+            )
+            return
+        mine_field = effective.narrowed(above, r)
+        if r.has_default:
+            if above.computed:
+                self.add(
+                    "computed-with-default",
+                    "Computed fields are set by actions, so they can't have a default.",
+                    source,
+                    (*at, "default"),
+                    key=True,
+                )
+            elif not _takes_default(above):
+                self.add(
+                    "refines-default",
+                    f"`{name}` is {_a(above.type)} field, which takes no default.",
+                    source,
+                    (*at, "default"),
+                    key=True,
+                )
+            else:
+                for message in value_problems(mine_field, r.default):
+                    self.add("invalid-default", f"The default {message}", source, (*at, "default"))
+        elif above.has_default and (r.values or r.min is not None or r.max is not None):
+            # A new record given no value would have its parent's, which it can't take.
+            wrong = value_problems(mine_field, above.default)
+            if wrong:
+                self.add(
+                    "refines-default-outside",
+                    f"`{name}`'s default in this type's parent, `{json.dumps(above.default)}`, "
+                    f"isn't one its records take: the default {' '.join(wrong)}",
+                    source,
+                    at,
+                    hint="Give a `default` of its own, within what it narrows to.",
+                )
 
     def refines_to(
-        self, entity_type: EntityType, lineage: list[EntityType], source: Document
+        self, name: str, above: Field, targets: tuple[str, ...], source: Document, at: Path
     ) -> None:
-        """Each reference a subtype refines (ADR 0235): one it inherits, a reference or a
-        list of them, and types it refers to that are each one of its ancestor's or a
-        subtype of one."""
-        for name, targets in entity_type.refines_to.items():
-            at: Path = ("refines", name)
-            if name in entity_type.fields:
-                self.add(
-                    "refines-own-field",
-                    f"`{name}` is this type's own field: give the types it refers to there.",
-                    source,
-                    at,
-                    key=True,
-                )
+        """A refinement's ``to`` (ADR 0235): of an inherited reference or list of them, each
+        type one of its parent's or a subtype of one."""
+        ref = above.items if above.type == "list" else above
+        if ref is None or ref.type != "ref":
+            self.add(
+                "refines-not-a-reference",
+                f"`to` narrows the types a reference refers to, and `{name}` isn't a reference.",
+                source,
+                (*at, "to"),
+                key=True,
+            )
+            return
+        several = len(targets) > 1
+        for index, target in enumerate(targets):
+            where: Path = (*at, "to", index) if several else (*at, "to")
+            named = self.reference(target, source, where)
+            if named is None or naming.ENTITY in ref.to:
                 continue
-            owner = next((t for t in lineage[1:] if name in t.fields), None)
-            f = owner.fields[name] if owner is not None else None
-            ref = f.items if f is not None and f.type == "list" else f
-            if f is None or ref is None or ref.type != "ref":
+            kinds = {named.qualified_name} | {a.qualified_name for a in self.ancestors(named)}
+            if not kinds & set(ref.to):
                 self.add(
-                    "refines-not-a-reference",
-                    f"`refines` with `to` gives the types a reference this type inherits "
-                    f"refers to, and `{name}` "
-                    + ("isn't a field of its parents." if f is None else "isn't a reference."),
+                    "refines-wider",
+                    f"`{target}` isn't one of the types `{name}` refers to in this type's "
+                    f"parent ({', '.join(ref.to)}), or one of their subtypes.",
                     source,
-                    at,
-                    key=True,
+                    where,
+                    hint="A subtype narrows what its parent's references refer to.",
                 )
-                continue
-            above = reference_refinement(lineage[1:], name) or ref.to
-            several = len(targets) > 1
-            for index, target in enumerate(targets):
-                where: Path = (*at, "to", index) if several else (*at, "to")
-                named = self.reference(target, source, where)
-                if named is None or naming.ENTITY in above:
-                    continue
-                kinds = {named.qualified_name} | {a.qualified_name for a in self.ancestors(named)}
-                if not kinds & set(above):
-                    self.add(
-                        "refines-wider",
-                        f"`{target}` isn't one of the types `{name}` refers to in this type's "
-                        f"parent ({', '.join(above)}), or one of their subtypes.",
-                        source,
-                        where,
-                        hint="A subtype narrows what its parent's references refer to.",
-                    )
+
+    def refines_roles(
+        self,
+        name: str,
+        above: Field,
+        roles: Mapping[str, RowRole],
+        lineage: list[EntityType],
+        source: Document,
+        at: Path,
+    ) -> None:
+        """A refinement's ``roles`` (ADR 0164): of an inherited list of rows with roles by
+        one of its fields, every role its rows may have, within its parent's."""
+        row = above.items if above.is_rows else None
+        if row is None or row.by is None:
+            self.add(
+                "refines-not-rows",
+                f"`roles` gives the roles of a list of rows with roles by one of its fields, "
+                f"and `{name}` " + ("isn't a list of rows." if row is None else "has no `by`."),
+                source,
+                (*at, "roles"),
+                key=True,
+            )
+            return
+        by = row.fields.get(row.by)
+        if by is None:
+            return  # reported on the type that declares it
+        owner = next((t for t in lineage if t.identity), None)
+        entries = owner is not None and name in owner.identity
+        self.row_roles(
+            row, by, roles, source, (*at, "roles"), within=row.roles or None, entries=entries
+        )
 
     def targets(self, f: Field, source: Document, path: Path) -> None:
         """A reference's types (ADR 0136): each one the plugin can name, and none of them
@@ -5007,6 +5109,19 @@ def value_problems(f: Field, value: Any) -> list[str]:  # noqa: ANN401 - manifes
                 problems.extend(f"item {index + 1} {m}" for m in value_problems(f.items, item))
         return problems
     return []  # pragma: no cover (other types take no default or value here)
+
+
+def _a(kind: str) -> str:
+    """A field kind with its article: "an enum", "a string"."""
+    return f"an {kind}" if kind[0] in "aeiou" else f"a {kind}"
+
+
+def _takes_default(f: Field) -> bool:
+    """Whether a field of ``f``'s kind can have a default: not a reference, file, person,
+    datetime, json or state, nor a list of those or of rows, which have tables of their own."""
+    if f.type == "list":
+        return f.items is not None and f.items.type not in ("ref", "file", "person", "row")
+    return f.type in ("string", "text", "int", "float", "bool", "enum", "date", "quantity")
 
 
 def _list_tables(fields: dict[str, Field]) -> list[Field]:

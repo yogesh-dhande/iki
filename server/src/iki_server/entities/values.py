@@ -32,7 +32,7 @@ from iki_server.entities.models import Entity
 from iki_server.files.scan_state import status_from_decision
 from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE, has_iki_prefix
 from iki_spec import naming, units
-from iki_spec.model import EntityType, Field, as_refined, split_entry
+from iki_spec.model import EntityType, Field, split_entry
 from iki_spec.validate import value_problems
 
 
@@ -152,15 +152,16 @@ class Shape:
 @cache
 def shape(qualified: str) -> Shape:
     entity_type = registry.types()[qualified]
-    lineage = [entity_type, *registry.ancestors(entity_type)]
-    chain = list(reversed(lineage))
+    declared = registry.effective(qualified)
+    every = registry.types()
+    chain = [every[n] for n in reversed(declared.lineage) if n != naming.ENTITY]
     parts = []
     entries = []
     registered = False
     for t in chain:
-        # A list of rows a type below refines has the roles it gives (ADR 0164), and a
-        # reference the types it gives (ADR 0235).
-        fields = {n: as_refined(lineage, n, f) for n, f in t.fields.items()}
+        # Each table's fields as this type's records have them: narrowed by the types below
+        # the one declaring each (ADR 0283).
+        fields = declared.own_fields(t.qualified_name)
         record, entry = split_entry(fields, t.identity)
         registered = registered or bool(t.identity)
         label = naming.app_label(t.plugin)
@@ -220,7 +221,7 @@ def shape(qualified: str) -> Shape:
                     entry=True,
                 )
             )
-    storage = next((t.storage for t in lineage if t.storage is not None), None)
+    storage = declared.storage
     return Shape(entity_type, tuple(parts + entries), storage.barcode if storage else None)
 
 
@@ -248,16 +249,7 @@ def row_columns(f: Field) -> dict[str, str]:
 
 def subtypes(qualified: str) -> set[str]:
     """The type and every type that extends it, at any depth."""
-    if qualified == "iki/core.Entity":
-        return set(registry.types())
-    every = registry.types()
-    out = {qualified}
-    grew = True
-    while grew:
-        more = {name for name, t in every.items() if t.extends in out and name not in out}
-        out |= more
-        grew = bool(more)
-    return out
+    return registry.subtypes(qualified)
 
 
 # --- JSON → database ----------------------------------------------------------------------------

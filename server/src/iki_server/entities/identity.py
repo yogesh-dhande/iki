@@ -56,7 +56,7 @@ def _hash(entity_type: EntityType, value: Callable[[str, Field], Any]) -> str | 
     owner = registry.identity_owner(entity_type)
     if owner is None:
         return None
-    fields = {**_fields(owner), **owner.fields}
+    fields = _fields(owner)
     given = {name: value(name, fields[name]) for name in owner.identity}
     # A sequence is read by its topology and strands (ADR 0138), themselves identity fields.
     return identity_hash(
@@ -65,11 +65,9 @@ def _hash(entity_type: EntityType, value: Callable[[str, Field], Any]) -> str | 
     )
 
 
-def _fields(entity_type: EntityType) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for ancestor in reversed(registry.ancestors(entity_type)):
-        out.update(ancestor.fields)
-    return out
+def _fields(entity_type: EntityType) -> dict[str, Field]:
+    """Every field of ``entity_type``'s records, as its effective declaration has them."""
+    return registry.effective(entity_type.qualified_name).fields
 
 
 def identity_of(entity_type: EntityType) -> tuple[str, ...]:
@@ -87,7 +85,7 @@ def spelled(
     owner = registry.identity_owner(entity_type)
     if owner is None:
         return {}
-    fields = {**_fields(owner), **owner.fields}
+    fields = _fields(owner)
     out: dict[str, Any] = {}
     for name in owner.identity:
         value, current = given.get(name), stored.get(name)
@@ -113,7 +111,7 @@ def placed(
     owner = registry.identity_owner(entity_type)
     if owner is None or not spelled:
         return dict(given)
-    fields = {**_fields(owner), **owner.fields}
+    fields = _fields(owner)
     out = dict(given)
     for viewer in _viewers(entity_type):
         name = viewer.sequence
@@ -135,7 +133,5 @@ def placed(
 
 
 def _viewers(entity_type: EntityType) -> list[Any]:
-    found: list[Any] = []
-    for ancestor in [*registry.ancestors(entity_type), entity_type]:
-        found.extend(v for v in ancestor.viewers if v.viewer == "sequence" and v.features)
-    return found
+    viewers = registry.effective(entity_type.qualified_name).viewers
+    return [v for v in viewers if v.viewer == "sequence" and v.features]

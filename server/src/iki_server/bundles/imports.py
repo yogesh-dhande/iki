@@ -980,7 +980,7 @@ def _title(line: dict[str, Any], values: dict[str, Any]) -> str:
         return str(line["hrid"])
     try:
         return titles.render(
-            registry.display_title(entity_type),
+            registry.effective(entity_type.qualified_name).display_title,
             values,
             line["hrid"],
             shape(line["type"]).fields(),

@@ -88,11 +88,11 @@ class Place:
 def tab_for(component: Component, type_name: str) -> ComponentSlot | None:
     """The component's tab on pages of ``type_name``: the one for the nearest type of its
     lineage, or else its tab on every record (ADR 0237)."""
-    entity_type = registry.types().get(type_name)
-    lineage = [type_name]
-    if entity_type is not None:
-        lineage += [t.qualified_name for t in registry.ancestors(entity_type)]
-    lineage.append(EVERY_RECORD)
+    lineage = (
+        list(registry.effective(type_name).lineage)
+        if type_name in registry.types()
+        else [type_name, EVERY_RECORD]
+    )
     tabs = {s.type: s for s in component.slots if s.slot == "entity.tab"}
     return next((tabs[t] for t in lineage if t in tabs), None)
 

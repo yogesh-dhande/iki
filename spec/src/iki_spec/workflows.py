@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from iki_spec import actions, schemas
+from iki_spec import actions, effective, schemas
 from iki_spec import validate as _validate
 from iki_spec.model import (
     APPROVAL_ROLES,
@@ -153,12 +153,7 @@ class _Rules:
             self.workflow(workflow, self.loaded.workflow_sources[name])
 
     def is_a(self, child: str, parent: str) -> bool:
-        if child == parent:
-            return True
-        found = self.s.types.get(child)
-        return found is not None and any(
-            each.qualified_name == parent for each in self.s.ancestors(found)
-        )
+        return child == parent or effective.is_a(self.s.types, child, parent)
 
     def workflow(self, workflow: Workflow, source: Document) -> None:
         for name, put in workflow.inputs.items():

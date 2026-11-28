@@ -20,7 +20,6 @@ import { lazy, Suspense, useId, useState } from "react";
 import { Button as AriaButton, Dialog, DialogTrigger, Popover } from "react-aria-components";
 
 import { iki, problemOf, useApiMutation } from "../api";
-import { lineageOf } from "../components";
 import {
   apiRef,
   ENTITIES,
@@ -36,6 +35,7 @@ import {
   revisionQuery,
   typeLabel,
   typesQuery,
+  lineageOf,
   type Entity,
   type EntityType,
   type FieldDef,
@@ -948,7 +948,7 @@ export function EntityOverview() {
   const provenance = useQuery(provenanceQuery(ref)).data;
   const moved = useRouterState({ select: (s) => s.location.state.moved });
   const { signing } = useSearch({ from: "/entities/$ref" });
-  const collection = isCollection(type, types);
+  const collection = isCollection(type);
   const app = type?.name === APP_TYPE;
   // A collection's members and search have a section of their own, as an app's spec does.
   const fields = (type?.fields ?? []).filter(

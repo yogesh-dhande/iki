@@ -696,7 +696,7 @@ def carried(record_type: str, replacement_type: str) -> tuple[str, ...]:
     was, form = shape(record_type), shape(replacement_type)
     shared = {p.name for p in was.parts if not p.entry}
     kept = services._kept(form)
-    ledger = registry.draws_received(replacement_type)
+    ledger = registry.effective(replacement_type).draws_received
     return tuple(
         name
         for part in form.parts

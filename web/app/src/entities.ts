@@ -39,6 +39,21 @@ export function typeQuery(name: string) {
   });
 }
 
+/** A type, then the types it extends, nearest first, ending with `iki/core.Entity`, as the
+ * server resolves them (ADR 0282). Just the name, for a type that isn't installed. */
+export function lineageOf(name: string, types: readonly EntityType[]): string[] {
+  const found = types.find((t) => t.name === name);
+  return found ? [name, ...found.ancestors] : [name];
+}
+
+/** Whether records of `type` are `name`'s: it's that type, or one it extends. */
+export function isA(
+  type: Pick<EntityType, "name" | "ancestors"> | undefined,
+  name: string,
+): boolean {
+  return type !== undefined && (type.name === name || type.ancestors.includes(name));
+}
+
 /** The installed type by its name, or the API's 404 for one that isn't. */
 export function typeNamed(types: EntityType[], name: string): EntityType {
   const found = types.find((t) => t.name === name);

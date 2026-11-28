@@ -21,7 +21,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from iki_spec import schemas
+from iki_spec import effective, naming, schemas
 from iki_spec.model import Action, Creates, EntityType, Extension, Field, split_entry
 
 __all__ = [
@@ -324,17 +324,16 @@ class SpecTypes:
 
     def _chain(self, type_name: str) -> list[EntityType]:
         """The type and its parents, nearest first, without ``iki/core.Entity``."""
-        out: list[EntityType] = []
-        current = self.types.get(type_name)
-        while current is not None and current.qualified_name != "iki/core.Entity":
-            out.append(current)
-            current = self.types.get(current.extends) if current.extends else None
-        return out
+        if type_name not in self.types:
+            return []
+        return [
+            self.types[n]
+            for n in effective.lineage(self.types, type_name)
+            if n != naming.ENTITY and n in self.types
+        ]
 
     def is_a(self, type_name: str, wanted: str) -> bool:
-        if wanted in (type_name, "iki/core.Entity"):
-            return True
-        return any(t.qualified_name == wanted for t in self._chain(type_name)[1:])
+        return wanted in (type_name, naming.ENTITY) or effective.is_a(self.types, type_name, wanted)
 
     def _fields(self, type_name: str) -> list[tuple[dict[str, Field], tuple[str, ...]]]:
         chain = self._chain(type_name)

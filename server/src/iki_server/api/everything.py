@@ -255,7 +255,11 @@ def _entities_out(me: User, entities: Sequence[Entity], kind: str) -> list[dict[
         entity_type = types.get(entity.type)
         fields = shape(entity.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values[entity.pk].items() if n in fields}
-        template = registry.display_title(entity_type) if entity_type is not None else None
+        template = (
+            registry.effective(entity_type.qualified_name).display_title
+            if entity_type is not None
+            else None
+        )
         theirs = projects.get(entity.pk, [])
         href = f"/entities/{entity.hrid}/"
         owner = next((p for p in theirs if p.pk == entity.owner_project_id), None)

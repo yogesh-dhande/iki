@@ -326,7 +326,7 @@ class Unexportable(Exception):  # noqa: N818 - raised for its message, as Refuse
 
 def exports_of(entity_type: EntityType) -> tuple[AnyExport, ...]:
     """What a type exports: its own, or its nearest ancestor's."""
-    return registry.exports(entity_type)
+    return registry.effective(entity_type.qualified_name).exports
 
 
 def format_of(type_name: str, file_format: str) -> tuple[AnyExport, Format] | None:
@@ -529,7 +529,9 @@ def _at(
     )
     values = {n: to_json(fields[n], v, readable_refs=readable) for n, v in raw.items()}
     entity_type = registry.types()[entity.type]
-    title = titles.render(registry.display_title(entity_type), values, entity.hrid, fields)
+    title = titles.render(
+        registry.effective(entity_type.qualified_name).display_title, values, entity.hrid, fields
+    )
     when = (
         Revision.objects.filter(entity=entity, number=number)
         .values_list("created_at", flat=True)

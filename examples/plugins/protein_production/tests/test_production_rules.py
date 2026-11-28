@@ -13,7 +13,8 @@ from typing import Any
 import pytest
 
 from iki_spec import rules
-from iki_spec.model import EntityType, Field, Plugin, as_refined
+from iki_spec.effective import resolve_one
+from iki_spec.model import EntityType, Field, Plugin
 from iki_spec.validate import load_plugin
 
 EXAMPLE = Path(__file__).resolve().parents[1]
@@ -38,10 +39,7 @@ def types() -> dict[str, EntityType]:
 
 
 def fields_of(types: Mapping[str, EntityType], name: str) -> dict[str, Field]:
-    lineage = [types[name]]
-    while lineage[-1].extends in types:
-        lineage.append(types[lineage[-1].extends])
-    return {n: as_refined(lineage, n, f) for t in reversed(lineage) for n, f in t.fields.items()}
+    return dict(resolve_one(types, name).current_fields)
 
 
 def refused(types: Mapping[str, EntityType], name: str, values: Mapping[str, Any]) -> set[str]:

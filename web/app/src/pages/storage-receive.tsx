@@ -19,7 +19,14 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "rea
 
 import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import { BoxMap, MapLegend, slotKey } from "../box-map";
-import { entityQuery, personName, typeLabel, typesQuery, type EntityType } from "../entities";
+import {
+  entityQuery,
+  lineageOf,
+  personName,
+  typeLabel,
+  typesQuery,
+  type EntityType,
+} from "../entities";
 import { usePageTitle } from "../layout";
 import {
   HistoryDisclosure,
@@ -479,12 +486,7 @@ function boxCaption(box: Container, free: number): string {
 
 /** A type and each it extends, as the server checks what a box holds. */
 function lineage(types: readonly EntityType[], name: string): Set<string> {
-  const out = new Set<string>();
-  for (let at: string | null | undefined = name; at && !out.has(at);) {
-    out.add(at);
-    at = types.find((t) => t.name === at)?.extends;
-  }
-  return out;
+  return new Set(lineageOf(name, types));
 }
 
 /** The lines whose version changed between two readings of a receipt, or that came or went. */

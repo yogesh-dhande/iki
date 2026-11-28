@@ -8963,6 +8963,11 @@ export interface components {
             abstract: boolean;
             /** @description How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero. */
             amount?: components["schemas"]["TypeAmountOut"] | null;
+            /**
+             * Ancestors
+             * @description The types it extends, nearest first, ending with `iki/core.Entity`: its records are each of theirs too (ADR 0282). A type is another when the other is it or among its ancestors.
+             */
+            ancestors: string[];
             /** Description */
             description: string | null;
             /**

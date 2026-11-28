@@ -1262,6 +1262,7 @@ const TUBE_TYPE = {
   label: "Tube",
   label_plural: "Tubes",
   extends: "acme/lims.Vessel",
+  ancestors: ["acme/lims.Vessel", "iki/core.Entity"],
 };
 const VESSEL_TYPE = {
   ...PROTEIN,

@@ -614,8 +614,8 @@ def test_a_subtype_refines_its_parents_rows_roles(tmp_path: Path) -> None:
     assert codes(result) == []
     assert result.plugin is not None
     pair = result.plugin.types["acme/lab.Pair"]
-    assert list(pair.refines["parts"]) == ["heavy", "light"]
-    assert pair.refines["parts"]["light"].to == {"part": ("acme/lab.Batch",)}
+    assert list(pair.refines["parts"].roles) == ["heavy", "light"]
+    assert pair.refines["parts"].roles["light"].to == {"part": ("acme/lab.Batch",)}
     # It survives the manifest.
     assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
     # A role the parent's role field can't hold.
@@ -628,7 +628,7 @@ def test_a_subtype_refines_its_parents_rows_roles(tmp_path: Path) -> None:
     assert codes(made(own.replace("  parts:\n    roles:", "  extra:\n    roles:"))) == [
         "refines-own-field"
     ]
-    assert codes(made(SUBTYPE.replace("  parts:\n", "  nothing:\n"))) == ["refines-not-rows"]
+    assert codes(made(SUBTYPE.replace("  parts:\n", "  nothing:\n"))) == ["refines-unknown-field"]
     # Wider than its parent's: a type the parent's cell doesn't refer to.
     thing = TYPE.replace("Assay", "Thing").replace("ASY", "THG")
     wider = make(
@@ -733,11 +733,10 @@ rules:
     assert codes(result) == [], [(p.code, p.message) for p in result.problems]
     assert result.plugin is not None
     answer = result.plugin.types["acme/lab.SpecialAnswer"]
-    assert answer.refines_to == {
+    assert {n: r.to for n, r in answer.refines.items()} == {
         "request": ("acme/lab.SpecialRequest",),
         "tubes": ("acme/lab.Thing",),
     }
-    assert answer.refines == {}
     assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
     # Without the refinement, the parent's type has no `panel` to read.
     assert "invalid-expression" in codes(
@@ -756,7 +755,7 @@ rules:
         "refines-own-field"
     ]
     assert codes(made(subtype.replace("tubes: { to:", "nothing: { to:"))) == [
-        "refines-not-a-reference"
+        "refines-unknown-field"
     ]
     assert codes(made(subtype.replace("tubes: { to: [Thing] }", "title: { to: Thing }"))) == [
         "refines-not-a-reference"

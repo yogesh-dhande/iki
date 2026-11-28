@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: EntityType
+name: GmpLot
+label: GMP lot
+extends: Lot
+schema_version: 1
+description: A lot made under GMP, which names its protein and yields a weighable amount.
+hrid: { prefix: GMP }
+# Each of its records is a lot too, so it can only narrow what a lot allows (ADR 0283).
+refines:
+  protein: { required: true }
+  yield_mg: { min: 1, max: 5000 }
