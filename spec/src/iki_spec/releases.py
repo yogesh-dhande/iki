@@ -49,6 +49,23 @@ def fits(requirement: str, version: str | None = None) -> bool:
     return True
 
 
+def lowest(requirement: str) -> tuple[int, int, int] | None:
+    """The oldest release ``requirement`` allows, or None if it allows none.
+
+    The releases a list of comparisons allows are runs between its bounds, so the oldest
+    is the first release, a bound, or the release just after one.
+    """
+    bounds = []
+    for part in requirement.split(","):
+        match = _PART.fullmatch(part)
+        if match is None:
+            raise ValueError(f"{requirement!r} isn't a list of comparisons with releases")
+        bounds.append(release(match.group(2)))
+    candidates = {(0, 0, 0), *bounds, *((a, b, c + 1) for a, b, c in bounds)}
+    allowed = [c for c in candidates if fits(requirement, ".".join(map(str, c)))]
+    return min(allowed) if allowed else None
+
+
 def admits_before(requirement: str, version: str) -> bool:
     """Whether ``requirement`` admits a release earlier than ``version``.
 

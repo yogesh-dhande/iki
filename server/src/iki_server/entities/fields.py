@@ -1,4 +1,6 @@
-"""Model fields that generated plugin models use. Plugin migrations import them, so they are API."""
+"""Model fields that generated plugin models use. Plugin migrations use them through
+``iki_server.plugins.operations`` (``iki.QuantityField``, ``iki.StateField``), whose
+names and arguments are the API (ADR 0296)."""
 
 from collections.abc import Mapping, Sequence
 from typing import Any

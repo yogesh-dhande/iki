@@ -98,19 +98,19 @@ def test_rollback_reads_a_replacement_state_without_reversing_its_retained_table
         '    initial = True\n    replaces = [("acme__lab", "0001_initial")]',
     )
     replacement, renamed = re.subn(
-        r"\('old', (models\.\w+Field)\(",
+        r"\('old', (iki\.\w+Field)\(",
         r"('legacy_old', \1(db_column='old', ",
         replacement,
     )
     assert renamed == 2
     (migrations / "0001_replacement.py").write_text(replacement)
     (migrations / "0002_remove_legacy.py").write_text(
-        "from django.db import migrations\n\n"
-        "class Migration(migrations.Migration):\n"
+        "from iki_server.plugins import operations as iki\n\n"
+        "class Migration(iki.Migration):\n"
         '    dependencies = [("acme__lab", "0001_initial")]\n'
         "    operations = [\n"
-        '        migrations.RemoveField("sample", "legacy_old"),\n'
-        '        migrations.RemoveField("sample_history", "legacy_old"),\n'
+        '        iki.RemoveField("sample", "legacy_old"),\n'
+        '        iki.RemoveField("sample_history", "legacy_old"),\n'
         "    ]\n"
     )
     write_sample(lab, ("  old: { type: string }\n", ""), ("schema_version: 1", "schema_version: 2"))
@@ -152,17 +152,21 @@ def test_irreversible_migrations_block_a_rollback(lab: Path, database: str) -> N
     made("lab", "--no-input", cwd=lab.parent)
     v1 = build_to(lab.parent, "v1", "lab")
     (lab / "migrations" / "0002_backfill.py").write_text(
-        "from django.db import migrations\n\n\n"
-        "def backfill(apps, schema_editor):\n    pass\n\n\n"
-        "class Migration(migrations.Migration):\n"
+        "from iki_server.plugins import operations as iki\n\n\n"
+        "def backfill(row):\n    return {}\n\n\n"
+        "class Migration(iki.Migration):\n"
         '    dependencies = [("acme__lab", "0001_initial")]\n'
-        "    operations = [migrations.RunPython(backfill)]\n"
+        '    operations = [iki.MigrateValues("Sample", backfill, version="1.1.0", '
+        'migration="0002_backfill", reason="Check every sample.")]\n'
     )
     v2 = build_to(lab.parent, "v2", "lab")
     deployed(v1, database)
     deployed(v2, database)
     err = refused(v1, database)
-    assert "acme/lab 0002_backfill: Raw Python operation can't be reversed." in err
+    assert (
+        "acme/lab 0002_backfill: Migrate Sample values for 1.1.0: Check every sample. "
+        "can't be reversed."
+    ) in err
     assert applied(database, "acme__lab") == ["0001_initial", "0002_backfill"]
 
 
@@ -215,18 +219,18 @@ def test_a_plugin_made_for_another_iki_is_refused(
 def test_a_plugin_migration_that_needs_a_newer_iki_is_refused_naming_both(
     two_builds: tuple[Path, Path], database: str
 ) -> None:
-    """A plugin built with a newer Iki can depend on one of that Iki's migrations while its
-    `iki:` range still admits this one: refused before anything changes, naming the
-    plugin's migration and the one of Iki's it needs, not as Django's missing node."""
+    """A plugin built with a newer Iki, or by hand, can depend on that Iki's anchor while its
+    `iki:` range still admits this one: validation refuses that (ADR 0296), and so does the
+    migrate Job, before anything changes, naming the plugin's migration and the release it
+    needs, not as Django's missing node."""
     v1, _ = two_builds
     (migration,) = (v1 / "iki_plugin_acme__lab" / "migrations").glob("0001_*.py")
     source = migration.read_text()
-    needs = "dependencies = ["
-    assert needs in source
-    migration.write_text(source.replace(needs, f'{needs}("iki_entities", "0099_future"), ', 1))
+    assert "('iki_anchors', '0001_iki_0_1')" in source
+    migration.write_text(source.replace("0001_iki_0_1", "0099_iki_9_9"))
     err = refused(v1, database)
     assert "acme/lab 0001_" in err
-    assert "needs Iki's migration iki_entities 0099_future" in err
+    assert "needs Iki 9.9's anchor (iki_anchors 0099_iki_9_9)" in err
     assert "made with a newer Iki" in err and "nothing was migrated" in err
     assert "NodeNotFoundError" not in err and "nonexistent parent node" not in err
     assert query(database, "SELECT to_regclass('django_migrations')") == [(None,)]
@@ -362,7 +366,8 @@ result = [str(released.pk), str(other.pk)]
 """
 )
 
-#: A migration a plugin's author wrote by hand, rebuilding the table under its guards.
+#: A migration rebuilding the table under its guards, in raw SQL, which validation refuses
+#: (ADR 0296): built unchecked, for what the guards do on their own.
 REBUILD = """\
 from django.db import migrations
 
@@ -498,7 +503,7 @@ def test_no_write_skips_a_guard_while_a_deploy_migrates(
         made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
     else:
         (lab / "migrations" / "0002_rebuild.py").write_text(REBUILD)
-    v2 = build_to(lab.parent, "v2", "lab")
+    v2 = build_to(lab.parent, "v2", "lab", unchecked=change != "rename")
 
     during = deploy_writing(v2, database, probes)
     assert during == dict.fromkeys(probes, "blocked")
@@ -507,20 +512,19 @@ def test_no_write_skips_a_guard_while_a_deploy_migrates(
 
 
 #: A migration a plugin's author wrote by hand, after the one changing the column: it
-#: writes the rows no state locks, through whatever guards the table has at that point.
+#: writes the rows no state locks, through whatever guards the table has at that point. Its
+#: raw SQL is refused by validation (ADR 0296), so it's built unchecked.
 TOUCH = """\
 from django.db import migrations
-from iki_server.plugins.operations import MigrateValues
+from iki_server.plugins import operations as iki
 
 def lower(row):
     return {{"{column}": row.{column}.lower()}} if row.status != "released" else {{}}
 
-class Migration(migrations.Migration):
-    dependencies = [
-        ("acme__lab", "0002_change"), ("iki_entities", "0027_migrated_revisions")
-    ]
+class Migration(iki.Migration):
+    dependencies = [("acme__lab", "0002_change")]
     operations = [
-        MigrateValues("Sample", lower, version="1.1.0", migration="0003_touch",
+        iki.MigrateValues("Sample", lower, version="1.1.0", migration="0003_touch",
                       reason="Normalize the label of each open sample."),
         migrations.RunSQL("UPDATE acme__lab_sample SET lot = lot WHERE status <> 'released'",
                           migrations.RunSQL.noop),
@@ -555,7 +559,7 @@ def test_a_migration_can_change_a_guarded_column(lab: Path, database: str, chang
     (lab / "types" / "sample.yaml").write_text(text)
     made("lab", "--name", "change", cwd=lab.parent, answers="y\n")
     (lab / "migrations" / "0003_touch.py").write_text(TOUCH.format(column=column or "name"))
-    v2 = build_to(lab.parent, "v2", "lab")
+    v2 = build_to(lab.parent, "v2", "lab", unchecked=True)
 
     deployed(v2, database)
     assert applied(database, "acme__lab")[-2:] == ["0002_change", "0003_touch"]
@@ -680,7 +684,7 @@ result = [str(box.pk), str(sample.pk), str(shelf.pk)]
     made("lab", "--name", "change", cwd=lab.parent)
     (lab / "migrations" / "0003_touch.py").write_text(BOX_TOUCH)
 
-    deployed(build_to(lab.parent, "v2", "lab"), database)
+    deployed(build_to(lab.parent, "v2", "lab", unchecked=True), database)
     assert applied(database, "acme__lab")[-2:] == ["0002_change", "0003_touch"]
     assert "stored_id" not in columns(database, "acme__lab_box")
     assert query(database, "SELECT spare_id::text FROM acme__lab_box") == [(sample,)]
@@ -712,7 +716,7 @@ def test_a_deploy_that_fails_halfway_leaves_the_guards_as_they_were(
     (lab / "types" / "sample.yaml").write_text(RENAMED)
     made("lab", "--name", "rename", cwd=lab.parent, answers="y\n")
     (lab / "migrations" / "0003_fails.py").write_text(FAILS)
-    v2 = build_to(lab.parent, "v2", "lab")
+    v2 = build_to(lab.parent, "v2", "lab", unchecked=True)
 
     failed = deploy(v2, database)
     assert failed.returncode != 0, failed.stdout

@@ -30,6 +30,7 @@ from iki_spec import (
     conditions,
     helm,
     hrid_prefixes,
+    migration_api,
     naming,
     notifications,
     procedures,
@@ -352,6 +353,9 @@ def load_plugin(
     _Semantics(loaded, others, core=core, historical=historical, hrids=hrids).run(
         require_setting_policy=require_setting_policy and not historical
     )
+    if not core and not historical:
+        # An earlier commit's migrations were checked when it was made (ADR 0296).
+        loaded.checker.problems += migration_api.check(root, loaded.plugin.name, loaded.plugin.iki)
     return loaded.result()
 
 

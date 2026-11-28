@@ -123,8 +123,10 @@ and adapt. [Storage labels](https://github.com/yogesh-dhande/iki/tree/main/examp
 Keep the committed migrations. Increase a type's `schema_version` when its
 fields change, generate the next migration with `iki plugin makemigrations .`,
 and add action tests for changed behavior. For a backfill on existing records,
-use `MigrateValues` and give the expected fields in `after` on an `upgrade: true`
-fixture. Each record then carries the migration's reason. [Backfill example](https://github.com/yogesh-dhande/iki/blob/main/cli/README.md#iki-plugin-test)
+use `iki.MigrateValues` in a migration made with `iki plugin makemigrations . --empty`,
+and give the expected fields in `after` on an `upgrade: true` fixture. Each
+record then carries the migration's reason. Migrations import only
+`iki_server.plugins.operations`, so they keep working on later Iki releases. [Backfill example](https://github.com/yogesh-dhande/iki/blob/main/spec/README.md#backfilling-values)
 
 The copied agent skills cover
 [writing](.agents/skills/iki-write-plugin/SKILL.md),

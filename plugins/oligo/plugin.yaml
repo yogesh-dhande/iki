@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/oligo
-version: 0.3.1
+version: 0.3.2
 title: Oligonucleotides
 description: >-
   Modified oligonucleotides by their HELM: antisense oligonucleotides, siRNA strands and

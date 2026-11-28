@@ -38,7 +38,9 @@ Set `SKILL_DIR` to the directory containing this file and `PLUGIN` to the plugin
 sh "$SKILL_DIR/scripts/validate-and-migrate.sh" "$PLUGIN"
 ```
 
-Review the generated migration. Use the [test skill](../iki-test-plugin/SKILL.md) to exercise an `ActionTest` and any service and browser paths. For edits to an installed plugin, use the [upgrade skill](../iki-upgrade-plugin/SKILL.md).
+Review the generated migration. It imports only `iki_server.plugins.operations` (as `iki`) and depends on Iki's release anchor for the oldest release your `iki:` admits, never on Iki's own migrations, so it keeps working when Iki or Django is upgraded. Don't rewrite it with Django's imports or `RunPython`: validation refuses them and names the `iki.` wrapper to use. [Migration contract](https://github.com/yogesh-dhande/iki/blob/main/spec/README.md#migrations)
+
+Use the [test skill](../iki-test-plugin/SKILL.md) to exercise an `ActionTest` and any service and browser paths. For edits to an installed plugin, use the [upgrade skill](../iki-upgrade-plugin/SKILL.md).
 
 ## Worked example in Plate assays
 

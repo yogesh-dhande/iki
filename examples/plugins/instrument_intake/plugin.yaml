@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/instrument_intake
-version: 0.1.1
+version: 0.1.2
 title: qPCR instrument intake
 description: >-
   Brings each QuantStudio qPCR run into the facility's project from the

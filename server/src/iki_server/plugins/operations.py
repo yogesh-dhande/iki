@@ -1,17 +1,55 @@
-"""Migration operations `iki plugin makemigrations` adds to plugin migrations.
+"""What plugin migrations are written in: the one module of Iki's they import (ADR 0296).
 
-Plugin migrations import them, so they are API: their names and arguments
-never change incompatibly.
+``iki plugin makemigrations`` writes a plugin's migrations with these names alone::
+
+    from iki_server.plugins import operations as iki
+
+so a Django upgrade changes this module, never the migrations labs have committed and
+deployments have applied. Every name in ``__all__`` is API: its name and arguments never
+change incompatibly, and ``iki_spec/migration_api.json`` lists it with the release it came
+in. They are:
+
+- Django's operations, fields, index, constraint and expressions, as the command writes
+  them. Each translates its arguments to what this release's Django needs: most read like
+  Django's today, but ``CreateModel`` takes ``table``, ``indexes`` and ``constraints`` and
+  ``Q`` takes ``negated`` and ``connector``.
+- Iki's own operations, which keep history as ADR 0033 says (``AppendOnly``,
+  ``ConvertUnit``, ``RecordRename``, ``RenameEntityType``, the state operations of ADR 0125),
+  and ``MigrateValues``, the one way a plugin migration changes stored values.
+- Iki's checks of array items, and the core models plugin tables refer to (``ENTITY``,
+  ``FILE``, ``USER``).
+
+There's no ``RunPython`` or ``RunSQL``: a plugin migration that changes values gives each
+record a revision and an audit event, which ``MigrateValues`` does and raw code wouldn't.
 """
+
+from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from copy import deepcopy
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, TypedDict, TypeVar, Unpack
 
-from django.db import migrations
+from django.contrib.postgres.fields import ArrayField as _ArrayField
+from django.contrib.postgres.indexes import GinIndex as _GinIndex
+from django.contrib.postgres.search import SearchVector as _SearchVector
+from django.db import migrations, models
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.migrations.state import ProjectState
+from django.db.models import functions, lookups
+
+from iki_server.entities import fields as entity_fields
+from iki_server.entities.checks import (
+    AllBetweenFloat,
+    AllBetweenInt,
+    AllLengthsBetween,
+    AllMatch,
+    IsPlainList,
+    NoneMatch,
+)
+
+_F = TypeVar("_F", bound=Callable[..., Any])
 
 #: Set for a transaction, it lets a migration change locked records' values (ADR 0125):
 #: the triggers ``sync_plugins`` puts on records' tables let it through.
@@ -930,13 +968,31 @@ class RenameEntityType(migrations.operations.base.Operation):
         return f"rename_type_{self.new_name.split('.')[-1].lower()}"
 
 
-class AddPluginField(migrations.AddField):
-    """Add a field to a plugin table where sync_plugins can install column guards.
+class _Django:
+    """One of Django's operations under Iki's name and arguments."""
+
+    @classmethod
+    def of(cls, operation: migrations.operations.base.Operation) -> Any:  # noqa: ANN401 - an operation of this class
+        _, args, kwargs = operation.deconstruct()
+        return cls(*args, **kwargs)
+
+
+class AddField(_Django, migrations.AddField):
+    """Adds a column, where ``sync_plugins`` may later put column guards.
 
     PostgreSQL refuses to drop a column named in an UPDATE OF trigger. Reversing this
     operation first drops the affected Iki guards in the same migration transaction.
-    Consult the database since even a later, migration-free manifest can add a rule.
+    It consults the database, since even a later, migration-free manifest can add a rule.
     """
+
+    def __init__(
+        self,
+        model_name: str,
+        name: str,
+        field: models.Field[Any, Any],
+        preserve_default: bool = True,
+    ) -> None:
+        super().__init__(model_name, name, field, preserve_default)
 
     def database_backwards(
         self,
@@ -1030,3 +1086,458 @@ class AppendOnly(migrations.operations.base.Operation):
     @property
     def migration_name_fragment(self) -> str:
         return f"append_only_{self.model_name.lower()}"
+
+
+# --- Django's operations, as plugin migrations are written in them (ADR 0296) -------------------
+#
+# Each is Django's, with Iki's arguments. ``of`` makes one from the operation Django's
+# autodetector made, for the writer; ``deconstruct`` gives Iki's arguments back, so a
+# migration read from its file writes the same file again.
+
+
+class Migration(migrations.Migration):
+    """A plugin's migration: ``class Migration(iki.Migration)``."""
+
+
+class CreateModel(_Django, migrations.CreateModel):
+    """A table: its model's fields, its table's name, and its indexes and constraints."""
+
+    def __init__(
+        self,
+        name: str,
+        fields: Sequence[tuple[str, models.Field[Any, Any]]],
+        *,
+        table: str,
+        indexes: Sequence[models.Index] = (),
+        constraints: Sequence[models.BaseConstraint] = (),
+        bases: Sequence[str] = (),
+    ) -> None:
+        options: dict[str, Any] = {"db_table": table}
+        if indexes:
+            options["indexes"] = list(indexes)
+        if constraints:
+            options["constraints"] = list(constraints)
+        super().__init__(name, list(fields), options=options, bases=tuple(bases) or None)
+
+    @classmethod
+    def of(cls, operation: migrations.operations.base.Operation) -> CreateModel:
+        assert isinstance(operation, migrations.CreateModel)  # noqa: S101 - the writer's lookup
+        options = dict(operation.options)
+        unknown = sorted(set(options) - {"db_table", "indexes", "constraints"})
+        if unknown or "db_table" not in options:
+            raise ValueError(
+                f"{operation.name} has the options {unknown or 'without db_table'}, which "
+                "Iki's CreateModel doesn't take."
+            )
+        if operation.managers and operation.managers != [("objects", models.Manager())]:
+            raise ValueError(
+                f"{operation.name} has managers, which Iki's CreateModel doesn't take."
+            )
+        bases = () if operation.bases in (None, (models.Model,)) else tuple(operation.bases or ())
+        if not all(isinstance(b, str) for b in bases):
+            raise ValueError(f"{operation.name}'s bases aren't models' labels: {bases}.")
+        return cls(
+            operation.name,
+            operation.fields,
+            table=options["db_table"],
+            indexes=options.get("indexes", ()),
+            constraints=options.get("constraints", ()),
+            bases=[str(b) for b in bases],
+        )
+
+    def deconstruct(self) -> tuple[str, list[Any], dict[str, Any]]:
+        kwargs: dict[str, Any] = {
+            "name": self.name,
+            "fields": self.fields,
+            "table": self.options["db_table"],
+        }
+        for option in ("indexes", "constraints"):
+            if self.options.get(option):
+                kwargs[option] = self.options[option]
+        if self.bases and self.bases != (models.Model,):
+            kwargs["bases"] = self.bases
+        return (self.__class__.__qualname__, [], kwargs)
+
+
+class DeleteModel(_Django, migrations.DeleteModel):
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+
+
+class RenameModel(_Django, migrations.RenameModel):
+    def __init__(self, old_name: str, new_name: str) -> None:
+        super().__init__(old_name, new_name)
+
+
+class AlterModelTable(_Django, migrations.AlterModelTable):
+    def __init__(self, name: str, table: str) -> None:
+        super().__init__(name, table)
+
+
+class RemoveField(_Django, migrations.RemoveField):
+    def __init__(self, model_name: str, name: str) -> None:
+        super().__init__(model_name, name)
+
+
+class AlterField(_Django, migrations.AlterField):
+    def __init__(
+        self,
+        model_name: str,
+        name: str,
+        field: models.Field[Any, Any],
+        preserve_default: bool = True,
+    ) -> None:
+        super().__init__(model_name, name, field, preserve_default)
+
+
+class RenameField(_Django, migrations.RenameField):
+    def __init__(self, model_name: str, old_name: str, new_name: str) -> None:
+        super().__init__(model_name, old_name, new_name)
+
+
+class AddIndex(_Django, migrations.AddIndex):
+    def __init__(self, model_name: str, index: models.Index) -> None:
+        super().__init__(model_name, index)
+
+
+class RemoveIndex(_Django, migrations.RemoveIndex):
+    def __init__(self, model_name: str, name: str) -> None:
+        super().__init__(model_name, name)
+
+
+class RenameIndex(_Django, migrations.RenameIndex):
+    def __init__(
+        self,
+        model_name: str,
+        new_name: str,
+        old_name: str | None = None,
+        old_fields: Sequence[str] | None = None,
+    ) -> None:
+        super().__init__(model_name, new_name, old_name, old_fields)
+
+
+class AddConstraint(_Django, migrations.AddConstraint):
+    def __init__(self, model_name: str, constraint: models.BaseConstraint) -> None:
+        super().__init__(model_name, constraint)
+
+
+class RemoveConstraint(_Django, migrations.RemoveConstraint):
+    def __init__(self, model_name: str, name: str) -> None:
+        super().__init__(model_name, name)
+
+
+#: Iki's operation for each of Django's the autodetector makes, for the writer.
+OF_DJANGO: dict[type[migrations.operations.base.Operation], type[_Django]] = {
+    migrations.CreateModel: CreateModel,
+    migrations.DeleteModel: DeleteModel,
+    migrations.RenameModel: RenameModel,
+    migrations.AlterModelTable: AlterModelTable,
+    migrations.AddField: AddField,
+    migrations.RemoveField: RemoveField,
+    migrations.AlterField: AlterField,
+    migrations.RenameField: RenameField,
+    migrations.AddIndex: AddIndex,
+    migrations.RemoveIndex: RemoveIndex,
+    migrations.RenameIndex: RenameIndex,
+    migrations.AddConstraint: AddConstraint,
+    migrations.RemoveConstraint: RemoveConstraint,
+}
+
+
+# --- Fields, the index, the constraint and expressions ------------------------------------------
+#
+# Each makes Django's object, which is what models and migration states compare. The writer
+# writes one with the name ``WRITTEN_AS`` gives its class, renaming the arguments Django's
+# ``deconstruct`` gives to Iki's and leaving out those the wrapper itself implies.
+
+
+@dataclass(frozen=True)
+class WrittenAs:
+    name: str
+    #: Django's name for an argument, and Iki's.
+    renamed: Mapping[str, str] = field(default_factory=dict)
+    #: Arguments the wrapper gives Django itself, so a migration doesn't.
+    implied: Mapping[str, Any] = field(default_factory=dict)
+
+
+#: How each of Django's classes is written: by the name of its wrapper.
+WRITTEN_AS: dict[type, WrittenAs] = {}
+
+_UNSET: Any = models.NOT_PROVIDED
+
+
+def _written_as(django: type, **how: Any) -> Callable[[_F], _F]:  # noqa: ANN401 - WrittenAs's fields
+    def register(wrapper: _F) -> _F:
+        WRITTEN_AS[django] = WrittenAs(wrapper.__name__, **how)
+        return wrapper
+
+    return register
+
+
+class _Options(TypedDict, total=False):
+    """What every field may say about its column."""
+
+    null: bool
+    default: Any
+    db_default: Any
+    db_index: bool
+    db_column: str
+    db_comment: str
+
+
+@_written_as(models.TextField)
+def TextField(**options: Unpack[_Options]) -> models.TextField[Any, Any]:  # noqa: N802 - named as the field
+    return models.TextField(**options)
+
+
+@_written_as(models.CharField)
+def CharField(*, max_length: int, **options: Unpack[_Options]) -> models.CharField[Any, Any]:  # noqa: N802
+    return models.CharField(max_length=max_length, **options)
+
+
+@_written_as(models.BigIntegerField)
+def BigIntegerField(**options: Unpack[_Options]) -> models.BigIntegerField[Any, Any]:  # noqa: N802
+    return models.BigIntegerField(**options)
+
+
+@_written_as(models.PositiveIntegerField)
+def PositiveIntegerField(**options: Unpack[_Options]) -> models.PositiveIntegerField[Any, Any]:  # noqa: N802
+    return models.PositiveIntegerField(**options)
+
+
+@_written_as(models.FloatField)
+def FloatField(**options: Unpack[_Options]) -> models.FloatField[Any, Any]:  # noqa: N802
+    return models.FloatField(**options)
+
+
+@_written_as(models.BooleanField)
+def BooleanField(**options: Unpack[_Options]) -> models.BooleanField[Any, Any]:  # noqa: N802
+    return models.BooleanField(**options)
+
+
+@_written_as(models.DateField)
+def DateField(**options: Unpack[_Options]) -> models.DateField[Any, Any]:  # noqa: N802
+    return models.DateField(**options)
+
+
+@_written_as(models.DateTimeField)
+def DateTimeField(**options: Unpack[_Options]) -> models.DateTimeField[Any, Any]:  # noqa: N802
+    return models.DateTimeField(**options)
+
+
+@_written_as(models.UUIDField)
+def UUIDField(**options: Unpack[_Options]) -> models.UUIDField[Any, Any]:  # noqa: N802
+    return models.UUIDField(**options)
+
+
+@_written_as(models.JSONField)
+def JSONField(**options: Unpack[_Options]) -> models.JSONField[Any, Any]:  # noqa: N802
+    return models.JSONField(**options)
+
+
+class _Relation(_Options, total=False):
+    related_name: str
+
+
+@_written_as(models.ForeignKey)
+def ForeignKey(  # noqa: N802
+    *, to: str, on_delete: Callable[..., None], **options: Unpack[_Relation]
+) -> models.ForeignKey[Any, Any]:
+    return models.ForeignKey(to=to, on_delete=on_delete, **options)
+
+
+class _ParentLink(_Relation, total=False):
+    parent_link: bool
+    primary_key: bool
+    serialize: bool
+
+
+@_written_as(models.OneToOneField)
+def OneToOneField(  # noqa: N802
+    *, to: str, on_delete: Callable[..., None], **options: Unpack[_ParentLink]
+) -> models.OneToOneField[Any, Any]:
+    return models.OneToOneField(to=to, on_delete=on_delete, **options)
+
+
+@_written_as(_ArrayField)
+def ArrayField(  # noqa: N802
+    base_field: models.Field[Any, Any], **options: Unpack[_Options]
+) -> _ArrayField[Any, Any]:
+    return _ArrayField(base_field, **options)
+
+
+_COMPOSITE = {"blank": True, "editable": False, "primary_key": True, "serialize": False}
+
+
+@_written_as(models.CompositePrimaryKey, implied=_COMPOSITE)
+def CompositePrimaryKey(*fields: str) -> models.CompositePrimaryKey:  # noqa: N802
+    """A key of several columns: a list's (entity, position), a history's (entity, revision)."""
+    # As a model's primary key is: not serialized, which its model gives it, and its state needs.
+    return models.CompositePrimaryKey(*fields, serialize=False)
+
+
+@_written_as(entity_fields.QuantityField)
+def QuantityField(*, unit: str, **options: Unpack[_Options]) -> entity_fields.QuantityField:  # noqa: N802
+    """A quantity, in its canonical UCUM unit: a change of unit converts it (ADR 0033)."""
+    return entity_fields.QuantityField(unit=unit, **options)
+
+
+@_written_as(entity_fields.StateField)
+def StateField(  # noqa: N802
+    *,
+    states: Sequence[str],
+    moved: Mapping[str, str] | None = None,
+    locking: Sequence[str] = (),
+    moved_from: Mapping[str, Mapping[str, str]] | None = None,
+    **options: Unpack[_Options],
+) -> entity_fields.StateField:
+    """A state field's states, where removed ones' records went, and the locking ones
+    (ADR 0125)."""
+    return entity_fields.StateField(
+        states=states, moved=moved, locking=locking, moved_from=moved_from, **options
+    )
+
+
+@_written_as(_GinIndex)
+def GinIndex(  # noqa: N802
+    *expressions: Any,  # noqa: ANN401 - expressions
+    name: str,
+    fields: Sequence[str] = (),
+    opclasses: Sequence[str] = (),
+) -> _GinIndex:
+    return _GinIndex(*expressions, name=name, fields=list(fields), opclasses=list(opclasses))
+
+
+@_written_as(models.CheckConstraint)
+def CheckConstraint(*, condition: Any, name: str) -> models.CheckConstraint:  # noqa: ANN401, N802 - an expression
+    """A named CHECK constraint, such as ``acme__lab_sample__name__not_empty`` (ADR 0033)."""
+    return models.CheckConstraint(condition=condition, name=name)
+
+
+@_written_as(models.Q, renamed={"_connector": "connector", "_negated": "negated"})
+def Q(  # noqa: N802
+    *conditions: Any,  # noqa: ANN401 - (lookup, value) pairs and expressions
+    connector: str = models.Q.AND,
+    negated: bool = False,
+) -> models.Q:
+    """Conditions, each a ``(lookup, value)`` pair such as ``('name__regex', '^A')`` or an
+    expression, all of which (``connector='AND'``) or any of which (``'OR'``) hold."""
+    return models.Q(*conditions, _connector=connector, _negated=negated)
+
+
+@_written_as(functions.Length)
+def Length(expression: Any) -> functions.Length:  # noqa: ANN401, N802 - a column or expression
+    return functions.Length(expression)
+
+
+@_written_as(functions.Left)
+def Left(expression: Any, length: int) -> functions.Left:  # noqa: ANN401, N802
+    return functions.Left(expression, length)
+
+
+@_written_as(lookups.GreaterThanOrEqual)
+def GreaterThanOrEqual(lhs: Any, rhs: Any) -> lookups.GreaterThanOrEqual:  # noqa: ANN401, N802
+    return lookups.GreaterThanOrEqual(lhs, rhs)
+
+
+@_written_as(lookups.LessThanOrEqual)
+def LessThanOrEqual(lhs: Any, rhs: Any) -> lookups.LessThanOrEqual:  # noqa: ANN401, N802
+    return lookups.LessThanOrEqual(lhs, rhs)
+
+
+@_written_as(_SearchVector)
+def SearchVector(  # noqa: N802
+    *expressions: Any,  # noqa: ANN401
+    config: str | None = None,
+) -> _SearchVector:
+    return _SearchVector(*expressions, config=config)
+
+
+# Checks of each item of an array (``iki_server.entities.checks``), by their own names.
+for _check in (IsPlainList, AllMatch, NoneMatch, AllLengthsBetween, AllBetweenInt, AllBetweenFloat):
+    WRITTEN_AS[_check] = WrittenAs(_check.__name__)
+del _check
+
+#: What happens to a row when what it refers to goes: references are protected, and a list's
+#: rows go with their record.
+PROTECT = models.PROTECT
+CASCADE = models.CASCADE
+#: The core models plugin tables refer to: every record, a file, and a person.
+ENTITY = "iki_entities.entity"
+FILE = "iki_files.file"
+USER = "iki_accounts.user"
+
+#: Constants the writer writes by name.
+CONSTANTS: dict[str, object] = {
+    "PROTECT": PROTECT,
+    "CASCADE": CASCADE,
+    "ENTITY": ENTITY,
+    "FILE": FILE,
+    "USER": USER,
+}
+
+__all__ = [
+    "CASCADE",
+    "ENTITY",
+    "FILE",
+    # Constants.
+    "PROTECT",
+    "USER",
+    "AddConstraint",
+    "AddField",
+    "AddIndex",
+    "AllBetweenFloat",
+    "AllBetweenInt",
+    "AllLengthsBetween",
+    "AllMatch",
+    "AlterField",
+    "AlterModelTable",
+    # Iki's.
+    "AppendOnly",
+    "ArrayField",
+    "BigIntegerField",
+    "BooleanField",
+    "CharField",
+    "CheckConstraint",
+    "CompositePrimaryKey",
+    "ConvertUnit",
+    # Django's operations.
+    "CreateModel",
+    "DateField",
+    "DateTimeField",
+    "DeleteModel",
+    "FloatField",
+    "ForeignKey",
+    # The index, the constraint and expressions.
+    "GinIndex",
+    "GreaterThanOrEqual",
+    # Checks of array items.
+    "IsPlainList",
+    "JSONField",
+    "Left",
+    "Length",
+    "LessThanOrEqual",
+    "MigrateValues",
+    "Migration",
+    "NoneMatch",
+    "OneToOneField",
+    "PositiveIntegerField",
+    "Q",
+    "QuantityField",
+    "RecordRename",
+    "RemoveConstraint",
+    "RemoveField",
+    "RemoveIndex",
+    "RenameEntityType",
+    "RenameField",
+    "RenameIndex",
+    "RenameModel",
+    "RenameStateField",
+    "RetireStateField",
+    "SearchVector",
+    "StateField",
+    "SyncStates",
+    # Fields.
+    "TextField",
+    "UUIDField",
+]

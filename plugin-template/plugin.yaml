@@ -7,7 +7,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/example
-version: 0.1.0
+version: 0.1.1
 title: Sample storage
 description: Register samples in a project and record where they are stored.
 # An SPDX identifier. For a plugin only your company uses, "LicenseRef-Proprietary".

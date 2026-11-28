@@ -77,6 +77,8 @@ INSTALLED_APPS = [
     # The core plugin's types (iki/core.Collection), which every deployment has
     # (ADR 0038). Its app is generated like any plugin's: `make core`.
     "iki_plugin_iki__core.apps.PluginConfig",
+    # After every one of Iki's apps: what plugin migrations depend on (ADR 0296).
+    "iki_server.anchors",
     "oauth2_provider",
     "allauth",
     "allauth.account",

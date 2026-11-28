@@ -2,7 +2,7 @@
 
 - Status: Accepted (amended 2026-11-27: a deployment can give a type another HRID
   prefix, and Iki publishes the prefixes it keeps; the decision is
-  [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md)'s)
+  [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md)'s; refined by [0296](0296-plugin-migrations-use-ikis-operations-and-depend-on-release-anchors.md): what plugin migrations import and depend on)
 - Date: 2026-11-10
 - Refines: [0006](0006-deploy-time-plugins-as-django-apps.md),
   [0007](0007-typed-table-per-type-entity-storage.md)

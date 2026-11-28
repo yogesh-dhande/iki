@@ -285,7 +285,9 @@ result = None
     made("lab", "--name", "changes", cwd=lab.parent, answers="y\n")
     migration = (lab / "migrations" / "0002_changes.py").read_text()
     assert "RecordRename(" in migration and "part='acme/lab.Sample'" in migration
-    assert ("iki_plugins", "0006_history_changes") in _dependencies(migration)
+    # It records them in Iki's history tables, which come with Iki's anchor (ADR 0296).
+    assert ("iki_anchors", "0001_iki_0_1") in _dependencies(migration)
+    assert "iki_plugins" not in migration
     out = build(lab.parent, "lab")
     migrate(out, database)
     # What the migration did is kept, and nothing changes or deletes it, its owner included.

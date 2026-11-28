@@ -5,6 +5,9 @@ temporary directory and runs this module there::
 
     python -m iki_server.plugins.makemigrations PLUGIN... [--name NAME] [--check] [--no-input]
 
+It exits 1 when ``--check`` finds changes, and when it can't make or check migrations, which
+it says on stderr, starting ``error:``.
+
 It runs Django's own command, with its questions about renames, against the
 dummy database backend, so nothing needs a database. On top, it keeps every
 type's history:
@@ -33,8 +36,10 @@ type's history:
   locks locked (``RenameStateField``). A field can't become a state field,
   or stop being one.
 
-Migrations are written as Django renders them, never through a code
-formatter, so every machine writes the same files.
+A plugin's migrations are written in Iki's operations, depending on Iki's release anchors
+(:mod:`iki_server.plugins.migration_writer`, ADR 0296); the core plugin's are Iki's own, as
+Django writes them. Neither goes through a code formatter, so every machine writes the same
+files.
 """
 
 from __future__ import annotations
@@ -68,9 +73,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     from django.core.management import call_command
     from django.core.management.base import CommandError
     from django.core.management.commands import makemigrations
+    from django.db.migrations.exceptions import NodeNotFoundError
+
+    from iki_server.plugins.migration_writer import PluginMigrationWriter
 
     # A formatter on the PATH (black) would make output differ between machines.
     makemigrations.run_formatters = lambda *_args, **_kwargs: None  # type: ignore[attr-defined]
+    # Plugin migrations are written in Iki's operations (ADR 0296).
+    makemigrations.MigrationWriter = PluginMigrationWriter  # type: ignore[attr-defined]
     try:
         call_command(
             _command(),
@@ -85,7 +95,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     except CommandError as error:
         sys.stderr.write(f"error: {error}\n")
         return 1
+    except NodeNotFoundError as missing:
+        sys.stderr.write(f"error: {_missing(missing)}\n")
+        return 1
     return 0
+
+
+def _missing(missing: Any) -> str:  # noqa: ANN401 - Django's NodeNotFoundError
+    """What a migration depends on that the build hasn't got, without Django's traceback."""
+    from iki_spec import migration_api, naming, releases
+
+    origin = getattr(missing, "origin", None)
+    needing = (
+        f"{naming.plugin_of_label(origin.app_label) or origin.app_label} {origin.name}"
+        if origin is not None and hasattr(origin, "app_label")
+        else "A migration"
+    )
+    app, name = missing.node
+    if app == migration_api.ANCHORS_APP:
+        return (
+            f"{needing} depends on Iki's anchor {name}, which this Iki ({releases.iki()}) "
+            "hasn't got: it was made with a newer Iki. Use an Iki that has it, or a release of "
+            "the plugin made for this one."
+        )
+    plugin = naming.plugin_of_label(app)
+    if plugin is not None and plugin != naming.CORE:
+        return f"{needing} depends on {plugin} {name}, which the {plugin} given hasn't got."
+    return (
+        f"{needing} depends on {app} {name}, one of Iki's own migrations this Iki hasn't got. "
+        "A plugin migration depends on Iki's anchors instead (ADR 0296)."
+    )
 
 
 def _command() -> Any:  # noqa: ANN401 - a Django command, built after setup
@@ -122,7 +161,7 @@ def _autodetector() -> type:
 
     from iki_server.entities.fields import StateField
     from iki_server.plugins.operations import (
-        AddPluginField,
+        AddField,
         AppendOnly,
         ConvertUnit,
         RecordRename,
@@ -270,7 +309,7 @@ def _autodetector() -> type:
                     elif hasattr(model, "IKI_TYPE") or hasattr(model, "IKI_ADDS_TO"):
                         # Live plugin columns can acquire a field or rule guard even in a
                         # later manifest with no migration (ADR 0127).
-                        op = AddPluginField(op.model_name, op.name, op.field, op.preserve_default)
+                        op = AddField(op.model_name, op.name, op.field, op.preserve_default)
                 out.append(op)
                 if isinstance(op, migrations.RemoveField) and _is_history(op.model_name):
                     owner = self._describe(app_label, op.model_name, self.from_state)

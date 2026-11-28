@@ -101,6 +101,14 @@ Iki's rules for history (see [ADR 0033](../docs/adr/0033-plugin-codegen-and-migr
   values, current and historical.
 - Renaming a type renames its entities' type too.
 
+It writes the migration in `iki_server.plugins.operations` alone, which Iki
+keeps working across its releases and Django's, and has it depend on the
+release anchor of the oldest Iki the plugin's `iki:` admits rather than on
+Iki's own migrations (see [ADR 0296](../docs/adr/0296-plugin-migrations-use-ikis-operations-and-depend-on-release-anchors.md)
+and the [manifest spec](../spec/README.md#migrations)). `validate`, `build`
+and `iki deploy build` refuse a migration that imports anything else, or
+that needs a newer Iki than `iki:` admits.
+
 | Option             | What it does                                                                    |
 | ------------------ | ------------------------------------------------------------------------------- |
 | `DIRECTORY`        | The plugin's directory. Defaults to the current one.                            |
@@ -195,27 +203,26 @@ is still there with its history. Last, it deploys the earlier commit again,
 as a rollback, and checks the samples' values came back. The database is
 dropped at the end.
 
-For a backfill, define a function in the migration file that reads one row
-and returns a mapping of field names to new column values. An empty mapping skips
-the row. Foreign-key columns take IDs. Keep state transitions in the generated
-state operations. Add the dependency on `("iki_entities", "0027_migrated_revisions")`.
+For a backfill, make an empty migration (`iki plugin makemigrations --empty`)
+and define a function in it that reads one row and returns a mapping of field
+names to new column values. An empty mapping skips the row. Foreign-key
+columns take IDs. Keep state transitions in the generated state operations.
 
 ```python
-from django.db import migrations
-from iki_server.plugins.operations import MigrateValues
+from iki_server.plugins import operations as iki
 
 
 def fill_notes(row):
     return {"notes": row.name} if row.notes is None else {}
 
 
-class Migration(migrations.Migration):
+class Migration(iki.Migration):
     dependencies = [
         ("acme__lab", "0002_notes"),
-        ("iki_entities", "0027_migrated_revisions"),
     ]
+
     operations = [
-        MigrateValues(
+        iki.MigrateValues(
             "Sample",
             fill_notes,
             version="1.1.0",
