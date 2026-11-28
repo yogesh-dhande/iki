@@ -120,10 +120,12 @@ with it, and its own HELM reader is gone.
   its SHA-256 joins the build digest as `iki_wasm_sha256`, computed alike by
   `iki deploy build` and the worker. The server image's iki-spec carries the module its
   wasm stage verified, with the pin beside it, and `iki deploy build` checks it against
-  that pin again. A checkout's module is cargo's build on its own host, whose bytes
-  differ from the pin's by the paths it was built in, even on Linux x86-64: it has no
-  pin beside it and goes by its digest, which still names exactly the bytes a worker
-  gets.
+  that pin again: other bytes are refused by any build. A pinned build, as a release's
+  and a deployment's setup builds are (they run in the server image), also refuses a
+  module without that pin. A checkout's module is cargo's build on its own host, whose
+  bytes differ from the pin's by the paths it was built in, even on Linux x86-64: a
+  development build bundles it by its digest alone, which still names exactly the bytes
+  a worker gets.
 - **The environment has it at a fixed place**, `share/iki-runtime/iki_wasm.wasm` under
   its prefix, since a worker passes actions no environment of their own. The build
   compiles it there for its machine (`python -m iki_runtime.helm precompile`), so a run

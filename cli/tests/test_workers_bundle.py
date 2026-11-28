@@ -288,22 +288,42 @@ def test_iki_wasm_that_isnt_the_module_its_pin_names_is_refused(
         workers.write([item], tmp_path / "bundle")
 
 
-def test_a_checkouts_iki_wasm_goes_by_its_digest(
+def test_a_checkouts_iki_wasm_goes_by_its_digest_in_a_development_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carried: plugin_runtime.Module
 ) -> None:
     """A checkout's module is cargo's build on its own host, which no pin describes (its
-    bytes differ by the paths it was built in, even on Linux x86-64): it's bundled as it
-    is, pinned build or not, and the digest names exactly those bytes."""
+    bytes differ by the paths it was built in, even on Linux x86-64): a development build
+    bundles it as it is, on any platform, and the digest names exactly those bytes."""
     item = _protein(tmp_path, WASMTIME, helm=True)
     built = plugin_runtime.Module(carried.path, carried.sha256, None)
     monkeypatch.setattr(plugin_runtime, "wasm", lambda: built)
     monkeypatch.setattr(workers, "_digests_hold_here", lambda: True)
     out = tmp_path / "protein.tar.gz"
-    workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
+    workers.bundle("acme/protein", item.directory, out, helm=True)
     with tarfile.open(out) as tar:
         member = tar.extractfile(".iki-runtime/iki_wasm.wasm")
         assert member is not None
         assert member.read() == carried.path.read_bytes()
+    workers.write([item], tmp_path / "bundle")
+    assert (tmp_path / "bundle" / workers.RUNTIME_WASM).read_bytes() == carried.path.read_bytes()
+
+
+def test_a_pinned_build_needs_iki_wasm_with_its_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carried: plugin_runtime.Module
+) -> None:
+    """A pinned build, as a release's is, bundles only the module the server image
+    verified, which carries its pin beside it: a checkout's own is refused."""
+    item = _protein(tmp_path, WASMTIME, helm=True)
+    built = plugin_runtime.Module(carried.path, carried.sha256, None)
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: built)
+    out = tmp_path / "protein.tar.gz"
+    with pytest.raises(ValueError, match="A pinned build needs iki-wasm's module"):
+        workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
+    assert not out.exists()
+    # With its pin, it's bundled.
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: carried)
+    workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
+    assert out.is_file()
 
 
 def test_iki_spec_reads_iki_wasms_pin_only_from_beside_the_module(

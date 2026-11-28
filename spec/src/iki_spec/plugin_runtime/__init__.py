@@ -17,7 +17,8 @@ SHA-256 joins the environment's build digest. The server image's iki-spec carrie
 module its wasm stage verified against ``server/iki_wasm.wasm.sha256``, with that pin
 beside it, and is checked against it again. A checkout's is cargo's build on its own
 host, whose bytes differ from the pin's by the paths cargo builds them in (even on Linux
-x86-64), so it has no pin to be checked against: it goes by its digest alone.
+x86-64), so it has no pin to be checked against: a development build takes it by its digest
+alone, and a pinned build refuses it.
 """
 
 from __future__ import annotations
