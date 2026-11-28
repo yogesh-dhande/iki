@@ -36,7 +36,7 @@ class Migration(migrations.Migration):
                     "list_type",
                     models.CharField(
                         blank=True,
-                        db_comment="A list curator's list, such as iki/lots.LotMethod; null for a role over the whole registry (ADR 0292).",
+                        db_comment="A list curator's list, such as iki/lots.PurityMethod; null for a role over the whole registry (ADR 0292).",
                         max_length=112,
                         null=True,
                     ),

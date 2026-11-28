@@ -1,5 +1,525 @@
 ID   WI-38
 AC   CVCL_0579
+SY   Wi-38; WI 38; WI38; Wistar Institute-38; AG06814E; AG06814G; AG06814H; AG06814-J; AG06814J; AG06814-M; AG06814-N
+DR   BTO; BTO_0000458
+DR   CLO; CLO_0009591
+DR   CLO; CLO_0009594
+DR   CLO; CLO_0035526
+DR   CLO; CLO_0035534
+DR   EFO; EFO_0001260
+DR   MCCL; MCC:0000485
+DR   CLDB; cl4703
+DR   CLDB; cl4704
+DR   CLDB; cl4705
+DR   AddexBio; T0016037/5007
+DR   ArrayExpress; E-MTAB-38
 DR   ATCC; CCL-75
+DR   ATCC; CRL-7728
+DR   BioSample; SAMN01821606
+DR   BioSample; SAMN01821721
+DR   BioSample; SAMN03471285
+DR   cancercelllines; CVCL_0579
+DR   CCRID; 1101HUM-PUMC000210
+DR   CCRID; 1102HUM-NIFDC00067
+DR   CCRID; 3101HUMGNHu42
+DR   CCRID; 3101HUMSCSP521
+DR   CCRID; 4201HUM-CCTCC00016
+DR   CCTCC; GDC0016
+DR   ChEMBL-Cells; CHEMBL3307476
+DR   ChEMBL-Cells; CHEMBL3307614
+DR   ChEMBL-Targets; CHEMBL612806
+DR   ChEMBL-Targets; CHEMBL614391
+DR   CLS; 300428
 DR   Coriell; AG06814-J
+DR   Coriell; AG06814-M
+DR   Coriell; AG06814-N
+DR   ECACC; 90020107
+DR   GEO; GSE12450
+DR   GEO; GSE33710
+DR   GEO; GSM827323
+DR   GEO; GSM1022634
+DR   GEO; GSM1022637
+DR   GEO; GSM1022647
+DR   GEO; GSM1022655
+DR   GEO; GSM1887928
+DR   GEO; GSM1887984
+DR   IGRhCellID; WI38
+DR   IZSLER; BS CL 90
+DR   JCRB; IFO50075
+DR   JCRB; JCRB9017
+DR   KCB; KCB 200556YJ
+DR   KCLB; 10075
+DR   Lonza; 495
+DR   Progenetix; CVCL_0579
+DR   PubChem_Cell_line; CVCL_0579
+DR   RCB; RCB0702
+DR   RCB; RCB0704
+DR   TKG; TKG 0360
+DR   Wikidata; Q7950532
+RX   CelloPub=CLPUB00391;
+RX   CelloPub=CLPUB00597;
+RX   DOI=10.1007/BF02618370;
+RX   DOI=10.1016/B978-0-12-007903-2.50014-3;
+RX   DOI=10.1038/498407a;
+RX   DOI=10.1038/498422a;
+RX   DOI=10.11418/jtca1981.16.3_147;
+RX   PubMed=211143;
+RX   PubMed=352912;
+RX   PubMed=535915;
+RX   PubMed=656543;
+RX   PubMed=699332;
+RX   PubMed=1031681;
+RX   PubMed=1249414;
+RX   PubMed=1756776;
+RX   PubMed=3016668;
+RX   PubMed=4203458;
+RX   PubMed=4329447;
+RX   PubMed=4695793;
+RX   PubMed=4817727;
+RX   PubMed=5347639;
+RX   PubMed=5668122;
+RX   PubMed=5801069;
+RX   PubMed=5834207;
+RX   PubMed=5956336;
+RX   PubMed=6256643;
+RX   PubMed=6409440;
+RX   PubMed=6538202;
+RX   PubMed=6887978;
+RX   PubMed=7065527;
+RX   PubMed=7972006;
+RX   PubMed=14064953;
+RX   PubMed=14218592;
+RX   PubMed=14315085;
+RX   PubMed=17395773;
+RX   PubMed=17792436;
+RX   PubMed=19896956;
+RX   PubMed=20215515;
+RX   PubMed=22984048;
+RX   PubMed=25063771;
+RX   PubMed=25903999;
+RX   PubMed=29546209;
+WW   Info; -; -; https://web.archive.org/web/20160502013052/http://www.bioedge.org/bioethics/bioethics_article/10637
+WW   Info; -; -; https://web.archive.org/web/20170206220904/http://www.ascb.org/activation-energy/the-story-of-wi-38-the-other-famous-cell-line/
+WW   Info; -; -; https://web.archive.org/web/20200208221629/https://www.aginginterventionfoundation.org/BookReview2.pdf
+WW   Info; Slate; -; https://www.slate.com/articles/technology/future_tense/2017/03/the_woman_whose_aborted_fetus_helped_create_the_rubella_vaccine.html
+WW   Info; Wikipedia; -; https://en.wikipedia.org/wiki/WI-38
+CC   Group: Space-flown cell line (cellonaut).
+CC   Group: Vaccine production cell line.
+CC   Part of: Naval Biosciences Laboratory (NBL) collection (transferred to ATCC in 1982).
+CC   Population: Caucasian; Swedish.
+CC   Biotechnology: Used for the production of RA27/3 - the first rubella virus vaccine.
+CC   Biotechnology: Used for the production of live oral adenovirus type 4 and type 7 vaccine used by the US military. Produced first by Wyeth Laboratories from 1971 to 1999 and from 2011 onward by Barr Pharmaceuticals.
+CC   Biotechnology: Was used in the early 1970's for the production of the Human Diploid Cell Vaccine (HDCV) vaccine against rabies by Institut Merieux.
+CC   Characteristics: Used in many context such as senescence and aging studies.
+CC   Senescence: Life expectancy of 50 +- 10 population doublings. Senesces at 38 PDL (PubMed=17395773).
+CC   Doubling time: ~24 hours (ATCC=CCL-75; ECACC=90020107).
+CC   Omics: Genomics; ChIP-seq; CTCF.
+CC   Omics: Transcriptomics; Microarray.
+CC   Omics: Transcriptomics; miRNA profiling; Microarray.
+CC   Omics: Variations; SNP array analysis.
+CC   Anecdotal: Leonard Hayflick when numbering diploid cell strains 'jumped' directly from WI-27 (which failed) to WI-38 (CelloPub=CLPUB00391).
+CC   Anecdotal: Have been flown in space on Skylab-3 to study growth in microgravity (PubMed=352912).
+CC   Discontinued: ATCC; CRL-7728; true.
+CC   Discontinued: JCRB; JCRB9017; true.
+CC   Discontinued: KCLB; 10075; probable.
+CC   Derived from site: In situ; Fetal lung; UBERON=UBERON_0005597.
+CC   Cell type: Fibroblast of lung; CL=CL_0002553.
+ST   Source(s): AddexBio=T0016037/5007; ATCC=CCL-75; CCRID; ECACC=90020107; JCRB=IFO50075; JCRB=JCRB9017; RCB=RCB0702; RCB=RCB0704; Technion Genomics Center
+ST   Amelogenin: X
+ST   CSF1PO: 10,12
+ST   D10S1248: 13,15
+ST   D12S391: 21,23
+ST   D13S317: 11
+ST   D16S539: 11,12
+ST   D18S51: 16,18
+ST   D19S433: 13,16.2
+ST   D1S1656: 11,18.3
+ST   D21S11: 30,30.2
+ST   D22S1045: 11,17
+ST   D2S1338: 19,25
+ST   D2S441: 11
+ST   D3S1358: 16,17
+ST   D5S818: 10
+ST   D7S820: 9,11
+ST   D8S1179: 14
+ST   FGA: 22,24
+ST   Penta D: 13
+ST   Penta E: 13,14
+ST   TH01: 8,9.3
+ST   TPOX: 8
+ST   vWA: 19,20
+OX   NCBI_TaxID=9606; ! Homo sapiens (Human)
+SX   Female
+AG   16FW
+CA   Finite cell line
+DT   Created: 04-04-12; Last updated: 27-11-25; Version: 46
+CH   CVCL_1R80 ! GM08854
+CH   CVCL_1R88 ! GM10322
+CH   CVCL_1R89 ! GM10323
+CH   CVCL_3142 ! PSV811
+CH   CVCL_7871 ! UTHs
+CH   CVCL_YU09 ! WI-38 (HSV-2)Tr
+CH   CVCL_L281 ! WI-38 CT-1
+CH   CVCL_5605 ! WI-38 Tr
+CH   CVCL_2759 ! WI-38 VA13 subline 2RA
+CH   CVCL_2812 ! WI-38-30
+CH   CVCL_2813 ! WI-38-40
+CH   CVCL_N806 ! WI-38/hTERT/GFP-RAF-ER
+CH   CVCL_F0KC ! WI38-E6-E7
+CH   CVCL_F0KD ! WI38-hTERT
+CH   CVCL_F0KE ! WI38-hTERT-E6-E7
+CH   CVCL_A5BN ! WIF12
+//
+RX   PubMed=699332; DOI=10.1016/0009-8981(78)90444-8;
+RA   Knaup, Gerd
+RA   Pfleiderer, Gerhard
+RA   Bayreuther, Klaus
+RT   "Human diploid lung fibroblast cell lines WI 26 and WI 38 exhibit
+RT   isozyme shift of alkaline phosphatase after viral transformation.";
+RL   Clin. Chim. Acta 88:375-383(1978).
+//
+RX   PubMed=5668122; DOI=10.3181/00379727-128-33119;
+RA   Peterson, Ward Davis Jr.
+RA   Stulberg, Cyril S.
+RA   Swanborg, N.K.
+RA   Robinson, Andria Rasile
+RT   "Glucose-6-phosphate dehydrogenase isoenzymes in human cell cultures
+RT   determined by sucrose-agar gel and cellulose acetate zymograms.";
+RL   Proc. Soc. Exp. Biol. Med. 128:772-776(1968).
+//
+RX   PubMed=656543; DOI=10.1016/S0006-3495(78)85487-3; PMCID=PMC1473442;
+RA   Ehmann, Ursula Kristin
+RA   Cook, Kem H.
+RA   Friedberg, Errol Clive
+RT   "The kinetics of thymine dimer excision in ultraviolet-irradiated
+RT   human cells.";
+RL   Biophys. J. 22:249-264(1978).
+//
+RX   PubMed=211143; DOI=10.1128/jcm.7.4.368-371.1978; PMCID=PMC274969;
+RA   Friedman, Harvey M.
+RA   Koropchak, Celine
+RT   "Comparison of WI-38, MRC-5, and IMR-90 cell strains for isolation of
+RT   viruses from clinical specimens.";
+RL   J. Clin. Microbiol. 7:368-371(1978).
+//
+RX   PubMed=1031681;
+RA   Jacobs, J.P.
+RT   "Updated results on the karyology of the WI-38, MRC-5 and MRC-9 cell
+RT   strains.";
+RL   Dev. Biol. Stand. 37:155-156(1976).
+//
+RX   PubMed=17395773; DOI=10.1634/stemcells.2006-0504;
+RA   Sudo, Kazuhiro
+RA   Kanno, Megumi
+RA   Miharada, Kenichi
+RA   Ogawa, Saeri
+RA   Hiroyama, Takashi
+RA   Saijo, Kaoru
+RA   Nakamura, Yukio
+RT   "Mesenchymal progenitors able to differentiate into osteogenic,
+RT   chondrogenic, and/or adipogenic cells in vitro are present in most
+RT   primary fibroblast-like cell populations.";
+RL   Stem Cells 25:1610-1617(2007).
+//
+RX   DOI=10.1038/498407a;
+RG   Nature editorial staff;
+RT   "A culture of consent.";
+RL   Nature 498:407-407(2013).
+//
+RX   CelloPub=CLPUB00391;
+RA   Wadman, Meredith
+RT   "The vaccine race: science; politics; and the human costs of defeating
+RT   disease.";
+RL   (In book) ISBN 9780525427537; pp.1-436; Viking; New York; USA (2016).
+//
+RX   PubMed=4329447; DOI=10.1084/jem.133.3.454; PMCID=PMC2138946;
+RA   Giraldo, Gaetano
+RA   Beth-Giraldo, Elke
+RA   Hirshaut, Yashar
+RA   Aoki, Tadao
+RA   Old, Lloyd John
+RA   Boyse, Edward Arthur
+RA   Chopra, Harish C.
+RT   "Human sarcomas in culture. Foci of altered cells and a common
+RT   antigen; induction of foci and antigen in human fibroblast cultures by
+RT   filtrates.";
+RL   J. Exp. Med. 133:454-478(1971).
+//
+RX   PubMed=6409440; DOI=10.1093/carcin/4.7.911;
+RA   Smith, Paul J.
+RA   Greene, Mark H.
+RA   Adams, Deborah
+RA   Paterson, Malcolm C.
+RT   "Abnormal responses to the carcinogen 4-nitroquinoline 1-oxide of
+RT   cultured fibroblasts from patients with dysplastic nevus syndrome and
+RT   hereditary cutaneous malignant melanoma.";
+RL   Carcinogenesis 4:911-916(1983).
+//
+RX   PubMed=25063771; DOI=10.18632/aging.100679; PMCID=PMC4153623;
+RA   Sidler, Corinne
+RA   Woycicki, Rafal
+RA   Kovalchuk, Igor
+RA   Kovalchuk, Olga
+RT   "WI-38 senescence is associated with global and site-specific
+RT   hypomethylation.";
+RL   Aging (Albany N.Y.) 6:564-574(2014).
+//
+RX   DOI=10.1016/B978-0-12-007903-2.50014-3;
+RA   Hayflick, Leonard
+RT   "The coming of age of WI-38.";
+RL   Adv. Cell Cult. 3:303-316(1984).
+//
+RX   DOI=10.11418/jtca1981.16.3_147;
+RA   Hayflick, Leonard
+RT   "The use of human cells for production of human biologicals.";
+RL   Tissue Cult. Res. Commun. 16:147-156(1997).
+//
+RX   PubMed=6538202; DOI=10.1083/jcb.98.3.1133; PMCID=PMC2113122;
+RA   Azzarone, Bruno
+RA   Suarez, Horacio Guillermo
+RA   Mingari, Maria Cristina
+RA   Moretta, Lorenzo
+RA   Fauci, Anthony Stephen
+RT   "4F2 monoclonal antibody recognizes a surface antigen on spread human
+RT   fibroblasts of embryonic but not of adult origin.";
+RL   J. Cell Biol. 98:1133-1137(1984).
+//
+RX   PubMed=1249414; DOI=10.1093/geronj/31.2.223;
+RA   Murphy, Donald G.
+RT   "Report from the National Institute on Aging. NIH support of cellular
+RT   aging research: the human diploid 'fibroblast' model.";
+RL   J. Gerontol. 31:223-227(1976).
+//
+RX   PubMed=19896956; DOI=10.1016/j.mrfmmm.2009.10.013;
+RA   Wilson, Paul F.
+RA   Nham, Peter B.
+RA   Urbin, Salustra S.
+RA   Hinz, John M.
+RA   Jones, Irene M.
+RA   Thompson, Lawrence H.
+RT   "Inter-individual variation in DNA double-strand break repair in human
+RT   fibroblasts before and after exposure to low doses of ionizing
+RT   radiation.";
+RL   Mutat. Res. 683:91-97(2010).
+//
+RX   DOI=10.1038/498422a;
+RA   Wadman, Meredith
+RT   "Medical research: cell division.";
+RL   Nature 498:422-426(2013).
+//
+RX   PubMed=5956336; DOI=10.1038/210100a0;
+RA   Jacobs, J.P.
+RT   "A simple medium for the propagation and maintenance of human diploid
+RT   cell strains.";
+RL   Nature 210:100-101(1966).
+//
+RX   PubMed=1756776; DOI=10.1016/0531-5565(91)90033-i;
+RA   Tasaki, Yoko
+RA   Ohara, Takane
+RA   Yamamoto, Mari
+RA   Yamamoto, Kiyotaka
+RT   "Isozyme polymorphisms in human diploid cell strains for research on
+RT   cellular aging.";
+RL   Exp. Gerontol. 26:441-451(1991).
+//
+RX   PubMed=14218592; DOI=10.4049/jimmunol.93.3.353;
+RA   Wiktor, Tadeusz Jan
+RA   Fernandes, Mario V.
+RA   Koprowski, Hilary
+RT   "Cultivation of rabies virus in human diploid cell strain WI-38.";
+RL   J. Immunol. 93:353-366(1964).
+//
+RX   PubMed=14315085; DOI=10.1016/0014-4827(65)90211-9;
+RA   Hayflick, Leonard
+RT   "The limited in vitro lifetime of human diploid cell strains.";
+RL   Exp. Cell Res. 37:614-636(1965).
+//
+RX   PubMed=29546209; DOI=10.3934/publichealth.2017.2.127; PMCID=PMC5689800;
+RA   Olshansky, Stuart Jay
+RA   Hayflick, Leonard
+RT   "The role of the WI-38 cell strain in saving lives and reducing
+RT   morbidity.";
+RL   AIMS Public Health 4:127-138(2017).
+//
+RX   PubMed=4695793; DOI=10.1007/BF02619060;
+RA   Kadanka, Zdenek
+RA   Sparkes, John D.
+RA   Macmorine, Hilda G.
+RT   "A study of the cytogenetics of the human cell strain WI-38.";
+RL   In Vitro 8:353-361(1973).
+//
+RX   PubMed=20215515; DOI=10.1158/0008-5472.CAN-09-3458; PMCID=PMC2881662;
+RA   Rothenberg, S. Michael
+RA   Mohapatra, Gayatry
+RA   Rivera, Miguel N.
+RA   Winokur, Daniel
+RA   Greninger, Patricia
+RA   Nitta, Mai
+RA   Sadow, Peter M.
+RA   Sooriyakumar, Gaya
+RA   Brannigan, Brian W.
+RA   Ulman, Matthew J.
+RA   Perera, Rushika M.
+RA   Wang, Rui
+RA   Tam, Angela
+RA   Ma, Xiao-Jun
+RA   Erlander, Mark
+RA   Sgroi, Dennis C.
+RA   Rocco, James W.
+RA   Lingen, Mark W.
+RA   Cohen, Ezra E.W.
+RA   Louis, David Neil
+RA   Settleman, Jeffrey
+RA   Haber, Daniel Arie
+RT   "A genome-wide screen for microdeletions reveals disruption of
+RT   polarity complex genes in diverse human cancers.";
+RL   Cancer Res. 70:2158-2164(2010).
+//
+RX   PubMed=5834207; DOI=10.1001/archpedi.1965.02090030401007;
+RA   Plotkin, Stanley Alan
+RA   Cornfeld, David
+RA   Ingalls, Theodore Hunt
+RT   "Studies of immunization with living rubella virus. Trials in children
+RT   with a strain cultured from an aborted fetus.";
+RL   Am. J. Dis. Child. 110:381-389(1965).
+//
+RX   PubMed=7972006; DOI=10.1073/pnas.91.23.11045; PMCID=PMC45163;
+RA   Okamoto, Aikou
+RA   Demetrick, Douglas J.
+RA   Spillare, Elisa A.
+RA   Hagiwara, Koichi
+RA   Hussain, S. Perwez
+RA   Bennett, William P.
+RA   Forrester, Kathleen
+RA   Gerwin, Brenda Isen
+RA   Serrano, Manuel
+RA   Beach, David H.
+RA   Harris, Curtis Craig
+RT   "Mutations and altered expression of p16INK4 in human cancer.";
+RL   Proc. Natl. Acad. Sci. U.S.A. 91:11045-11049(1994).
+//
+RX   DOI=10.1007/BF02618370;
+RA   Stulberg, Cyril S.
+RA   Coriell, Lewis Lemon
+RA   Kniazeff, Alexis John
+RA   Shannon, John E.
+RT   "The animal cell culture collection.";
+RL   In Vitro 5:1-16(1970).
+//
+RX   PubMed=25903999; DOI=10.1002/biot.201400388;
+RA   Genzel, Yvonne
+RT   "Designing cell lines for viral vaccine production: where do we
+RT   stand?";
+RL   Biotechnol. J. 10:728-740(2015).
+//
+RX   PubMed=14064953; DOI=10.1164/arrd.1963.88.3P2.387;
+RA   Hayflick, Leonard
+RT   "A comparison of primary monkey kidney, heteroploid cell lines, and
+RT   human diploid cell strains for human virus vaccine preparation.";
+RL   Am. Rev. Respir. Dis. 88 Suppl. 3:387-393(1963).
+//
+RX   PubMed=352912; DOI=10.1007/BF02618218;
+RA   Montgomery, Philip O'Brian Jr.
+RA   Cook, James E.
+RA   Reynolds, Rolland Clinton
+RA   Paul, J.S.
+RA   Hayflick, Leonard
+RA   Stock, D.
+RA   Schulz, Werner W.
+RA   Kimsey, Stephen L.
+RA   Thirolf, Robert G.
+RA   Rogers, T.
+RA   Campbell, Debora
+RT   "The response of single human cells to zero gravity.";
+RL   In Vitro 14:165-173(1978).
+//
+RX   PubMed=17792436; DOI=10.1126/science.192.4235.125;
+RA   Wade, Nicholas
+RT   "Hayflick's tragedy: the rise and fall of a human cell line.";
+RL   Science 192:125-127(1976).
+//
+RX   PubMed=6256643; DOI=10.1038/288724a0;
+RA   Day, Rufus S. 3rd
+RA   Ziolkowski, Chuck H.J.
+RA   Scudiero, Dominic A.
+RA   Meyer, Sharon A.
+RA   Lubiniecki, Anthony S.
+RA   Girardi, Anthony Joseph
+RA   Galloway, Sheila Margaret
+RA   Bynum, Gaither D.
+RT   "Defective repair of alkylated DNA by human tumour and
+RT   SV40-transformed human cell strains.";
+RL   Nature 288:724-727(1980).
+//
+RX   PubMed=535915; DOI=10.1007/BF02618249;
+RA   Houghton, B.A.
+RA   Stidworthy, George H.
+RT   "A growth history comparison of the human diploid cells WI-38 and
+RT   IMR-90: proliferative capacity and cell sizing analysis.";
+RL   In Vitro 15:697-702(1979).
+//
+RX   PubMed=22984048; DOI=10.1126/science.337.6100.1292-a;
+RA   Hayflick, Leonard
+RT   "Paying for tissue: the case of WI-38.";
+RL   Science 337:1292-1292(2012).
+//
+RX   PubMed=3016668; DOI=10.1080/01635588609513891;
+RA   Stanulis-Praeger, Betzabe Maria
+RA   Jacobus, Claire Hughes
+RA   Nuttall, Anne E.
+RT   "Hydrocortisone modulates RA-induced growth inhibition of normal and
+RT   transformed human embryonic lung fibroblasts.";
+RL   Nutr. Cancer 8:171-184(1986).
+//
+RX   CelloPub=CLPUB00597;
+RG   National Institute on Aging;
+RT   "1994 catalog of cell lines. NIA Aging Cell Repository.";
+RL   (In misc. document) Institute for Medical Research (Camden, N.J.); pp.1-351; National Institutes of Health; Bethesda; USA (1994).
+//
+RX   PubMed=5347639; DOI=10.1016/0014-4827(69)90166-9;
+RA   Stanbridge, Eric John
+RA   Onen, M.
+RA   Perkins, Frank Trevor
+RA   Hayflick, Leonard
+RT   "Karyological and morphological characteristics of human diploid cell
+RT   strain WI-38 infected with mycoplasmas.";
+RL   Exp. Cell Res. 57:397-410(1969).
+//
+RX   PubMed=4203458;
+RA   Petricciani, John C.
+RA   Wallace, Roslyn Elizabeth
+RA   McCoy, Donald W.
+RT   "A comparison of three in vivo assays for cell tumorigenicity.";
+RL   Cancer Res. 34:105-108(1974).
+//
+RX   PubMed=6887978; DOI=10.1016/0047-6374(83)90043-x;
+RA   Aronson, John F.
+RA   McClaskey, Judith Weney
+RA   Cristofalo, Vincent J.
+RT   "Human fetal lung fibroblasts: observations on origin and stability in
+RT   culture.";
+RL   Mech. Ageing Dev. 21:229-244(1983).
+//
+RX   PubMed=7065527; DOI=10.1164/arrd.1982.125.2.222;
+RA   Hay, Robert J.
+RA   Williams, Carolyn D.
+RA   Macy, Marvin L.
+RA   Lavappa, Kantharajapura Subbegowda
+RT   "Cultured cell lines for research on pulmonary physiology available
+RT   through the American Type Culture Collection.";
+RL   Am. Rev. Respir. Dis. 125:222-232(1982).
+//
+RX   PubMed=5801069; DOI=10.1016/0027-5107(69)90054-2;
+RA   Staiger, G.R.
+RT   "Chlordiazepoxide and diazepam: absence of effects on the chromosomes
+RT   of diploid human fibroblast cells.";
+RL   Mutat. Res. 7:109-115(1969).
+//
+RX   PubMed=4817727; DOI=10.1016/0014-4827(74)90416-9;
+RA   Dell'Orco, Robert T.
+RA   Mertens, J.G.
+RA   Kruse, Paul F. Jr.
+RT   "Doubling potential, calendar time, and donor age of human diploid
+RT   cells in culture.";
+RL   Exp. Cell Res. 84:363-366(1974).
 //

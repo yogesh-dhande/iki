@@ -22,18 +22,9 @@ from django.db.models import Q, QuerySet
 
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
-from iki_server.runs.models import ActionRun, Job, JobState, RunQuota, RunStatus
+from iki_server.runs.models import HELD, ActionRun, Job, RunQuota, RunStatus
 
 __all__ = ["Blocked", "blocked", "check_queued"]
-
-#: States in which a worker holds a job (as the queue's HELD).
-_HELD = (
-    JobState.LEASED,
-    JobState.STAGING,
-    JobState.PENDING,
-    JobState.RUNNING,
-    JobState.UPLOADING,
-)
 
 
 @dataclass
@@ -84,7 +75,7 @@ def blocked(tier: str, *, lock: bool = False) -> Blocked:
         _lock(f"iki_quota_running:{tier}")
     for quota in quotas:
         # A packed job counts once: it's one command on one worker (ADR 0055).
-        held = Job.objects.filter(state__in=_HELD, packed_into__isnull=True)
+        held = Job.objects.filter(state__in=HELD, packed_into__isnull=True)
         if quota.tier:
             held = held.filter(tier=quota.tier)
         if quota.project_id is not None:

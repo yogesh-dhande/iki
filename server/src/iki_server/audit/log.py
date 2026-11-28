@@ -93,6 +93,7 @@ ACTIONS: dict[str, str] = {
     "bundle.import_discarded": "Discarded a bundle from another deployment, unimported",
     "bundle.imported": "Imported a bundle's entities, with their history, from another deployment",
     "bundle.import_failed": "Tried to import a bundle from another deployment, and nothing changed",
+    "bundle.signing_key_trusted": "Trusted another deployment's signing key that a bundle brought",
     "file.added": "Added a file",
     "file.download_link_issued": "Issued a file download link",
     "file.quarantined": "Quarantined content after a malware finding",
@@ -236,6 +237,11 @@ ACTIONS: dict[str, str] = {
     "scim.group_linked": "Linked a group to a team",
     "scim.group_unlinked": "Unlinked a group from a team",
 }
+
+#: Actions whose event can concern records of several projects. Such an event has no one
+#: ``project``; its data lists each in ``projects``, and filtering the log by a project
+#: finds it too.
+SPANNING_PROJECTS = frozenset({"entities.export_requested", "entities.exported"})
 
 
 @dataclass(frozen=True)

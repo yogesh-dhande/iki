@@ -238,14 +238,14 @@ class RegistryRole(models.Model):
     role = models.CharField(
         max_length=20, choices=Role.choices, db_comment="registrar or list_curator (ADR 0292)."
     )
-    #: The list a list curator curates, such as ``iki/lots.LotMethod``; null for a role
+    #: The list a list curator curates, such as ``iki/lots.PurityMethod``; null for a role
     #: over the whole registry. A plugin's removal leaves the grant, which curates nothing
     #: until a list of that name is installed again.
     list_type = models.CharField(
         max_length=112,
         null=True,
         blank=True,
-        db_comment="A list curator's list, such as iki/lots.LotMethod; null for a role over "
+        db_comment="A list curator's list, such as iki/lots.PurityMethod; null for a role over "
         "the whole registry (ADR 0292).",
     )
     granted_by = models.ForeignKey(

@@ -41,10 +41,8 @@ NO_SIDEWAYS_SCROLL = "document.documentElement.scrollWidth - window.innerWidth <
 
 
 def checked(page: Page) -> None:
-    """axe, as on every page; Playwright's Firefox crashes in axe on pages with
-    `aria-labelledby` (a dialog's, a menu's: see assert_clean), and the DOM is the same in
-    every browser."""
-    assert_clean(page, axe_in_firefox=False)
+    """axe and the page's errors, as on every page."""
+    assert_clean(page)
 
 
 def fits_a_phone(page: Page) -> None:

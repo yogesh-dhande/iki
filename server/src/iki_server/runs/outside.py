@@ -590,7 +590,7 @@ def target(job_id: UUID, name: str, *, park: bool = False, cancelling: bool = Fa
     approval stands. Read at each call, so revoking or rotating takes effect at once.
     Asking the API to cancel a job it already has needs no approval: it sends nothing
     but the job's ID."""
-    from iki_server.runs.egress import HELD
+    from iki_server.runs.models import HELD
 
     job = Job.objects.select_related("run__project").filter(pk=job_id).first()
     if job is None:

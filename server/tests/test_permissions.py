@@ -268,13 +268,11 @@ def test_a_registrar_curates_every_list_and_a_curator_their_own(world: World) ->
     RegistryRole.objects.create(
         registry=main, user=editor, role=RegistryRole.Role.LIST_CURATOR, list_type=method
     )
-    # A registrar's is said outright: every list, whichever are installed.
-    assert permissions.curated_lists(viewer, main) == permissions.EVERY_LIST
-    assert method in permissions.curated_lists(viewer, main)
-    held = permissions.curated_lists(editor, main)
-    assert (held.every, held.types) == (False, frozenset({method}))
-    assert category not in held
-    assert not permissions.curated_lists(world.users["admin"], main)
+    # A registrar curates every list, whichever are installed; a curator only their own.
+    assert permissions.can_curate_list(viewer, main, method)
+    assert permissions.can_curate_list(viewer, main, category)
+    assert permissions.can_curate_list(viewer, main, "acme/protein.NotInstalledYet")
+    assert not permissions.can(world.users["admin"], A.LISTS_CURATE, main)
     assert permissions.can_curate_list(editor, main, method)
     assert not permissions.can_curate_list(editor, main, category)
     assert permissions.can(editor, A.LISTS_CURATE, main)
