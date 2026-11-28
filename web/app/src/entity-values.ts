@@ -51,6 +51,9 @@ export interface Schemaed {
   values_schema: EntityType["values_schema"];
 }
 
+/** For an input that's no type's field, such as a run's: no rules but the field's own. */
+export const NO_RULES: Schemaed = { values_schema: { type: "object", properties: {} } };
+
 /** The fields people type in: not computed ones, nor a detached plugin's, which keep their
  * values, nor state fields, which are set on their own (ADR 0125). */
 export function formFields(type: EntityType): FieldDef[] {

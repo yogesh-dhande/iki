@@ -194,9 +194,7 @@ def test_saved_digest_and_plasmid_gels_fit_a_phone(
     # https://www.neb.com/products/n3231-100-bp-dna-ladder
     expect(details.get_by_role("cell", name=re.compile(r"^1[,\s]?517(?: bp)?$"))).to_be_visible()
     assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")
-    # As on other record pages, Playwright Firefox can crash during the full app axe scan.
-    # The standalone gel also runs axe in Firefox.
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
 
     page.goto(f"/entities/{plasmid['hrid']}/")
     digest_result = page.get_by_role("combobox", name="Digest result")
@@ -223,6 +221,6 @@ def test_saved_digest_and_plasmid_gels_fit_a_phone(
     expect(details.get_by_role("cell", name=re.compile(r"^2[,\s]?250(?: bp)?$"))).to_be_visible()
     expect(details).not_to_contain_text("Synthetic insert")
     assert page.evaluate("document.documentElement.scrollWidth - innerWidth <= 1")
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.get_by_role("link", name="Open digest record").click()
     expect(page.get_by_role("heading", name="Second synthetic digest", level=1)).to_be_visible()

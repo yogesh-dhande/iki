@@ -6,12 +6,18 @@ write the database but doesn't hold those keys can neither sign with it nor plan
 of their own: a key is trusted only once its private half decrypts and gives its public
 one. Other deployments' keys, which bundles bring with their signatures, are sealed the
 same way. ``iki-server signing_key`` shows the public key, and retires it for a new one.
+
+Only this deployment's own keys sign as it. A bundle a trusted deployment signed may bring
+keys for itself or for others it trusts (ADR 0148), but never one for this deployment's
+name: each new one is in the import's plan, and in the audit log once it's trusted.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from functools import cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from django.conf import settings
@@ -116,10 +122,13 @@ def own() -> list[dict[str, str | None]]:
 
 
 def trust(public: str, deployment: str, bundle_import: BundleImport | None = None) -> bool:
-    """Bind a new key, or check the binding another import already established."""
+    """Bind a new key, or check the binding another import already established. A key
+    that isn't this deployment's own is never bound to its name."""
     keys.public_key(public)  # raises ValueError unless it's a key
     if SigningKey.objects.filter(public=public).exists():
         return trusted().get(public) == deployment
+    if deployment == settings.IKI_ENVIRONMENT:
+        return False
     foreign, _ = ForeignSigningKey.objects.get_or_create(
         public=public,
         defaults={
@@ -129,3 +138,45 @@ def trust(public: str, deployment: str, bundle_import: BundleImport | None = Non
         },
     )
     return _unseal(foreign.sealed) == (public, deployment)
+
+
+@dataclass
+class Listed:
+    """The signing keys a trusted bundle lists, against what this deployment trusts."""
+
+    #: Every key to check the bundle's signatures with: the ones trusted here, and the
+    #: bundle's new ones.
+    trusted: dict[str, str]
+    #: The bindings it would add, each with whether it's for the deployment the bundle is
+    #: from or one that deployment vouches for.
+    new: list[dict[str, Any]] = field(default_factory=list)
+    #: What keeps it from being imported.
+    problems: list[str] = field(default_factory=list)
+
+
+def listed(bindings: Iterable[Mapping[str, str]], *, source: str) -> Listed:
+    """Checks the keys a bundle from ``source`` lists, each with the deployment it signs
+    for. One already trusted here must sign for the same deployment. A new one can't sign
+    for this deployment: only its own keys do."""
+    here = trusted()
+    out = Listed(trusted=dict(here))
+    for binding in bindings:
+        key, deployment = binding["key"], binding["deployment"]
+        established = out.trusted.get(key)
+        if established is not None:
+            if established != deployment:
+                out.problems.append(
+                    f"It names the signing key {key} as {deployment}'s, but this deployment "
+                    f"trusts it as {established}'s."
+                )
+            continue
+        if deployment == settings.IKI_ENVIRONMENT:
+            out.problems.append(
+                f"It names the signing key {key} as this deployment's ({deployment}), which "
+                "it isn't: only this deployment's own keys sign as it. If it's another "
+                "deployment's, that deployment needs a name of its own (IKI_ENVIRONMENT)."
+            )
+            continue
+        out.trusted[key] = deployment
+        out.new.append({"key": key, "deployment": deployment, "source": deployment == source})
+    return out

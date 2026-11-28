@@ -99,6 +99,8 @@ describe("plasmid map with sequencing evidence", () => {
           kind: "deletion" as const,
           reference: "ACGT",
           observed: "",
+          reference_length: 4,
+          observed_length: 0,
           length_change: -4,
           homopolymer: 1,
           features: ["Wrap (misc_feature)"],
@@ -115,6 +117,8 @@ describe("plasmid map with sequencing evidence", () => {
           kind: "substitution" as const,
           reference: "A",
           observed: "G",
+          reference_length: 1,
+          observed_length: 1,
           length_change: 0,
           homopolymer: 6,
         },
@@ -170,6 +174,44 @@ describe("plasmid map with sequencing evidence", () => {
     expect(root.querySelector("p")?.textContent).toContain("drawn as a line cut at base 1");
     const dl = root.querySelector("dl")?.textContent ?? "";
     expect(dl).toContain("Read depth fromSynthetic reads");
+  });
+
+  it("says a long allele's whole length, not its first 200 bases'", () => {
+    // A 300-base deletion and a 300-base stretch replaced by 250: the record keeps each
+    // allele's first 200 bases, and its whole length beside them.
+    const long = (start: number, hgvs: string, was: number, now: number) => ({
+      start,
+      end: start + was - 1,
+      hgvs,
+      kind: now ? ("deletion_insertion" as const) : ("deletion" as const),
+      reference: "ACGT".repeat(50),
+      observed: "TTGCA".repeat(40).slice(0, Math.min(now, 200)),
+      reference_length: was,
+      observed_length: now,
+      length_change: now - was,
+    });
+    const map = document.createElement("iki-plasmid-map");
+    map.data = {
+      ...evidence,
+      length: 1000,
+      parts: { items: [], own: true },
+      differences: {
+        ...evidence.differences,
+        items: [long(10, "o.10_309del", 300, 0), long(400, "o.400_699delins250", 300, 250)],
+      },
+    };
+    document.body.append(map);
+    const root = map.shadowRoot;
+    assert(root);
+    const changes = Array.from(
+      root.querySelectorAll('[aria-label="Differences"] tbody tr'),
+      (row) => row.children[2]?.textContent,
+    );
+    expect(changes).toEqual([
+      "deletion: 300 bp \u2192 \u2014",
+      "deletion-insertion: 300 bp \u2192 250 bp",
+    ]);
+    map.remove();
   });
 
   it("draws a feature with no strand, or both, without an arrowhead, and says so", () => {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import math
 import re
@@ -183,6 +184,34 @@ def maxquant_rows(
 ) -> Iterator[dict[str, Any]]:
     # Released MaxQuant tables documentation accompanies this public dataset:
     # MassIVE MSV000088694, quant/Maxquant/BulkSet/txt/tables.pdf.
+    columns = set(header)
+    # MaxQuant's other tables also have Sequence, Proteins and Raw file columns, but their
+    # rows aren't peptides or precursors: each is one MS/MS scan, one MS1 feature or one
+    # modified form of a peptide. Read as evidence.txt, every scan would count as a
+    # precursor.
+    other = next(
+        (
+            (table, unit)
+            for table, unit, found in (
+                ("msms.txt or msmsScans.txt", "MS/MS scan", "Scan number" in columns),
+                ("allPeptides.txt", "MS1 feature", "MSMS Scan Numbers" in columns),
+                (
+                    "modificationSpecificPeptides.txt",
+                    "modified form of a peptide",
+                    "Evidence IDs" in columns
+                    and ("Peptide ID" in columns or "Raw file" in columns),
+                ),
+            )
+            if found
+        ),
+        None,
+    )
+    if other is not None:
+        table, unit = other
+        raise ValueError(
+            f"This is MaxQuant's {table}, one row per {unit}. Choose proteinGroups.txt, "
+            "peptides.txt or evidence.txt."
+        )
     protein = "Protein IDs" in header and "Sequence" not in header
     accession = "Protein IDs" if protein else "Proteins"
     if accession not in header or (not protein and "Sequence" not in header):
@@ -232,7 +261,8 @@ def diann_rows(
             "Choose a DIA-NN main TSV report with Run, Protein.Group and precursor columns."
         )
     about["table"] = "main report"
-    quantities = ("PG.MaxLFQ", "PG.Normalised", "PG.Quantity")
+    # DIA-NN 1.8 reports PG.Quantity and PG.Normalised; 2.x reports PG.TopN instead.
+    quantities = ("PG.MaxLFQ", "PG.Normalised", "PG.Quantity", "PG.TopN")
     groups: dict[tuple[str, str, str], dict[str, float | str | None]] = {}
     for row in rows:
         context = {"run": row["Run"], "channel": row.get("Channel") or ""}
@@ -285,6 +315,12 @@ def fragpipe_rows(
         raise ValueError(
             "Choose a FragPipe protein or peptide TSV. PSM and ion tables are unsupported."
         )
+    if {"Modified Sequence", "Charges"} <= set(header):
+        # combined_modified_peptide.tsv: one row per modified form of each peptide.
+        raise ValueError(
+            "This is FragPipe's modified peptide table, one row per modified form of a "
+            "peptide. Choose combined_peptide.tsv, peptide.tsv or a protein table."
+        )
     if "Protein ID" not in header:
         raise ValueError("Choose a FragPipe protein or peptide TSV with the Protein ID column.")
     sequence = next((key for key in ("Peptide Sequence", "Peptide") if key in header), None)
@@ -304,7 +340,7 @@ def fragpipe_rows(
             ),
             row,
             quantities,
-            ("Protein Probability", "PeptideProphet Probability"),
+            ("Protein Probability", "PeptideProphet Probability", "Probability"),
             sequence=row[sequence] if sequence else None,
             modified_sequence=row.get("Modified Sequence"),
             modifications=row.get("Assigned Modifications"),
@@ -355,6 +391,68 @@ def mztab_identification(row: dict[str, Any], exclusion: str) -> tuple[str, ...]
     return None
 
 
+#: The most distinct spectrum matches and peptides one mzTab report may have. It fits the
+#: environment's memory with room to spare: an uncompressed report of the largest size
+#: the action takes has at most about 6 million rows; only a compressed one can exceed it.
+MAX_IDENTIFICATIONS = 10_000_000
+
+
+class Seen:
+    """The identifications a report has had, as a set of fixed-size digests in one flat,
+    open-addressed table: 12 bytes a slot, so millions of spectrum matches fit in a few
+    hundred MiB where tuples of strings took over a GiB. 96-bit BLAKE2b digests make a
+    collision between two of ten million keys about a one-in-10^15 chance."""
+
+    WIDTH = 12
+    EMPTY = bytes(WIDTH)
+
+    def __init__(self) -> None:
+        self.bits = 16
+        self.slots = bytearray(self.WIDTH << self.bits)
+        self.count = 0
+
+    def _place(self, slots: bytearray, bits: int, digest: bytes) -> bool:
+        width, mask = self.WIDTH, (1 << bits) - 1
+        at = int.from_bytes(digest[:8], "little") & mask
+        while True:
+            start = at * width
+            held = slots[start : start + width]
+            if held == self.EMPTY:
+                slots[start : start + width] = digest
+                return True
+            if held == digest:
+                return False
+            at = (at + 1) & mask
+
+    def add(self, key: tuple[str, ...]) -> bool:
+        """Whether the key is new, adding it."""
+        digest = hashlib.blake2b("\x1f".join(key).encode(), digest_size=self.WIDTH).digest()
+        if digest == self.EMPTY:
+            digest = b"\x01" + digest[1:]
+        if not self._place(self.slots, self.bits, digest):
+            return False
+        self.count += 1
+        if self.count > MAX_IDENTIFICATIONS:
+            raise ValueError(
+                f"It has more than {MAX_IDENTIFICATIONS:,} spectrum matches and peptides, more "
+                "than Iki reads from one report: import the search's runs as separate datasets."
+            )
+        if self.count * 10 > 6 << self.bits:
+            self._grow()
+        return True
+
+    def _grow(self) -> None:
+        bits, width = self.bits + 1, self.WIDTH
+        slots = bytearray(width << bits)
+        old = memoryview(self.slots)
+        for start in range(0, len(old), width):
+            digest = bytes(old[start : start + width])
+            if digest != self.EMPTY:
+                self._place(slots, bits, digest)
+        old.release()
+        self.slots, self.bits = slots, bits
+
+
 def identity(record: dict[str, Any]) -> str:
     return str(iki.ref(record))
 
@@ -386,7 +484,9 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
             file = run["files"][report_id]
             counts: Counter[str] = Counter()
             excluded: defaultdict[str, Counter[str]] = defaultdict(Counter)
-            seen: dict[tuple[str, ...], dict[str, Any] | None] = {}
+            seen = Seen()
+            # The preview's own rows, by identification: a repeat adds its accessions.
+            previewed: dict[tuple[str, ...], dict[str, Any]] = {}
             about: dict[str, str] = {}
             try:
                 with lines_at(Path(file["path"])) as source:
@@ -407,8 +507,8 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                         key = (
                             mztab_identification(row, exclusion) if format_ == "mztab_1_0" else None
                         )
-                        if key is not None and key in seen:
-                            earlier = seen[key]
+                        if key is not None and not seen.add(key):
+                            earlier = previewed.get(key)
                             if earlier is not None:
                                 for field in ("accessions", "registered_proteins"):
                                     earlier[field] = list(
@@ -417,11 +517,10 @@ def result(run: dict[str, Any], artifact: Path) -> dict[str, Any]:
                             continue
                         counter = excluded[exclusion] if exclusion else counts
                         counter[row["level"]] += 1
-                        preview_row = row if len(preview) < PREVIEW_ROWS else None
-                        if preview_row is not None:
-                            preview.append(preview_row)
-                        if key is not None:
-                            seen[key] = preview_row
+                        if len(preview) < PREVIEW_ROWS:
+                            preview.append(row)
+                            if key is not None:
+                                previewed[key] = row
             except (ValueError, csv.Error) as exc:
                 raise ValueError(f"{file['name']}: {exc}") from None
             if not counts and not excluded:

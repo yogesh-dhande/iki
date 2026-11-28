@@ -4,6 +4,7 @@
 - Date: 2026-11-27
 - Extends: [0042](0042-action-runs-and-jobs.md),
   [0105](0105-an-input-can-include-what-its-references-name.md),
+  [0165](0165-a-subtype-of-a-registered-type-has-registry-fields-of-its-own.md),
   [0282](0282-a-types-records-have-its-effective-declaration.md)
 
 ## Context
@@ -17,6 +18,9 @@ compared `lot["type"] != "iki/lots.ProteinLot"` and refused the lab's lot with
 residues guessed the field (`("sequence", "bases", "helm")`), because
 `iki/core.Sequence` declares none and each subtype names its own. Only a
 lot's material was said, as `material_field`, and only for that one concept.
+
+ADR 0165's amendment of 2026-11-27 gave each record its `types`, which this
+decision keeps as it is; what follows adds the roles and `reads`.
 
 Every input also carried every field of every record: a search over 100,000
 compounds was sent every Molfile, 240 MB it never read. That's more than the

@@ -1,6 +1,8 @@
-"""Check the report adapters on small, explicitly synthetic output tables."""
+"""Check the report adapters on the producers' own tables (tests/data, with their sources
+in its README) and on small, explicitly synthetic ones."""
 
 import json
+import re
 import runpy
 from pathlib import Path
 
@@ -258,3 +260,129 @@ def test_a_parquet_report_is_refused_with_how_to_convert_it(tmp_path):
 def test_an_unsupported_format_is_named():
     with pytest.raises(ValueError, match="supported formats"):
         list(SCRIPT["parsed"]("diann", ["Run"]))
+
+
+DATA = Path(__file__).parent / "data"
+
+
+def read(format_, path):
+    about = {}
+    with SCRIPT["lines_at"](path) as source:
+        rows = list(SCRIPT["parsed"](format_, source, about))
+    return about.get("table"), rows
+
+
+@pytest.mark.parametrize(
+    ("name", "table", "level"),
+    [
+        ("proteinGroups.txt", "proteinGroups.txt", "protein_group"),
+        ("peptides.txt", "peptides.txt", "peptide"),
+        ("evidence.txt", "evidence.txt", "precursor"),
+    ],
+)
+def test_maxquants_own_tables_are_read_at_their_level(name, table, level):
+    """MaxQuant 1.6.17's own output: every row of each table, once, at its level."""
+    found, rows = read("maxquant_txt", DATA / "maxquant-1.6.17" / name)
+    assert found == table
+    assert [row["level"] for row in rows] == [level] * 6
+    assert all(row["accessions"] for row in rows)
+
+
+@pytest.mark.parametrize(
+    ("name", "named", "unit"),
+    [
+        ("msms.txt", "msms.txt or msmsScans.txt", "MS/MS scan"),
+        ("msmsScans.txt", "msms.txt or msmsScans.txt", "MS/MS scan"),
+        ("allPeptides.txt", "allPeptides.txt", "MS1 feature"),
+        (
+            "modificationSpecificPeptides.txt",
+            "modificationSpecificPeptides.txt",
+            "modified form of a peptide",
+        ),
+    ],
+)
+def test_maxquants_scan_feature_and_modified_form_tables_are_refused(name, named, unit):
+    """They have Sequence, Proteins and Raw file too. Read as evidence.txt, each MS/MS
+    scan of msms.txt counted as a precursor."""
+    with pytest.raises(ValueError, match=f"MaxQuant's {re.escape(named)}, one row per {unit}"):
+        read("maxquant_txt", DATA / "maxquant-1.6.17" / name)
+
+
+def test_a_diann_1_8_main_report_gives_precursors_and_their_protein_groups():
+    table, rows = read("diann_tsv", DATA / "diann" / "1.8-report.tsv")
+    assert table == "main report"
+    precursors = [row for row in rows if row["level"] == "precursor"]
+    groups = [row for row in rows if row["level"] == "protein_group"]
+    assert len(precursors) == 4
+    assert {(g["run"], *g["accessions"]) for g in groups} == {
+        (p["run"], *p["accessions"]) for p in precursors
+    }
+    assert set(groups[0]["quantities"]) == {"PG.MaxLFQ", "PG.Normalised", "PG.Quantity"}
+
+
+def test_a_diann_2_main_report_keeps_its_top_n_quantity_and_leaves_decoys_out_of_groups():
+    _, rows = read("diann_tsv", DATA / "diann" / "2-report.tsv")
+    precursors = [row for row in rows if row["level"] == "precursor"]
+    groups = [row for row in rows if row["level"] == "protein_group"]
+    assert [row["decoy"] for row in precursors] == [False, False, False, True]
+    assert [(g["run"], g["accessions"]) for g in groups] == [
+        ("HeLa_01", ["P37108"]),
+        ("HeLa_01", ["P02769"]),
+        ("HeLa_02", ["P02769"]),
+    ]
+    assert groups[1]["quantities"] == {"PG.MaxLFQ": 4.1e7, "PG.TopN": 4.4e7}
+
+
+@pytest.mark.parametrize(
+    ("version", "name", "table", "level"),
+    [
+        ("fragpipe-22.0", "protein.tsv", "protein", "protein_group"),
+        ("fragpipe-22.0", "peptide.tsv", "peptide", "peptide"),
+        ("fragpipe-23.1", "combined_protein.tsv", "protein", "protein_group"),
+        ("fragpipe-23.1", "combined_peptide.tsv", "peptide", "peptide"),
+    ],
+)
+def test_fragpipes_protein_and_peptide_tables_are_read(version, name, table, level):
+    found, rows = read("fragpipe_tsv", DATA / version / name)
+    assert found == table
+    assert [row["level"] for row in rows] == [level] * 3
+    assert all(row["accessions"] for row in rows)
+
+
+def test_a_fragpipe_peptide_tables_probability_is_its_score():
+    _, rows = read("fragpipe_tsv", DATA / "fragpipe-22.0" / "peptide.tsv")
+    assert [set(row["scores"]) for row in rows] == [{"Probability"}] * 3
+
+
+@pytest.mark.parametrize(
+    ("version", "name", "message"),
+    [
+        ("fragpipe-22.0", "psm.tsv", "PSM and ion tables are unsupported"),
+        ("fragpipe-22.0", "ion.tsv", "PSM and ion tables are unsupported"),
+        ("fragpipe-23.1", "combined_ion.tsv", "PSM and ion tables are unsupported"),
+        ("fragpipe-23.1", "combined_modified_peptide.tsv", "one row per modified form"),
+    ],
+)
+def test_fragpipes_psm_ion_and_modified_peptide_tables_are_refused(version, name, message):
+    with pytest.raises(ValueError, match=message):
+        read("fragpipe_tsv", DATA / version / name)
+
+
+def test_identifications_are_counted_once_however_far_apart_they_repeat():
+    seen = SCRIPT["Seen"]()
+    keys = [("spectrum_match", "", str(n)) for n in range(200_000)]
+    assert all(seen.add(key) for key in keys)
+    assert not any(seen.add(key) for key in reversed(keys))
+    assert seen.count == len(keys)
+    # Twelve bytes a slot, at most 60% full: a fixed cost per identification.
+    assert len(seen.slots) == 12 * 2**19
+    assert 0.3 < seen.count / 2**seen.bits <= 0.6
+
+
+def test_a_report_with_too_many_identifications_is_refused(monkeypatch):
+    seen = SCRIPT["Seen"]()
+    monkeypatch.setitem(seen.add.__globals__, "MAX_IDENTIFICATIONS", 3)
+    for n in range(3):
+        seen.add(("peptide", "", f"PEPTIDE{n}", ""))
+    with pytest.raises(ValueError, match="more than 3 spectrum matches and peptides"):
+        seen.add(("peptide", "", "PEPTIDE3", ""))

@@ -138,8 +138,10 @@ they list none.
   from the alignment, as the dna plugin's `consensus` does for DNA (the same
   script, which reads that README's rule). Where no residue reaches the
   threshold, D and N together are B, E and Q are Z, I and L are J, and any
-  other set is X; without ambiguity codes, X. A protein already in Iki is
-  found ([ADR 0173](../../docs/adr/0173-dna-is-aligned-as-proteins-are-and-a-consensus-is-a-sequence.md)).
+  other set is X; without ambiguity codes, X. A read's X that `align_reads`
+  narrows in its header (`possible=42:KN`, an AAN codon) counts as what it
+  could be: half a K and half an N, not a twentieth of every residue. A protein
+  already in Iki is found ([ADR 0173](../../docs/adr/0173-dna-is-aligned-as-proteins-are-and-a-consensus-is-a-sequence.md)).
 - **`align_reads`**: aligns sequencing reads to a protein, such as Sanger
   reads of an expression construct to the protein it should make, into a
   `iki/core.Alignment` the alignment viewer shows, the protein its reference. It

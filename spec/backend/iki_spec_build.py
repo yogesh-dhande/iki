@@ -91,10 +91,12 @@ def ensure_dna_annotation(project: Path) -> Path:
     return module
 
 
-#: The iki-writer SDK's crate (ADR 0230), which iki-spec carries so a deployment's build can
-#: give plugins' writers the SDK of the Iki that builds them.
+#: The iki-writer SDK's crate (ADR 0230), which iki-spec carries so a deployment's build has
+#: the build script plugins' writers are built with, and this Iki's iki-writer, which a
+#: writer pinned to it builds against before it's on crates.io, or offline. The same files
+#: as iki_spec.writers.build.SDK_FILES, which this build can't import.
 WRITER_SDK = Path("src", "iki_spec", "writers", "sdk", "iki-writer")
-_SDK_FILES = ("Cargo.toml", "README.md", "build-writer.sh")
+_SDK_FILES = ("Cargo.toml", "Cargo.lock", "README.md", "build-writer.sh", "iki-writer.crate.sha256")
 
 
 def ensure_writer_sdk(project: Path) -> Path:

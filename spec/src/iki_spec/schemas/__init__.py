@@ -38,6 +38,7 @@ NAMES = (
     "environment",
     "workflow",
     "trigger",
+    "review-procedure",
     "component",
     "compute",
     "compute-template",

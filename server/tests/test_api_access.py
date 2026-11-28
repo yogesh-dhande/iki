@@ -854,6 +854,8 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         path = suffix.format(request=found.pk, receipt=started.pk, line=line.pk)
         if body is not None and "reason" in body and "/lines/" in path:
             return path, {**body, "line_revision": line.line_revision}
+        if suffix.endswith("/put-away/placeable"):
+            return path, {"plan_revision": started.plan_revision, "box": str(_box(w).pk)}
         if body is not None and (
             suffix == "/receipts/{receipt}"
             or suffix.endswith(("/complete", "/cancel", "/put-away/preview"))
@@ -1469,6 +1471,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     (
         "POST",
+        "/receipts/{receipt_id}/put-away/placeable",
+        receipt("/receipts/{receipt}/put-away/placeable"),
+        readers(403),
+    ),
+    (
+        "POST",
         "/receipts/{receipt_id}/complete",
         receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
         readers(403),
@@ -1573,7 +1581,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         fixed("/signatures/certification", {"submitted_on": "2026-11-01", "reference": "QA-1"}),
         ORG_ADMIN_ONLY,
     ),
-    ("POST", "/users/{user_id}/signing/unlock", viewer("/signing/unlock"), row(403, org_admin=409)),
+    (
+        "POST",
+        "/users/{user_id}/signing/unlock",
+        viewer("/signing/unlock", {"reason": "Checked with them"}),
+        row(403, org_admin=409),
+    ),
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),

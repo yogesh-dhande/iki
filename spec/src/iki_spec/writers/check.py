@@ -25,8 +25,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 __all__ = [
-    "ABI",
-    "ABI_VERSION",
+    "EXPORTS",
     "MAX_BR_TABLE_TARGETS",
     "MAX_FUNCTION_BODY",
     "MAX_MODULE_BYTES",
@@ -34,10 +33,9 @@ __all__ = [
     "check_module",
 ]
 
-#: The ABI a writer of this Iki speaks: ``iki_abi`` returns it.
-ABI_VERSION = 1
-#: The functions every writer exports, as (params, results), and its ``memory``.
-ABI: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+#: The functions every writer exports, as (params, results), and its ``memory``: the same
+#: in every ABI this Iki runs (:mod:`iki_spec.writers.abi`), which differ in their requests.
+EXPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "iki_abi": ((), ("i32",)),
     "iki_input": (("i32",), ("i32",)),
     "iki_begin": ((), ("i32",)),
@@ -200,7 +198,7 @@ def check_module(binary: bytes) -> list[Problem]:
         problems.append(Problem("abi", "It doesn't export its memory as `memory`."))
     problems.extend(
         Problem("abi", f"It doesn't export the function `{name}`.")
-        for name in ABI
+        for name in EXPORTS
         if exports.get(name) != "func"
     )
     return problems

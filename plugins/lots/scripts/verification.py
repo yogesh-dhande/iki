@@ -25,7 +25,10 @@ def archive(run: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Select an alignment or an externally reviewed report for this prep.")
     flow = run.get("settings", {}).get("verification_flow")
     if flow not in {"research", "regulated_qc"}:
-        raise ValueError("The deployment must select a plasmid verification review flow.")
+        raise ValueError(
+            "Choose this project's plasmid verification review in Project settings → "
+            "Starters → Plasmid prep verification."
+        )
 
     # Registry-valued references hold an entry UUID. The included entity, independently
     # pinned by the server, identifies a project record and its revision at archival

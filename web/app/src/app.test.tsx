@@ -121,6 +121,7 @@ function planned(overrides: Partial<Schemas["ImportOut"]> = {}): Schemas["Import
       types: [{ type: "iki/protein.Protein", plugin: "iki/protein", schema_version: 2, here: 2 }],
       files: { files: 0, here: 0, carried: 0, registered: 0 },
       outside: { count: 0, here: 0, items: [] },
+      signing_keys: [],
       problems: ["1 entity is in conflict: see each one’s reason."],
       applicable: false,
     },
@@ -1115,6 +1116,40 @@ describe("an import", () => {
         calls("GET", `/api/v1/imports/${made.id}/${kind}`).at(-1)?.query.get("planned_at"),
       ).toBe(made.planned_at);
     }
+  });
+
+  it("shows each signing key it brings before it's trusted, and whose it is", async () => {
+    const plan = planned().plan;
+    if (!plan) throw new Error("planned() has a plan");
+    onImport(
+      planned({
+        plan: {
+          ...plan,
+          signing_keys: [
+            { key: "ed25519:staging-own", deployment: "staging", source: true },
+            { key: "ed25519:partner-lab", deployment: "partner-lab", source: false },
+          ],
+        },
+      }),
+    );
+    await renderApp(PATH);
+    const keys = await screen.findByRole("heading", { name: "Signing keys it brings" });
+    const section = keys.closest("section");
+    if (!section) throw new Error("the keys are a section");
+    expect(within(section).getByText(/doesn’t trust yet/)).toBeVisible();
+    expect(within(section).getByText("ed25519:staging-own").closest("li")).toHaveTextContent(
+      "ed25519:staging-own: staging’s own",
+    );
+    expect(within(section).getByText("ed25519:partner-lab").closest("li")).toHaveTextContent(
+      "ed25519:partner-lab: partner-lab’s, vouched for by staging",
+    );
+  });
+
+  it("brings no keys section when it brings no new keys", async () => {
+    onImport();
+    await renderApp(PATH);
+    await screen.findByRole("heading", { name: "Entities" });
+    expect(screen.queryByRole("heading", { name: "Signing keys it brings" })).toBeNull();
   });
 
   it("shows only the entities of one kind when asked", async () => {

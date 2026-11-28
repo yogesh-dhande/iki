@@ -49,18 +49,22 @@ class SignInFailed(IkiError):
 
 @dataclass(frozen=True)
 class FieldError:
-    """One thing wrong with what was sent."""
+    """One thing wrong with what was sent: a body field, by its JSON Pointer, or a query
+    or path parameter, by its name."""
 
-    #: Where, as a JSON Pointer into the request (``#/values/sequence``).
-    pointer: str
+    #: Where in the body, as a JSON Pointer (``#/values/sequence``); None for a parameter.
+    pointer: str | None
     detail: str
     #: The plugin's rule it breaks, if it's a rule's.
     rule: str | None = None
     #: The rule holds records for review: saving with a ``hold_reason`` keeps it.
     hold: bool = False
+    #: The query or path parameter it's about (``cursor``, ``project``), if it's one's.
+    parameter: str | None = None
 
     def __str__(self) -> str:
-        return f"{self.pointer}: {self.detail}"
+        where = f"parameter {self.parameter}" if self.parameter else self.pointer or "#"
+        return f"{where}: {self.detail}"
 
 
 class ApiError(IkiError):
@@ -203,10 +207,11 @@ def from_response(status: int, body: Any) -> ApiError:  # noqa: ANN401 - JSON
     detail = str(problem.get("detail") or problem.get("title") or f"Iki answered {status}.")
     errors = tuple(
         FieldError(
-            pointer=str(e.get("pointer", "#")),
+            pointer=str(e["pointer"]) if e.get("pointer") else None if e.get("parameter") else "#",
             detail=str(e.get("detail", "")),
             rule=str(e["rule"]) if e.get("rule") else None,
             hold=bool(e.get("hold")),
+            parameter=str(e["parameter"]) if e.get("parameter") else None,
         )
         for e in problem.get("errors") or []
         if isinstance(e, dict)

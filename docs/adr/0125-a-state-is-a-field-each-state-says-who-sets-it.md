@@ -1,6 +1,7 @@
 # 0125. A state is a field, and each state says who may set it
 
 - Status: Accepted
+- Amended by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md): a review procedure declares its states, slots and independence once, compiled into guards
 - Date: 2026-11-18
 - Supersedes: [0118](0118-a-record-moves-through-its-types-states.md),
   [0119](0119-a-transition-can-keep-its-maker-apart-from-earlier-ones.md)

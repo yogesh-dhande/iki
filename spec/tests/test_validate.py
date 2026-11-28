@@ -25,6 +25,7 @@ from iki_spec.validate import (
     pattern_problems,
     satisfies,
 )
+from iki_spec.yamlsource import read_documents
 
 PLUGINS = Path(__file__).parent / "plugins"
 DNA, PROTEIN, PREDICTION = PLUGINS / "dna", PLUGINS / "protein", PLUGINS / "structure_prediction"
@@ -313,10 +314,12 @@ def test_bad_plugin_manifests(tmp_path: Path) -> None:
 
 
 def test_project_starters_pin_a_recipe_version_in_the_built_manifest(tmp_path: Path) -> None:
-    result = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "1.0.0"}\n')
+    # An Iki plugin's: a lab plugin's starters are warned of (below).
+    iki = PLUGIN.replace("acme/lab", "iki/oligo")
+    result = make(tmp_path, TYPE, plugin=iki + 'starters: {dose-response: "1.0.0"}\n')
     assert result.plugin is not None and not result.problems
     assert plugin_from_dict(plugin_to_dict(result.plugin)).starters == {"dose-response": "1.0.0"}
-    bad = make(tmp_path, TYPE, plugin=PLUGIN + 'starters: {dose-response: "latest"}\n')
+    bad = make(tmp_path, TYPE, plugin=iki + 'starters: {dose-response: "latest"}\n')
     assert codes(bad) == ["schema"]
 
 
@@ -507,6 +510,40 @@ def test_rows_roles_name_the_rows_fields(tmp_path: Path) -> None:
     assert problems(("copies: { type: int, min: 1, default: 1 }", "copies: { type: list }")) == [
         "schema"
     ]
+
+
+READINGS = """\
+readings:
+  type: list
+  items:
+    type: row
+    row_id: reading_id
+    fields:
+      read_at: { type: datetime, required: true }
+      value: { type: float, required: true }
+      reading_id: { type: string, max_length: 36 }
+"""
+
+
+def test_a_rows_id_is_an_optional_string_iki_fills_in(tmp_path: Path) -> None:
+    """A list's rows can each have a stable ID, as an experiment's observations do: the
+    server gives a new row one and keeps it through edits."""
+    result = make(tmp_path, fields(READINGS))
+    assert codes(result) == []
+    assert result.plugin is not None
+    row = result.plugin.types["acme/lab.Assay"].fields["readings"].items
+    assert row is not None
+    assert row.row_id == "reading_id"
+    assert plugin_from_dict(json.loads(json.dumps(plugin_to_dict(result.plugin)))) == result.plugin
+
+    def problem(change: tuple[str, str]) -> str:
+        return only(make(tmp_path, fields(READINGS.replace(*change))), "row-id-field")
+
+    assert "isn't one of its fields" in problem(("row_id: reading_id", "row_id: reading"))
+    assert "is a float field" in problem(("row_id: reading_id", "row_id: value"))
+    assert "is required" in problem(("max_length: 36 }", "max_length: 36, required: true }"))
+    assert "has a default" in problem(("max_length: 36 }", "max_length: 36, default: r1 }"))
+    assert "at most 12 characters" in problem(("max_length: 36", "max_length: 12"))
 
 
 STRING_ROWS = """\
@@ -1834,8 +1871,24 @@ def test_the_manifest_schema_dispatches_on_kind() -> None:
     issues = schemas.check("manifest", {"apiVersion": "iki/v1", "kind": "Nope"})
     assert [i.message for i in issues] == [
         "`kind` can't be `Nope`. Choose one of: `Plugin`, `EntityType`, `EntityTypeExtension`, "
-        "`Action`, `Environment`, `Workflow`, `Trigger`, `Component`."
+        "`Action`, `Environment`, `Workflow`, `Trigger`, `Component`, `ActionTest`, "
+        "`ReviewProcedure`."
     ]
+
+
+def test_the_manifest_schema_reads_every_yaml_file_in_a_plugin() -> None:
+    """An editor pointed at it for a whole plugin finds each of its files valid, its
+    action tests' too."""
+    root = Path(__file__).resolve().parents[2] / "plugins"
+    files = sorted(root.glob("*/**/*.yaml"))
+    tests = [f for f in files if f.parent.name == "tests"]
+    assert tests
+    for path in files:
+        documents, problems = read_documents(path, path.name)
+        assert not problems, path
+        for document in documents:
+            if isinstance(document.data, dict) and document.data.get("apiVersion") == "iki/v1":
+                assert not schemas.check("manifest", document.data), path
 
 
 # --- Lab roles (ADR 0116) ----------------------------------------------------------------------
@@ -1875,6 +1928,17 @@ def test_a_plugin_declares_lab_roles(tmp_path: Path) -> None:
 )
 def test_lab_roles_need_a_name_and_a_label(tmp_path: Path, roles: str) -> None:
     assert codes(make(tmp_path, TYPE, PLUGIN + f"roles:\n  {roles}\n")) == ["schema"]
+
+
+def test_a_lab_plugins_starters_are_warned_of(tmp_path: Path) -> None:
+    """A starter is a recipe the server has (ADR 0198), and only Iki's own plugins have
+    any: a lab plugin's `starters` switch nothing on."""
+    result = make(tmp_path, TYPE, PLUGIN + "starters:\n  buffer-release: 1.0.0\n")
+    assert result.ok
+    message = only(result, "unknown-starter")
+    assert "`buffer-release`" in message
+    assert result.problems[0].severity.value == "warning"
+    assert "enum` setting" in (result.problems[0].hint or "")
 
 
 def test_lab_roles_have_labels_of_their_own(tmp_path: Path) -> None:
