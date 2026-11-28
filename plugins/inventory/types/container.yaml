@@ -41,13 +41,14 @@ fields:
     type: date
     label: Prepared
     description: When it was filled.
-draw_guards:
-  available:
-    check: record.on_hold != true
-    message: This container is on hold. Clear its hold with a reason before taking material.
-  identified:
-    check: record.contents != null
-    message: Identify the contents before taking material.
+draws:
+  guards:
+    available:
+      check: record.on_hold != true
+      message: This container is on hold. Clear its hold with a reason before taking material.
+    identified:
+      check: record.contents != null
+      message: Identify the contents before taking material.
 rules:
   hold_explained:
     when: record.on_hold == true

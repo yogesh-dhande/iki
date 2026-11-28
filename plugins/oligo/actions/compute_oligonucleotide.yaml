@@ -9,10 +9,10 @@ description: >-
   for one registered other than by this plugin's actions, such as from its form or
   the API. It fails, saying which, if its HELM names a monomer it doesn't list.
 inputs:
-  oligonucleotide: { type: Oligonucleotide, schema: ">=1", include: [monomers] }
+  oligonucleotide: { type: Oligonucleotide, schema_version: ">=1", include: [monomers] }
 effects:
   updates:
-    - input: oligonucleotide
+    oligonucleotide:
       fields:
         - bases
         - length

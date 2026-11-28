@@ -610,11 +610,22 @@ def api_call(
     return session.request(method, f"{IKI}/api/v1{path}", json=body, headers=headers)
 
 
+def seen(revision: int) -> dict[str, str]:
+    """If-Match: the revision a change replaces, as it was read (ADR 0289)."""
+    return {"If-Match": f'"{revision}"'}
+
+
 def entry_of(entity: dict[str, Any]) -> str:
     """What a reference to an entity holds: for a type with an identity, its registry
     entry's ID (ADR 0115), which every project's record of it shares; otherwise its own."""
     entry = entity.get("entry")
     return str(entry["id"] if entry else entity["id"])
+
+
+def supplier(session: requests.Session, project: dict[str, Any], name: str) -> str:
+    """The registry's supplier of that name (iki/inventory.Supplier), registered if it
+    hasn't got it: what a record's ``supplier`` holds."""
+    return entry_of(created(session, project, "iki/inventory.Supplier", {"name": name}))
 
 
 def option(session: requests.Session, project: dict[str, Any], listed: str, code: str) -> str:
@@ -1826,7 +1837,7 @@ def plugin_export(alice: requests.Session, project: dict[str, Any]) -> None:
             "liquid_class": "DMSO Free Single",
         },
     )
-    format_name = kind + "tecan-worklist"
+    format_name = kind + "tecan_worklist"
     query = urlencode({"format": format_name})
     got = api_call(alice, "GET", f"/entities/{transfer['hrid']}/export?{query}")
     if got.status_code != 200:
@@ -2460,11 +2471,13 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
         parent = record(alice, effects[plugin + "ParentalLine"])
         parent_ids.add(parent["id"])
         source = record(alice, effects[plugin + "CellLineSource"])
-        if (
+        # The supplier is the registry's, registered by the name Cellosaurus gives it.
+        named = matching_records(alice, project, "iki/inventory.Supplier", "name", supplier)
+        if len(named) != 1 or (
             source["values"]["supplier"],
             source["values"]["catalogue_id"],
             source["values"]["line"],
-        ) != (supplier, catalogue_id, entry_of(parent)):
+        ) != (entry_of(named[0]), catalogue_id, entry_of(parent)):
             fail(f"{imported['hrid']} returned unexpected supplier details {source['values']}")
         sources[supplier] = source
     if (
@@ -3162,7 +3175,6 @@ def work_and_deliverable(
             "request": request["id"],
             "priority": "high",
             "scheduled_on": "2026-11-24",
-            "instrument": "Training bench",
             "notes": "Prepare the workspace and check the handoff.",
         },
     )
@@ -3417,11 +3429,8 @@ def receive_at_core(
         alice,
         "PATCH",
         at,
-        {
-            "handed_over_by": "Courier, waybill 1Z-DEV",
-            "note": "Dry ice present",
-            "plan_revision": damaged.json()["receipt"]["plan_revision"],
-        },
+        {"handed_over_by": "Courier, waybill 1Z-DEV", "note": "Dry ice present"},
+        seen(damaged.json()["receipt"]["revision"]),
     )
     if described.status_code != 200:
         fail(f"recording the handover answered {described.status_code}: {described.text[:300]}")
@@ -3435,8 +3444,8 @@ def receive_at_core(
                 {"line": lines[first], "to": incoming_code, "position": "A1"},
                 {"line": lines[second], "to": incoming_code, "position": "A2"},
             ],
-            "plan_revision": described.json()["plan_revision"],
         },
+        seen(described.json()["revision"]),
     )
     if done.status_code != 200:
         fail(
@@ -3484,7 +3493,7 @@ def receive_at_core(
         ):
             fail(f"unexpected reconciliation plan for {incoming['hrid']}: {lines}")
         wrong = next(line for line in lines if line["entity"] == tubes[1]["id"])
-        return str(wrong["id"]), int(wrong["line_revision"])
+        return str(wrong["id"]), int(wrong["revision"])
 
     # Counting the core's box: one where it should be, the other found in the wrong position.
     started = api_call(alice, "POST", f"/storage/containers/{incoming['id']}/reconciliations")
@@ -3508,7 +3517,8 @@ def receive_at_core(
         alice,
         "PATCH",
         f"{count}/lines/{wrong}",
-        {"resolution": "moved", "line_revision": line_revision},
+        {"resolution": "moved"},
+        seen(line_revision),
     )
     if resolved.status_code != 200:
         fail(f"resolving the move to B1 answered {resolved.status_code}: {resolved.text[:300]}")
@@ -3518,7 +3528,8 @@ def receive_at_core(
         alice,
         "POST",
         f"{count}/complete",
-        {"note": "Weekly count", "plan_revision": plan["plan_revision"]},
+        {"note": "Weekly count"},
+        seen(plan["revision"]),
     )
     if finished.status_code != 200:
         fail(
@@ -4109,7 +4120,7 @@ def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
         {
             "polymer": polymer["id"],
             "catalogue_number": "SRM 1478",
-            "supplier": "National Institute of Standards and Technology",
+            "supplier": supplier(alice, project, "National Institute of Standards and Technology"),
             "notes": "Demonstration lot. Certified values from NIST SRM 1478, July 1992.",
             "mn": 35800,
             "mn_method": option(alice, project, "iki/lots.MolarMassMethod", "membrane_osmometry"),
@@ -4119,11 +4130,11 @@ def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
             ),
         },
     )
-    run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
+    # Molar-mass dispersity, Mw/Mn (https://doi.org/10.1351/PAC-REC-08-05-02), which the
+    # lot works out as it's saved (ADR 0297).
     measured = record(alice, lot["id"])["values"]
-    # Molar-mass dispersity, Mw/Mn: https://doi.org/10.1351/PAC-REC-08-05-02
     if (measured.get("polymer"), measured.get("dispersity")) != (entry_of(polymer), 1.045):
-        fail(f"{run['hrid']} returned {measured} for NIST SRM 1478")
+        fail(f"{lot['hrid']} was saved as {measured} for NIST SRM 1478")
     ok(f"{lot['hrid']} links to {polymer['hrid']} and has Đ 1.045 from the SRM 1478 certificate")
 
 
@@ -4454,7 +4465,7 @@ def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: l
         receipt = started.json()
         at = f"/receipts/{receipt['id']}"
         lines = []
-        revision = receipt["plan_revision"]
+        revision = receipt["revision"]
         for tube_id in tube_ids:
             tube = record(alice, tube_id)
             code = tube["values"].get("barcode") or tube["hrid"]
@@ -4462,15 +4473,13 @@ def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: l
             if scanned.status_code != 200 or scanned.json()["found"] not in ("matched", "again"):
                 fail(f"scanning {tube['hrid']} answered {scanned.status_code}: {scanned.text}")
             lines.append(scanned.json()["line"])
-            revision = scanned.json()["receipt"]["plan_revision"]
+            revision = scanned.json()["receipt"]["revision"]
         custody = api_call(
             alice,
             "PATCH",
             at,
-            {
-                "handed_over_by": "Example courier, training run",
-                "plan_revision": revision,
-            },
+            {"handed_over_by": "Example courier, training run"},
+            seen(revision),
         )
         if custody.status_code != 200:
             fail(f"recording the example handover answered {custody.status_code}: {custody.text}")
@@ -4478,10 +4487,8 @@ def receive_tutorial_tubes(alice: requests.Session, request_id: str, tube_ids: l
             alice,
             "POST",
             f"{at}/complete",
-            {
-                "plan_revision": custody.json()["plan_revision"],
-                "keep_in_custody": lines,
-            },
+            {"keep_in_custody": lines},
+            seen(custody.json()["revision"]),
         )
         if done.status_code != 200:
             fail(f"completing the example receipt answered {done.status_code}: {done.text}")
@@ -4648,7 +4655,7 @@ def reagent_stock(alice: requests.Session, project: dict[str, Any]) -> None:
         "catalogue_number",
         {
             "name": "Corning 15 mL centrifuge tubes",
-            "supplier": "Corning",
+            "supplier": supplier(alice, project, "Corning"),
             "catalogue_number": "430790",
             "pack_size": 50,
             "stock_unit": "1",
@@ -5664,16 +5671,16 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
-    # Its 4 cystines take 8 H off its sequence's 14,313.0 g/mol: 37,970 / 14,304.94.
+    # Its 4 cystines take 8 H off its sequence's 14,313.18 g/mol: 37,970 / 14,305.12.
     if (got.get("a280_extinction"), got.get("concentration"), got.get("a280_estimate")) != (
         2.6543,
-        1.9967,
+        1.9968,
         False,
     ):
-        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9967 mg/mL at 2.6543")
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9968 mg/mL at 2.6543")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}'s A280 of 0.53, diluted 1 in 10, is "
-        f"1.9967 mg/mL of lysozyme at its cystines' 2.6543 mL/(mg·cm) ({run['hrid']})"
+        f"1.9968 mg/mL of lysozyme at its cystines' 2.6543 mL/(mg·cm) ({run['hrid']})"
     )
 
 
@@ -5933,7 +5940,7 @@ TRASTUZUMAB_VL = (
 #: cysteine's thiol free): formula, average and monoisotopic masses, chain count, and
 #: molar absorbance at 280 nm (Pace's, as Biopython's ProtParam gives its chains: 35,410
 #: and 14,440).
-FV_COMPOSITION = ("C1105H1687N297O344S7", 24860.46, 24845.1689, 2, 49850)
+FV_COMPOSITION = ("C1105H1687N297O344S7", 24860.81, 24845.1689, 2, 49850)
 #: The antibody plugin's numbering-tools image (plugins/antibody/environments/numbering-tools.yaml).
 NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
@@ -6318,7 +6325,7 @@ def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, An
 def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:
     """A protein lot of the Fv, a complex (ADR 0162): its concentration from its A280 and
     the Fv's composition, kept with each thiol free, with its two disulfides applied:
-    49,850 + 2 x 125 L/(mol.cm) over 24,860.46 - 4 x 1.00794 g/mol, 2.0156 mL/(mg.cm)."""
+    49,850 + 2 x 125 L/(mol.cm) over 24,860.81 - 4 x 1.008 g/mol, 2.0155 mL/(mg.cm)."""
     lot = created(
         alice,
         project,
@@ -6334,11 +6341,11 @@ def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any])
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
-    if (got.get("a280_extinction"), got.get("concentration")) != (2.0156, 4.2172):
-        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 4.2172 mg/mL at 2.0156")
+    if (got.get("a280_extinction"), got.get("concentration")) != (2.0155, 4.2172):
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 4.2172 mg/mL at 2.0155")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}, a lot of {fv['hrid']}, is 4.2172 mg/mL "
-        f"at the Fv's 2.0156 mL/(mg.cm), with its 2 disulfides ({run['hrid']})"
+        f"at the Fv's 2.0155 mL/(mg.cm), with its 2 disulfides ({run['hrid']})"
     )
 
 

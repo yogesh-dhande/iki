@@ -7,7 +7,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { KINASE, renderApp, withTypes } from "./entity-fixtures";
-import { WEIGH_ACTION, WORKFLOW, workflowRun } from "./run-fixtures";
+import { ACTION, WEIGH_ACTION, WORKFLOW, workflowRun } from "./run-fixtures";
 import { answer, calls, page, project } from "./test-server";
 import type { Schemas } from "@ikisci/sdk";
 
@@ -60,6 +60,26 @@ describe("a project's workflows", () => {
     expect(screen.queryByRole("link", { name: "Run a workflow" })).not.toBeInTheDocument();
   });
 
+  it("says which plugin a dependency's step is from", async () => {
+    // A lab's workflow that runs Protein's calculation on its own records (ADR 0298).
+    const theirs: Schemas["WorkflowOut"] = {
+      ...WORKFLOW,
+      steps: WORKFLOW.steps.map((step) => ({ ...step, action: ACTION.name })),
+    };
+    onProject();
+    answer("GET /api/v1/actions", [WEIGH_ACTION, ACTION]);
+    answer("GET /api/v1/workflows", [theirs]);
+    const { user } = await renderApp("/projects/kinase-atlas/automation/workflows/new/");
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Workflow" }),
+      "Weigh twice",
+    );
+    const steps = await screen.findByRole("list", { name: "Steps" });
+    expect(steps).toHaveTextContent(
+      "SecondCompute properties, from the iki/protein plugin · after first",
+    );
+  });
+
   it("starts one, after showing its steps", async () => {
     onProject();
     answer(`POST /api/v1/workflows/${WORKFLOW.name}/runs`, () => workflowRun());
@@ -79,6 +99,7 @@ describe("a project's workflows", () => {
     await user.selectOptions(chooser, "Weigh twice");
     const steps = await screen.findByRole("list", { name: "Steps" });
     expect(steps).toHaveTextContent("SecondCompute properties · after first");
+    expect(steps).not.toHaveTextContent("from the");
     expect(steps).toHaveTextContent("Waits for approval by a Runner or above, other than you");
     await user.type(screen.getByRole("textbox", { name: /Reason/ }), "Check the weights");
     await user.click(screen.getByRole("button", { name: "Start workflow" }));

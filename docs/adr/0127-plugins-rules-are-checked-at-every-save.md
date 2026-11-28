@@ -1,6 +1,7 @@
 # 0127. Plugins' rules are checked at every save, and a rule can hold a record for review
 
-- Status: Accepted
+- Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules; and by the 2026-11-27 amendment of [0082](0082-unique-fields-link-records-in-other-systems.md): unique fields are one-field rules, and `within: registry`)
+- Clarified 2026-11-27: a rule and a guard reading the same expression treat an empty value oppositely, documented side by side, with a validator warning
 - Date: 2026-11-18
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),
   [0056](0056-bulk-imports.md),
@@ -52,9 +53,10 @@ There are three kinds:
 `unique` and `no_overlap` take `while: {field: [values]}` (enum, state or
 bool fields) to count only some records, such as stored tubes or bookings
 that aren't cancelled. Their fields are in the declaring manifest's own table,
-not an identity's registry entry. A trigger keeps a row per record
-(`iki_unique_value` under `table:rule`, or `iki_range_value`), as unique
-fields' rows are kept (ADR 0082). So every writer is held to the rule,
+not an identity's registry entry, except a `unique` rule `within: registry`, whose
+fields are all its entries' (amended 2026-11-27, ADR 0082). A trigger keeps a row per
+record (`iki_unique_value` under `table:rule`, or `iki_range_value`); a unique field
+is a one-field rule kept the same way (ADR 0082). So every writer is held to the rule,
 including SQL, and two saves at the same moment can't both get in. Before
 writing, the server finds the record a save would clash with and names it.
 
@@ -83,6 +85,21 @@ passes, as SQL's CHECK does with NULL, so an optional field isn't made
 required by a rule about its value. A save that breaks rules is refused with
 422 `validation_failed`, and each error names its `rule` and points at its
 fields: `{"pointer": "#/values/purity", "detail": "…", "rule": "…", "hold": false}`.
+
+A record's registry entry (ADR 0115) is part of what its rules read, so a change
+to the entry's values (a holder setting one the entry lacked, a registrar
+changing a fact) is checked against every record of it, by the rules reading
+what changed. A registrar's change that breaks a rule reading the entry's values
+alone is refused, as every record of it would break it. The other records aren't
+the changer's project's, and the changer isn't told of them, so for them, as at a
+deploy, a rule that holds holds the record for the change's reason, and any other
+is reported as a breach.
+
+Setting a state field (ADR 0125) is a write of its value, so the rules reading
+the field are checked as an edit of it checks them. One that refuses refuses
+the change, and the record's state controls say why. One that holds asks for
+the change's reason and holds the record for it, though not for a state that
+locks it, which a held record can't take (ADR 0128), nor for a signed state.
 
 **A rule can hold, not refuse** (`hold: {reviewed_by: [lab roles]}`), for
 `check` rules only. A save that breaks only rules that hold is refused with
@@ -172,3 +189,17 @@ reason when only rules that hold are broken.
 - **Check every rule on every edit.** A rule added later would block unrelated
   edits of every record that breaks it. Ratcheting, with a deploy's report,
   doesn't.
+
+## Clarification of 2026-11-27: a rule and a guard on the same expression
+
+A rule whose check can't be worked out because a value it reads is empty passes, as a
+database's CHECK does; a guard's refuses ([ADR 0128](0128-guards-say-when-a-state-may-be-set.md)).
+Both defaults stand: a draft is saved before every value is known, and a state that
+moves a record on needs what it reads to be there. The manifest spec documents them side
+by side, and the validator warns (`same-condition-rule-and-guard`) when one type has a
+rule and a guard with the same check, since one of them may not mean what its author
+expects of an empty value. The warning names both and says how to make either explicit:
+`required`, or `record.x == null || …` in the guard.
+
+No `on_empty` key is added. Each expression can already say what it means of an empty
+value, and a key would add a third way to say it without a case it fixes.

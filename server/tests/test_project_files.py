@@ -269,7 +269,7 @@ def test_plugin_format_from_upload_to_structure_field_and_filter(world: World, s
     from test_files import PDB
     from test_files import add as upload
 
-    fmt = "acme/protein.model-pdb"
+    fmt = "acme/protein.model_pdb"
     api = api_as(world)
     declarations = {f["id"]: f for f in api.get("/formats").json()}
     model = declarations[fmt]

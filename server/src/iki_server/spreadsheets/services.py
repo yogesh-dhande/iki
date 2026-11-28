@@ -52,7 +52,6 @@ from iki_server.audit import log as audit
 from iki_server.entities import access, lists, registry, unique
 from iki_server.entities import services as entities
 from iki_server.entities.identity import hash_of
-from iki_server.entities.models import UniqueValue
 from iki_server.entities.values import Invalid, referable, shape
 from iki_server.files import listing, scan_state, storage
 from iki_server.files import services as files
@@ -129,17 +128,15 @@ class Stale(Exception):  # noqa: N818 - reads as "the request was stale"
         self.current = current
 
 
-class StaleTemplate(Refused):
-    code = "stale_template"
+class StaleTemplate(Exception):  # noqa: N818 - reads as "the template was stale"
+    """A saved mapping changed since the revision a request was made from."""
 
     def __init__(self, saved: SavedMapping) -> None:
         super().__init__(
             f"The saved template “{saved.name}” changed to revision {saved.revision}. "
             "Review the current template before replacing it."
         )
-        self.extensions = {
-            "target": {"id": str(saved.pk), "name": saved.name, "revision": saved.revision}
-        }
+        self.current = saved.revision
 
 
 def check_revision(imported: SpreadsheetImport, expected_revision: int) -> None:
@@ -613,14 +610,14 @@ def save_mapping(
     *,
     expected_revision: int,
     replace: uuid.UUID | None = None,
-    target_revision: int | None = None,
+    replace_revision: int | None = None,
 ) -> SavedMapping:
     """Keeps the import's mapping in its project, by its headers, as ``name``: or as
-    ``replace``, changing it. The mapping kept is the one at ``expected_revision``, the
-    one the person saw. Raises :class:`Stale` or :class:`Refused`."""
+    ``replace``, changing that saved mapping from ``replace_revision``, the one the person
+    agreed to replace. The mapping kept is the import's at ``expected_revision``, the one
+    the person saw. Raises :class:`Stale`, :class:`StaleTemplate` or :class:`Refused`."""
     _may_write(user, imported.project, imported.type)
-    if (replace is None) != (target_revision is None):
-        raise Invalid({"target_revision": ["Give a template ID and its revision together."]})
+    assert (replace is None) == (replace_revision is None)  # noqa: S101 - the API gives both
     name = name.strip()
     if not name or len(name) > 100:
         raise Refused("Give it a name, of at most 100 characters.", field="name")
@@ -642,7 +639,7 @@ def save_mapping(
                 .select_related("created_by")
                 .get(pk=replace, project_id=imported.project_id, type=imported.type)
             )
-            if saved.revision != target_revision:
+            if saved.revision != replace_revision:
                 raise StaleTemplate(saved)
             saved.revision += 1
             what = "spreadsheet_mapping.changed"
@@ -677,10 +674,13 @@ def save_mapping(
     return saved
 
 
-def delete_mapping(user: User, saved: SavedMapping) -> None:
+def delete_mapping(user: User, saved: SavedMapping, *, expected_revision: int) -> None:
+    """Deletes it, if it's still at ``expected_revision``. Raises :class:`StaleTemplate`."""
     _may_write(user, saved.project, saved.type)
     with transaction.atomic():
         saved = SavedMapping.objects.select_for_update().get(pk=saved.pk)
+        if saved.revision != expected_revision:
+            raise StaleTemplate(saved)
         audit.record(
             "spreadsheet_mapping.deleted",
             actor=user,
@@ -1087,7 +1087,7 @@ class Resolver:
     def find(self, f: Field, texts: set[str]) -> dict[str, str | uuid.UUID]:
         """What each text names: a record's ID, or why it names none."""
         target = f.items if f.type == "list" and f.items is not None else f
-        if len(target.to) == 1 and lists.is_list(target.to[0]):
+        if len(target.to) == 1 and registry.is_lab_list(target.to[0]):
             return self._options(target.to[0], texts)
         types = referable(target)
         out: dict[str, str | uuid.UUID] = {}
@@ -1123,20 +1123,35 @@ class Resolver:
         return out
 
     def _options(self, type_name: str, texts: set[str]) -> dict[str, str | uuid.UUID]:
-        """A lab list's options (ADR 0270), by code, by label in any case, by HRID or by
-        ID, in the project's registry. An archived one is found, and refused when it's saved
-        unless the record names it already."""
+        """A lab list's options (ADR 0270), in the project's registry: by its code, as
+        exports give it; by its code or its label in any case; by HRID or by ID. A text
+        that names more than one in another case names none, and says which it could be.
+        An archived one is found, and refused when it's saved unless the record names it
+        already."""
         every = lists.options(self.project.registry_id, type_name, archived=True)
         by_code = {o.code: o.entry.pk for o in every}
-        by_label = {o.label.casefold(): o.entry.pk for o in every}
+        # What each name, in any case, could be: the option, and whether by code or label.
+        by_name: dict[str, dict[uuid.UUID, tuple[str, str]]] = {}
+        for o in every:
+            by_name.setdefault(o.label.casefold(), {}).setdefault(o.entry.pk, (o.code, "label"))
+            by_name.setdefault(o.code.casefold(), {}).setdefault(o.entry.pk, (o.code, "code"))
         by_hrid = {o.entry.hrid: o.entry.pk for o in every}
         by_id = {str(o.entry.pk): o.entry.pk for o in every}
         label = registry.types()[type_name].label_plural
         out: dict[str, str | uuid.UUID] = {}
         for text in texts:
+            named = by_name.get(text.casefold(), {})
+            if text not in by_code and len(named) > 1:
+                said = [f"`{code}` by its {how}" for code, how in sorted(named.values())]
+                which = ", ".join(said[:-1]) + " and " + said[-1]
+                out[text] = (
+                    f"names more than one option of {label}: {which}. Give the one you mean "
+                    "by its code, exactly."
+                )
+                continue
             found = (
                 by_code.get(text)
-                or by_label.get(text.casefold())
+                or next(iter(named), None)
                 or by_hrid.get(text.upper())
                 or by_id.get(text.lower())
             )
@@ -1350,13 +1365,15 @@ def _taken(
             if not wanted:
                 continue
             field_key = unique.key(part.model, name)
-            rows = UniqueValue.objects.filter(key=field_key, value__in=set(wanted.values()))
+            rows = unique.rows(field_key, wanted.values())
             rows = (
                 rows.filter(registry_id=registry_of(project))
                 if part.entry
                 else rows.filter(project=project)
             )
-            holders = dict(rows.values_list("value", "entity__hrid"))
+            holders = {
+                unique.text(v): hrid for v, hrid in rows.values_list("value", "entity__hrid")
+            }
             for index, value in wanted.items():
                 if value in holders:
                     whose = holders[value] if not part.entry else "another entry"
@@ -1742,10 +1759,11 @@ def _creates_file(imported: SpreadsheetImport) -> File:
         )
 
 
-def discard(user: User, imported: SpreadsheetImport) -> None:
-    """Before it's committed: its rows go, and it's kept as discarded."""
+def discard(user: User, imported: SpreadsheetImport, *, expected_revision: int) -> None:
+    """Before it's committed, from the revision the person read: its rows go, and it's kept
+    as discarded."""
     with transaction.atomic():
-        locked = SpreadsheetImport.objects.select_for_update().get(pk=imported.pk)
+        locked = _locked(imported, expected_revision)
         if locked.state in (ImportState.COMMITTING, ImportState.COMMITTED):
             raise Refused("It's been imported: its run's records are the project's now.")
         _discarded(locked)
@@ -1862,13 +1880,14 @@ def _clashes(imported: SpreadsheetImport) -> list[dict[str, Any]]:
             wanted = {str(u[field_key]): row for row, u in found if u is not None}
             if not wanted:
                 continue
-            taken = UniqueValue.objects.filter(key=field_key, value__in=list(wanted))
+            taken = unique.rows(field_key, wanted)
             taken = (
                 taken.filter(registry_id=registry_of(imported.project))
                 if part.entry
                 else taken.filter(project=imported.project_id)
             )
-            for value, hrid in taken.values_list("value", "entity__hrid"):
+            for stored, hrid in taken.values_list("value", "entity__hrid"):
+                value = unique.text(stored)
                 out.append(
                     {
                         "row": wanted[value],

@@ -10,9 +10,9 @@ description: >-
   none is named; otherwise its concentration is as measured. A
   concentration a pool set, or one entered, since its A260 was read is kept.
 inputs:
-  lot: { type: PlasmidPrep, schema: ">=3", include: [concentration_method] }
+  lot: { type: PlasmidPrep, schema_version: ">=3", include: [concentration_method] }
 effects:
-  updates: [{ input: lot, fields: [a260_concentration, concentration] }]
+  updates: { lot: { fields: [a260_concentration, concentration] } }
 runs_on: { tier: backend, environment: lot-tools }
 command: [python, ./scripts/lots.py, plasmid]
 deterministic: true

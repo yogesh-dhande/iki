@@ -5,9 +5,9 @@ name: translate_and_characterize
 label: Translate and characterize
 description: >-
   Translates a DNA sequence into the protein it encodes, then computes that
-  protein's properties.
+  protein's properties, with the Protein plugin's own two actions.
 inputs:
-  sequence: { type: iki/dna.DNASequence, schema: ">=1" }
+  sequence: { type: iki/dna.DNASequence, schema_version: ">=1" }
 params:
   frame:
     type: int
@@ -31,9 +31,9 @@ params:
       to a stop codon.
 steps:
   translate:
-    action: translate
+    action: iki/protein.translate
     inputs: { sequence: $inputs.sequence }
     params: { frame: $params.frame, table: $params.table, complete_cds: $params.complete_cds }
   properties:
-    action: compute_properties
+    action: iki/protein.compute_properties
     inputs: { protein: $steps.translate.created.iki/protein.Protein }

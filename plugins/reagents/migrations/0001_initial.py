@@ -9,6 +9,7 @@ class Migration(iki.Migration):
     initial = True
 
     dependencies = [
+        ('iki__inventory', '0001_initial'),
         ('iki__lots', '0001_initial'),
         ('iki_anchors', '0001_iki_0_1'),
     ]
@@ -105,7 +106,6 @@ class Migration(iki.Migration):
             fields=[
                 ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
                 ('name', iki.CharField(db_index=True, max_length=200)),
-                ('supplier', iki.CharField(max_length=200)),
                 ('catalogue_number', iki.CharField(db_index=True, max_length=100)),
                 ('stock_unit', iki.TextField()),
                 ('pack_size', iki.FloatField()),
@@ -122,7 +122,7 @@ class Migration(iki.Migration):
                 ('entity_id', iki.UUIDField()),
                 ('revision', iki.PositiveIntegerField()),
                 ('name', iki.TextField(null=True)),
-                ('supplier', iki.TextField(null=True)),
+                ('supplier', iki.UUIDField(db_column='supplier_id', null=True)),
                 ('catalogue_number', iki.TextField(null=True)),
                 ('stock_unit', iki.TextField(null=True)),
                 ('pack_size', iki.FloatField(null=True)),
@@ -257,69 +257,10 @@ class Migration(iki.Migration):
             name='item',
             field=iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__reagents.stockitem'),
         ),
-        iki.AddIndex(
+        iki.AddField(
             model_name='stockitem',
-            index=iki.GinIndex(fields=['name'], name='name_trgm_d7a6e1246ae0bfb85c1e', opclasses=['gin_trgm_ops']),
-        ),
-        iki.AddIndex(
-            model_name='stockitem',
-            index=iki.GinIndex(fields=['catalogue_number'], name='catalogue_trgm_60cfad27de3f0d5', opclasses=['gin_trgm_ops']),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('name'), 1), name='iki__reagents_stockitem__name__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('name__regex', '[\\r\\n]'), negated=True), name='iki__reagents_stockitem__name__one_line'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('supplier'), 1), name='iki__reagents_stockitem__supplier__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('supplier__regex', '[\\r\\n]'), negated=True), name='iki__reagents_stockitem__supplier__one_line'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('supplier__regex', '^(?:.*\\S.*)$')), name='iki__reagents_stockitem__supplier__pattern'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('catalogue_number'), 1), name='iki__reagents_stockitem__catalogue_number__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('catalogue_number__regex', '[\\r\\n]'), negated=True), name='iki__reagents_stockitem__catalogue_number__one_line'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('catalogue_number__regex', '^(?:.*\\S.*)$')), name='iki__reagents_stockitem__catalogue_number__pattern'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('stock_unit__in', ['mg', 'mL', '1'])), name='iki__reagents_stockitem__stock_unit__values'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('pack_size__gt', float('-inf')), ('pack_size__lt', float('inf'))), name='iki__reagents_stockitem__pack_size__finite'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('pack_size__gte', 0)), name='iki__reagents_stockitem__pack_size__min'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('low_stock_at__gt', float('-inf')), ('low_stock_at__lt', float('inf'))), name='iki__reagents_stockitem__low_stock_at__finite'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('low_stock_at__gte', 0)), name='iki__reagents_stockitem__low_stock_at__min'),
-        ),
-        iki.AddConstraint(
-            model_name='stockitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('release_requirement__in', ['not_required', 'required'])), name='iki__reagents_stockitem__release_requirement__known'),
+            name='supplier',
+            field=iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__inventory.supplier_entry'),
         ),
         iki.AddField(
             model_name='reorderline',
@@ -385,6 +326,58 @@ class Migration(iki.Migration):
         iki.AddConstraint(
             model_name='stocklot',
             constraint=iki.CheckConstraint(condition=iki.Q(('packs__gte', 1)), name='iki__reagents_stocklot__packs__min'),
+        ),
+        iki.AddIndex(
+            model_name='stockitem',
+            index=iki.GinIndex(fields=['name'], name='name_trgm_d7a6e1246ae0bfb85c1e', opclasses=['gin_trgm_ops']),
+        ),
+        iki.AddIndex(
+            model_name='stockitem',
+            index=iki.GinIndex(fields=['catalogue_number'], name='catalogue_trgm_60cfad27de3f0d5', opclasses=['gin_trgm_ops']),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('name'), 1), name='iki__reagents_stockitem__name__not_empty'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('name__regex', '[\\r\\n]'), negated=True), name='iki__reagents_stockitem__name__one_line'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('catalogue_number'), 1), name='iki__reagents_stockitem__catalogue_number__not_empty'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('catalogue_number__regex', '[\\r\\n]'), negated=True), name='iki__reagents_stockitem__catalogue_number__one_line'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('catalogue_number__regex', '^(?:.*\\S.*)$')), name='iki__reagents_stockitem__catalogue_number__pattern'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('stock_unit__in', ['mg', 'mL', '1'])), name='iki__reagents_stockitem__stock_unit__values'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('pack_size__gt', float('-inf')), ('pack_size__lt', float('inf'))), name='iki__reagents_stockitem__pack_size__finite'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('pack_size__gte', 0)), name='iki__reagents_stockitem__pack_size__min'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('low_stock_at__gt', float('-inf')), ('low_stock_at__lt', float('inf'))), name='iki__reagents_stockitem__low_stock_at__finite'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('low_stock_at__gte', 0)), name='iki__reagents_stockitem__low_stock_at__min'),
+        ),
+        iki.AddConstraint(
+            model_name='stockitem',
+            constraint=iki.CheckConstraint(condition=iki.Q(('release_requirement__in', ['not_required', 'required'])), name='iki__reagents_stockitem__release_requirement__known'),
         ),
         iki.AddIndex(
             model_name='reorderline',

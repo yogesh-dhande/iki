@@ -14,6 +14,7 @@ class Migration(iki.Migration):
         ('iki__oligo', '0001_initial'),
         ('iki__plasmid', '0001_initial'),
         ('iki__polymer', '0001_initial'),
+        ('iki__strains', '0001_initial'),
         ('iki_anchors', '0001_iki_0_1'),
     ]
 
@@ -60,7 +61,6 @@ class Migration(iki.Migration):
                 ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
                 ('lot_number', iki.CharField(db_index=True, max_length=100, null=True)),
                 ('source', iki.TextField(db_index=True, null=True)),
-                ('supplier', iki.CharField(db_index=True, max_length=200, null=True)),
                 ('catalogue_number', iki.CharField(db_index=True, max_length=100, null=True)),
                 ('made_on', iki.DateField(null=True)),
                 ('received_on', iki.DateField(null=True)),
@@ -73,6 +73,7 @@ class Migration(iki.Migration):
                 ('disposition', iki.StateField(db_comment='A state field (ADR 0125): one of quarantined, released, available, retest_due, on_hold, rejected, expired.', db_default='quarantined', locking=['released', 'rejected', 'expired'], states=['quarantined', 'released', 'available', 'retest_due', 'on_hold', 'rejected', 'expired'])),
                 ('made_by', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to=iki.USER)),
                 ('responsible', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to=iki.USER)),
+                ('supplier', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__inventory.supplier_entry')),
             ],
             table='iki__lots_lot',
             bases=(iki.ENTITY,),
@@ -171,7 +172,7 @@ class Migration(iki.Migration):
                 ('of', iki.UUIDField(db_column='of_id', null=True)),
                 ('item', iki.TextField(null=True)),
                 ('purity', iki.QuantityField(null=True, unit='%')),
-                ('purity_method', iki.TextField(null=True)),
+                ('purity_method', iki.UUIDField(db_column='purity_method_id', null=True)),
             ],
             table='iki__lots_genericcountlot__history',
         ),
@@ -187,7 +188,7 @@ class Migration(iki.Migration):
                 ('of', iki.UUIDField(db_column='of_id', null=True)),
                 ('concentration', iki.QuantityField(null=True, unit='mg/mL')),
                 ('purity', iki.QuantityField(null=True, unit='%')),
-                ('purity_method', iki.TextField(null=True)),
+                ('purity_method', iki.UUIDField(db_column='purity_method_id', null=True)),
             ],
             table='iki__lots_genericlot__history',
         ),
@@ -203,7 +204,7 @@ class Migration(iki.Migration):
                 ('of', iki.UUIDField(db_column='of_id', null=True)),
                 ('concentration', iki.QuantityField(null=True, unit='mg/mL')),
                 ('purity', iki.QuantityField(null=True, unit='%')),
-                ('purity_method', iki.TextField(null=True)),
+                ('purity_method', iki.UUIDField(db_column='purity_method_id', null=True)),
             ],
             table='iki__lots_genericvolumelot__history',
         ),
@@ -239,7 +240,7 @@ class Migration(iki.Migration):
                 ('revision', iki.PositiveIntegerField()),
                 ('lot_number', iki.TextField(null=True)),
                 ('source', iki.TextField(null=True)),
-                ('supplier', iki.TextField(null=True)),
+                ('supplier', iki.UUIDField(db_column='supplier_id', null=True)),
                 ('catalogue_number', iki.TextField(null=True)),
                 ('made_by', iki.UUIDField(db_column='made_by_id', null=True)),
                 ('made_on', iki.DateField(null=True)),
@@ -397,42 +398,6 @@ class Migration(iki.Migration):
             model_name='OligoPurification_History',
         ),
         iki.CreateModel(
-            name='OligoPurityMethod',
-            fields=[
-                ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
-            ],
-            table='iki__lots_oligopuritymethod',
-            bases=(iki.ENTITY,),
-        ),
-        iki.CreateModel(
-            name='OligoPurityMethod_Entry_History',
-            fields=[
-                ('pk', iki.CompositePrimaryKey('entity_id', 'revision')),
-                ('entity_id', iki.UUIDField()),
-                ('revision', iki.PositiveIntegerField()),
-                ('code', iki.TextField(null=True)),
-                ('label', iki.TextField(null=True)),
-                ('description', iki.TextField(null=True)),
-                ('position', iki.BigIntegerField(null=True)),
-            ],
-            table='iki__lots_oligopuritymethod__entry__history',
-        ),
-        iki.AppendOnly(
-            model_name='OligoPurityMethod_Entry_History',
-        ),
-        iki.CreateModel(
-            name='OligoPurityMethod_History',
-            fields=[
-                ('pk', iki.CompositePrimaryKey('entity_id', 'revision')),
-                ('entity_id', iki.UUIDField()),
-                ('revision', iki.PositiveIntegerField()),
-            ],
-            table='iki__lots_oligopuritymethod__history',
-        ),
-        iki.AppendOnly(
-            model_name='OligoPurityMethod_History',
-        ),
-        iki.CreateModel(
             name='PlasmidPrep_History',
             fields=[
                 ('pk', iki.CompositePrimaryKey('entity_id', 'revision')),
@@ -442,7 +407,7 @@ class Migration(iki.Migration):
                 ('scale', iki.TextField(null=True)),
                 ('method', iki.UUIDField(db_column='method_id', null=True)),
                 ('kit', iki.TextField(null=True)),
-                ('host_strain', iki.TextField(null=True)),
+                ('host_strain', iki.UUIDField(db_column='host_strain_id', null=True)),
                 ('culture_volume', iki.QuantityField(null=True, unit='mL')),
                 ('a260', iki.FloatField(null=True)),
                 ('path_length', iki.QuantityField(null=True, unit='cm')),
@@ -776,7 +741,6 @@ class Migration(iki.Migration):
                 ('lot_ptr', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki__lots.lot')),
                 ('scale', iki.TextField(db_index=True, null=True)),
                 ('kit', iki.CharField(max_length=200, null=True)),
-                ('host_strain', iki.CharField(max_length=200, null=True)),
                 ('culture_volume', iki.QuantityField(null=True, unit='mL')),
                 ('a260', iki.FloatField(null=True)),
                 ('path_length', iki.QuantityField(db_default=1.0, null=True, unit='cm')),
@@ -922,35 +886,6 @@ class Migration(iki.Migration):
                 iki.CheckConstraint(condition=iki.LessThanOrEqual(iki.Length('description'), 2000), name='iki__lots_oligopurification__entry__description__max_length'),
                 iki.CheckConstraint(condition=iki.Q(('position__gte', 1)), name='iki__lots_oligopurification__entry__position__min'),
                 iki.CheckConstraint(condition=iki.Q(('position__lte', 10000)), name='iki__lots_oligopurification__entry__position__max'),
-            ],
-            bases=(iki.ENTITY,),
-        ),
-        iki.CreateModel(
-            name='OligoPurityMethod_Entry',
-            fields=[
-                ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
-                ('code', iki.CharField(db_index=True, max_length=64)),
-                ('label', iki.CharField(db_index=True, max_length=200)),
-                ('description', iki.TextField(null=True)),
-                ('position', iki.BigIntegerField(null=True)),
-            ],
-            table='iki__lots_oligopuritymethod__entry',
-            indexes=[
-                iki.GinIndex(fields=['code'], name='code_trgm_de41d88e14e02ca4cf0e', opclasses=['gin_trgm_ops']),
-                iki.GinIndex(fields=['label'], name='label_trgm_cde2028d8b1bf5aa559', opclasses=['gin_trgm_ops']),
-                iki.GinIndex(iki.SearchVector(iki.Left('description', 100000), config='simple'), name='descriptio_fts_264a4606d33bb77'),
-            ],
-            constraints=[
-                iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('code'), 1), name='iki__lots_oligopuritymethod__entry__code__not_empty'),
-                iki.CheckConstraint(condition=iki.Q(('code__regex', '[\\r\\n]'), negated=True), name='iki__lots_oligopuritymethod__entry__code__one_line'),
-                iki.CheckConstraint(condition=iki.Q(('code__regex', '^(?:^[A-Za-z0-9][A-Za-z0-9_.+-]*$)$')), name='iki__lots_oligopuritymethod__entry__code__pattern'),
-                iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('label'), 1), name='iki__lots_oligopuritymethod__entry__label__not_empty'),
-                iki.CheckConstraint(condition=iki.Q(('label__regex', '[\\r\\n]'), negated=True), name='iki__lots_oligopuritymethod__entry__label__one_line'),
-                iki.CheckConstraint(condition=iki.Q(('label__regex', '^(?:^\\S(?:.*\\S)?$)$')), name='iki__lots_oligopuritymethod__entry__label__pattern'),
-                iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('description'), 1), name='iki__lots_oligopuritymethod__entry__description__not_empty'),
-                iki.CheckConstraint(condition=iki.LessThanOrEqual(iki.Length('description'), 2000), name='iki__lots_oligopuritymethod__entry__description__max_length'),
-                iki.CheckConstraint(condition=iki.Q(('position__gte', 1)), name='iki__lots_oligopuritymethod__entry__position__min'),
-                iki.CheckConstraint(condition=iki.Q(('position__lte', 10000)), name='iki__lots_oligopuritymethod__entry__position__max'),
             ],
             bases=(iki.ENTITY,),
         ),
@@ -1140,8 +1075,8 @@ class Migration(iki.Migration):
                 ('lot_ptr', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki__lots.lot')),
                 ('item', iki.CharField(max_length=100, null=True)),
                 ('purity', iki.QuantityField(db_index=True, null=True, unit='%')),
-                ('purity_method', iki.CharField(max_length=200, null=True)),
                 ('of', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to=iki.ENTITY)),
+                ('purity_method', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.puritymethod_entry')),
             ],
             table='iki__lots_genericcountlot',
             bases=('iki__lots.lot',),
@@ -1152,8 +1087,8 @@ class Migration(iki.Migration):
                 ('lot_ptr', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki__lots.lot')),
                 ('concentration', iki.QuantityField(null=True, unit='mg/mL')),
                 ('purity', iki.QuantityField(db_index=True, null=True, unit='%')),
-                ('purity_method', iki.CharField(max_length=200, null=True)),
                 ('of', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to=iki.ENTITY)),
+                ('purity_method', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.puritymethod_entry')),
             ],
             table='iki__lots_genericlot',
             bases=('iki__lots.lot',),
@@ -1164,8 +1099,8 @@ class Migration(iki.Migration):
                 ('lot_ptr', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to='iki__lots.lot')),
                 ('concentration', iki.QuantityField(null=True, unit='mg/mL')),
                 ('purity', iki.QuantityField(db_index=True, null=True, unit='%')),
-                ('purity_method', iki.CharField(max_length=200, null=True)),
                 ('of', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to=iki.ENTITY)),
+                ('purity_method', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.puritymethod_entry')),
             ],
             table='iki__lots_genericvolumelot',
             bases=('iki__lots.lot',),
@@ -1199,7 +1134,7 @@ class Migration(iki.Migration):
                 ('counterion', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.oligocounterion_entry')),
                 ('oligonucleotide', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__oligo.oligonucleotide_entry')),
                 ('purification', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.oligopurification_entry')),
-                ('purity_method', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.oligopuritymethod_entry')),
+                ('purity_method', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.puritymethod_entry')),
             ],
             table='iki__lots_oligolot',
             bases=('iki__lots.lot',),
@@ -1229,6 +1164,11 @@ class Migration(iki.Migration):
             model_name='plasmidprep',
             name='concentration_method',
             field=iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__lots.dnaconcentrationmethod_entry'),
+        ),
+        iki.AddField(
+            model_name='plasmidprep',
+            name='host_strain',
+            field=iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__strains.basestrain_entry'),
         ),
         iki.AddField(
             model_name='plasmidprep',
@@ -1282,10 +1222,6 @@ class Migration(iki.Migration):
         ),
         iki.AddIndex(
             model_name='lot',
-            index=iki.GinIndex(fields=['supplier'], name='supplier_trgm_e57f5511f6781637', opclasses=['gin_trgm_ops']),
-        ),
-        iki.AddIndex(
-            model_name='lot',
             index=iki.GinIndex(fields=['catalogue_number'], name='catalogue_trgm_48c8fa5fed51246', opclasses=['gin_trgm_ops']),
         ),
         iki.AddIndex(
@@ -1303,14 +1239,6 @@ class Migration(iki.Migration):
         iki.AddConstraint(
             model_name='lot',
             constraint=iki.CheckConstraint(condition=iki.Q(('source__in', ['made', 'bought'])), name='iki__lots_lot__source__values'),
-        ),
-        iki.AddConstraint(
-            model_name='lot',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('supplier'), 1), name='iki__lots_lot__supplier__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='lot',
-            constraint=iki.CheckConstraint(condition=iki.Q(('supplier__regex', '[\\r\\n]'), negated=True), name='iki__lots_lot__supplier__one_line'),
         ),
         iki.AddConstraint(
             model_name='lot',
@@ -1487,14 +1415,6 @@ class Migration(iki.Migration):
             constraint=iki.CheckConstraint(condition=iki.Q(('purity__lte', 100)), name='iki__lots_genericcountlot__purity__max'),
         ),
         iki.AddConstraint(
-            model_name='genericcountlot',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('purity_method'), 1), name='iki__lots_genericcountlot__purity_method__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='genericcountlot',
-            constraint=iki.CheckConstraint(condition=iki.Q(('purity_method__regex', '[\\r\\n]'), negated=True), name='iki__lots_genericcountlot__purity_method__one_line'),
-        ),
-        iki.AddConstraint(
             model_name='genericlot',
             constraint=iki.CheckConstraint(condition=iki.Q(('concentration__gt', float('-inf')), ('concentration__lt', float('inf'))), name='iki__lots_genericlot__concentration__finite'),
         ),
@@ -1515,14 +1435,6 @@ class Migration(iki.Migration):
             constraint=iki.CheckConstraint(condition=iki.Q(('purity__lte', 100)), name='iki__lots_genericlot__purity__max'),
         ),
         iki.AddConstraint(
-            model_name='genericlot',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('purity_method'), 1), name='iki__lots_genericlot__purity_method__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='genericlot',
-            constraint=iki.CheckConstraint(condition=iki.Q(('purity_method__regex', '[\\r\\n]'), negated=True), name='iki__lots_genericlot__purity_method__one_line'),
-        ),
-        iki.AddConstraint(
             model_name='genericvolumelot',
             constraint=iki.CheckConstraint(condition=iki.Q(('concentration__gt', float('-inf')), ('concentration__lt', float('inf'))), name='iki__lots_genericvolumelot__concentration__finite'),
         ),
@@ -1541,14 +1453,6 @@ class Migration(iki.Migration):
         iki.AddConstraint(
             model_name='genericvolumelot',
             constraint=iki.CheckConstraint(condition=iki.Q(('purity__lte', 100)), name='iki__lots_genericvolumelot__purity__max'),
-        ),
-        iki.AddConstraint(
-            model_name='genericvolumelot',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('purity_method'), 1), name='iki__lots_genericvolumelot__purity_method__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='genericvolumelot',
-            constraint=iki.CheckConstraint(condition=iki.Q(('purity_method__regex', '[\\r\\n]'), negated=True), name='iki__lots_genericvolumelot__purity_method__one_line'),
         ),
         iki.AddConstraint(
             model_name='lot_certificates',
@@ -1716,14 +1620,6 @@ class Migration(iki.Migration):
         ),
         iki.AddConstraint(
             model_name='plasmidprep',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('host_strain'), 1), name='iki__lots_plasmidprep__host_strain__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='plasmidprep',
-            constraint=iki.CheckConstraint(condition=iki.Q(('host_strain__regex', '[\\r\\n]'), negated=True), name='iki__lots_plasmidprep__host_strain__one_line'),
-        ),
-        iki.AddConstraint(
-            model_name='plasmidprep',
             constraint=iki.CheckConstraint(condition=iki.Q(('culture_volume__gt', float('-inf')), ('culture_volume__lt', float('inf'))), name='iki__lots_plasmidprep__culture_volume__finite'),
         ),
         iki.AddConstraint(
@@ -1833,10 +1729,6 @@ class Migration(iki.Migration):
         iki.AddConstraint(
             model_name='polymerlot',
             constraint=iki.CheckConstraint(condition=iki.Q(('dispersity__gt', float('-inf')), ('dispersity__lt', float('inf'))), name='iki__lots_polymerlot__dispersity__finite'),
-        ),
-        iki.AddConstraint(
-            model_name='polymerlot',
-            constraint=iki.CheckConstraint(condition=iki.Q(('dispersity__gte', 1)), name='iki__lots_polymerlot__dispersity__min'),
         ),
         iki.AddConstraint(
             model_name='polymerlot',

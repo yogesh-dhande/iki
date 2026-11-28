@@ -46,7 +46,7 @@ from iki_server.bundles.models import (
 )
 from iki_server.entities import access, identity, registry, requests, unique
 from iki_server.entities import services as entity_services
-from iki_server.entities.models import Entity, Revision, UniqueValue
+from iki_server.entities.models import Entity, Revision
 from iki_server.entities.services import frozen
 from iki_server.entities.values import Shape, reference_ids, shape
 from iki_server.files import services as files
@@ -363,6 +363,14 @@ class _Planner:
             self._entities(batch)
         outside = self._outside()
         self._runs()
+        # The keys its signatures are checked with: those trusted here, and those it
+        # brings, each shown before it's trusted (ADR 0126, ADR 0148).
+        from iki_server.signatures import signing_keys
+
+        listed = signing_keys.listed(
+            self.bundle.manifest.get("signing_keys", []), source=self.bundle.source
+        )
+        self.problems.extend(listed.problems)
         c = self.counts
         if c.conflict:
             self.problems.append(
@@ -392,6 +400,7 @@ class _Planner:
             "types": types,
             "files": stored,
             "outside": outside,
+            "signing_keys": listed.new,
             "problems": self.problems,
             "applicable": not self.problems,
         }
@@ -462,7 +471,7 @@ class _Planner:
                     (
                         e
                         for e in registry.extensions()
-                        if e.plugin == name and e.extends_type == type_name
+                        if e.plugin == name and e.adds_to == type_name
                     ),
                     None,
                 )
@@ -634,7 +643,7 @@ class _Planner:
                 continue
             found = here.get(digest)
             entity_type = registry.types().get(line["type"])
-            listed = entity_type is not None and entity_type.is_list
+            listed = entity_type is not None and entity_type.is_lab_list
             if found is not None:
                 self.counts.entries_here += 1
                 why = self._against_entry(line, found)
@@ -705,7 +714,7 @@ class _Planner:
                 f"{here.superseded_by.hrid}."
             )
         found = registry.types().get(here.type)
-        if found is not None and found.is_list:
+        if found is not None and found.is_lab_list:
             # A lab list's option is its code here (ADR 0270): its label, description and
             # place are this registry's curators', whatever the bundle's registry calls it.
             return ""
@@ -1029,9 +1038,8 @@ def _unique_clashes(
             if not f.unique or f.removed or value is None:
                 continue
             holder = (
-                UniqueValue.objects.filter(
-                    project=project, key=unique.key(part.model, name), value=str(value)
-                )
+                unique.rows(unique.key(part.model, name), [value])
+                .filter(project=project)
                 .exclude(entity_id=entity_id)
                 .exclude(entity_id__in=bundled)
                 .values_list("entity__hrid", flat=True)
@@ -1054,9 +1062,11 @@ def _entry_clashes(registry_id: uuid.UUID, form: Shape, values: dict[str, Any]) 
             value = values.get(name)
             if not f.unique or f.removed or value is None:
                 continue
-            if UniqueValue.objects.filter(
-                registry_id=registry_id, key=unique.key(part.model, name), value=str(value)
-            ).exists():
+            if (
+                unique.rows(unique.key(part.model, name), [value])
+                .filter(registry_id=registry_id)
+                .exists()
+            ):
                 yield (
                     f"Its {f.label or name} {value} is another registry entry's here already: "
                     "no two in a registry share it."

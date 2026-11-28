@@ -10,7 +10,7 @@ description: >-
   one, its start codon giving methionine. A protein already in Iki (the same
   sequence) is reused.
 inputs:
-  sequence: { type: iki/dna.DNASequence, schema: ">=1" }
+  sequence: { type: iki/dna.DNASequence, schema_version: ">=1" }
 params:
   strand:
     type: enum

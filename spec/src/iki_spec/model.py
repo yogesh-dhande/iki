@@ -22,6 +22,8 @@ __all__ = [
     "FIELD_TYPES",
     "FORMATS",
     "LIST_FIELDS",
+    "LIST_HRID_PREFIX",
+    "LIST_TABLE_ITEMS",
     "NUMERIC_OPERATORS",
     "SIGNATURE_MEANINGS",
     "TIERS",
@@ -67,6 +69,8 @@ __all__ = [
     "person_role",
     "plugin_from_dict",
     "plugin_to_dict",
+    "stored_in_list_table",
+    "unique_rules",
     "workflow_from_dict",
 ]
 
@@ -122,7 +126,16 @@ class Field:
     description: str | None = None
     required: bool = False
     immutable: bool = False
+    #: Set by Iki, not by a person: by an action's runs (``computed: true``), or worked out
+    #: at every save from the record's own values by the CEL expression ``cel``
+    #: (``computed: {cel: …}``, ADR 0297).
     computed: bool = False
+    #: A computed field's CEL expression, which the server evaluates at every save (ADR
+    #: 0297); None for a field that's typed or that a run sets.
+    cel: str | None = None
+    #: The record's fields ``cel`` reads, as the validator's type check found them, which
+    #: the server works computed fields out in the order of.
+    cel_reads: tuple[str, ...] = ()
     #: For an editable boolean, clearing a true value requires a reason in the edit.
     reason_on_clear: bool = False
     #: For a type with an identity: ``derived`` or ``fact``, a field of its registry entry
@@ -133,8 +146,10 @@ class Field:
     #: ``conditions.WORDS_SEARCHED`` characters (ADR 0233). False for machine text, such as
     #: a Molfile, which gets no full-text index.
     searchable: bool = True
-    #: No two entities in a project share a value (ADR 0082); for a registry fact, no two
-    #: entries in a registry.
+    #: A key, such as another system's ID for the record (ADR 0082): it's found by its value,
+    #: a run's create can match on it, and it may link out. Its uniqueness is a one-field
+    #: rule (:func:`unique_rules`): no two records in a project share a value, or for a
+    #: registry's field, no two entries in a registry (ADR 0082).
     unique: bool = False
     #: Where the value leads in another system: a URL with `{value}` (ADR 0082).
     link: str | None = None
@@ -200,6 +215,18 @@ class Field:
     closed: bool = False
 
     @property
+    def worked_out(self) -> bool:
+        """Whether Iki works it out from the record's own values, at every save (ADR 0297):
+        no person, agent or run sets it."""
+        return self.cel is not None
+
+    @property
+    def set_by_runs(self) -> bool:
+        """Whether it's computed by an action's runs or by Iki's own code
+        (``computed: true``), not by an expression."""
+        return self.computed and self.cel is None
+
+    @property
     def is_rows(self) -> bool:
         """Whether it's a list of rows (ADR 0137)."""
         return self.type == "list" and self.items is not None and self.items.type == "row"
@@ -221,6 +248,8 @@ class Field:
         role = data.get("role")
         assignment = data.get("assignment", False)
         moved = data.get("moved_to") if data.get("type") == "state" else None
+        computed = data.get("computed")
+        cel = computed.get("cel") if isinstance(computed, dict) else None
         return cls(
             name=name,
             type=data["type"],
@@ -229,6 +258,7 @@ class Field:
             required=bool(data.get("required", False)),
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
+            cel=cel if isinstance(cel, str) else None,
             reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
@@ -305,6 +335,17 @@ class Field:
             if data.get("type") == "row"
             else {},
         )
+
+
+#: The items a list keeps in a table of its own, an item per row: references, files and
+#: people, each with its foreign key; and rows (ADR 0137), a column per row's field. Other
+#: lists are arrays in their owner's row.
+LIST_TABLE_ITEMS = ("ref", "file", "person", "row")
+
+
+def stored_in_list_table(f: Field) -> bool:
+    """Whether a list field is kept in a table of its own (:data:`LIST_TABLE_ITEMS`)."""
+    return f.type == "list" and f.items is not None and f.items.type in LIST_TABLE_ITEMS
 
 
 def names_people(f: Field) -> bool:
@@ -628,7 +669,7 @@ class ReviewState:
     label: str
     description: str | None = None
     #: The slots whose holders may set it.
-    by: tuple[str, ...] = ()
+    set_by: tuple[str, ...] = ()
     locks: bool = False
     reason: str | None = None
     on_edit: str | None = None
@@ -692,6 +733,8 @@ class ReviewProcedure:
     states: dict[str, ReviewState] = field(default_factory=dict)
     flows: dict[str, ReviewFlow] = field(default_factory=dict)
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -817,12 +860,17 @@ class Rule:
     when: str | None = None
     #: Fields no two of a project's records have the same values of, together.
     unique: tuple[str, ...] = ()
+    #: With ``unique``: where no two records share them, ``project`` (a project's records'
+    #: own fields) or ``registry`` (registry entries' fields, ADR 0115).
+    within: str = "project"
+    #: A field's ``unique: true``, as the rule it is (ADR 0082): named for the field.
+    from_field: bool = False
     #: The fields a range starts and ends at: no two of a project's records' ranges overlap.
     no_overlap: tuple[str, ...] = ()
     #: With ``no_overlap``: records' ranges overlap only if they have the same values of these.
     per: tuple[str, ...] = ()
-    #: With ``unique`` or ``no_overlap``: only records whose fields have one of these values
-    #: count, as (field, values), sorted.
+    #: With ``unique`` or ``no_overlap``: only records whose field is in one of these states
+    #: count, as (field, values).
     only_while: tuple[tuple[str, tuple[str, ...]], ...] = ()
     #: Qualified lab roles (ADR 0116). When given, a save that breaks the check is kept,
     #: with a reason, and the record is held until someone with one of them reviews it.
@@ -870,18 +918,15 @@ class Rule:
             reference_revisions=tuple(sorted((data.get("reference_revisions") or {}).items())),
             recheck_before_signing=data.get("recheck_before_signing", False),
             unique=tuple(data.get("unique") or ()),
+            within=str(data.get("within") or "project"),
             no_overlap=(str(overlap.get("from", "")), str(overlap.get("to", "")))
             if isinstance(overlap, dict)
             else (),
             per=tuple(overlap.get("per") or ()) if isinstance(overlap, dict) else (),
-            only_while=tuple(
-                sorted(
-                    (str(k), tuple(_while_value(x) for x in v))
-                    for k, v in only.items()
-                    if isinstance(v, list)
-                )
-            )
+            only_while=((str(only["field"]), tuple(_while_value(x) for x in only["states"])),)
             if isinstance(only, dict)
+            and isinstance(only.get("field"), str)
+            and isinstance(only.get("states"), list)
             else (),
             hold=tuple(lab_role_name(r, plugin) for r in (hold.get("reviewed_by") or ()))
             if isinstance(hold, dict)
@@ -889,6 +934,50 @@ class Rule:
             fields=tuple(data.get("fields") or ()),
             extension=extension,
         )
+
+
+def unique_rules(
+    fields: Mapping[str, Field],
+    plugin: str,
+    *,
+    identity: Collection[str] = (),
+    extension: bool = False,
+) -> dict[str, Rule]:
+    """The rule each field marked ``unique`` is (ADR 0082), named for the field: no two
+    records in a project share its value, or for a registry entry's field, no two entries
+    in a registry. The database holds it as it holds any ``unique`` rule (ADR 0127)."""
+    out = {}
+    for name, f in fields.items():
+        if not f.unique or f.removed:
+            continue
+        what = _lower_first(f.label or name.replace("_", " ").capitalize())
+        registry = in_entry(f, identity)
+        out[name] = Rule(
+            name=name,
+            label=f"Unique {what}",
+            plugin=plugin,
+            message=(
+                f"Each entry in a registry has its own {what}."
+                if registry
+                else f"Each record in a project has its own {what}."
+            ),
+            unique=(name,),
+            within="registry" if registry else "project",
+            from_field=True,
+            fields=(name,),
+            reads=(name,),
+            extension=extension,
+        )
+    return out
+
+
+def _lower_first(label: str) -> str:
+    """A label mid-sentence: ``Barcode`` → ``barcode``, but ``LIMS ID`` and ``ChEMBL ID``
+    as they are: a first word with capitals after its first is a name."""
+    first = label.split(" ", 1)[0]
+    if first[:1].isupper() and first[1:].islower():
+        return label[0].lower() + label[1:]
+    return label
 
 
 @dataclass(frozen=True)
@@ -961,14 +1050,14 @@ class TypeNotification:
     from_values: tuple[Any, ...] = ()
     #: Only for records these conditions find, as the search API takes them.
     where: dict[str, Any] | None = None
-    #: Whom: the people these fields name...
-    tell_fields: tuple[str, ...] = ()
+    #: Whom it notifies: the people these fields name...
+    notify_fields: tuple[str, ...] = ()
     #: ...holders of these lab roles in the record's project, qualified...
-    tell_roles: tuple[str, ...] = ()
+    notify_roles: tuple[str, ...] = ()
     #: ...whoever made the record, whoever watches it, and whoever made the change.
-    tell_creator: bool = False
-    tell_watchers: bool = False
-    tell_actor: bool = False
+    notify_creator: bool = False
+    notify_watchers: bool = False
+    notify_actor: bool = False
     #: What it says in Iki: templates over the record's fields, as a display title is.
     title: str | None = None
     body: str | None = None
@@ -990,7 +1079,7 @@ class TypeNotification:
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> TypeNotification:
         when: dict[str, Any] = data["when"] if isinstance(data.get("when"), dict) else {}
-        tell: dict[str, Any] = data["tell"] if isinstance(data.get("tell"), dict) else {}
+        notify: dict[str, Any] = data["notify"] if isinstance(data.get("notify"), dict) else {}
         message: dict[str, Any] = data["message"] if isinstance(data.get("message"), dict) else {}
 
         def values(value: Any) -> tuple[Any, ...]:  # noqa: ANN401 - manifest data
@@ -1009,11 +1098,11 @@ class TypeNotification:
             to_values=values(when.get("to")),
             from_values=values(when.get("from")),
             where=data.get("where"),
-            tell_fields=tuple(tell.get("fields") or ()),
-            tell_roles=tuple(lab_role_name(r, plugin) for r in tell.get("roles") or ()),
-            tell_creator=bool(tell.get("creator", False)),
-            tell_watchers=bool(tell.get("watchers", False)),
-            tell_actor=bool(tell.get("actor", False)),
+            notify_fields=tuple(notify.get("fields") or ()),
+            notify_roles=tuple(lab_role_name(r, plugin) for r in notify.get("roles") or ()),
+            notify_creator=bool(notify.get("creator", False)),
+            notify_watchers=bool(notify.get("watchers", False)),
+            notify_actor=bool(notify.get("actor", False)),
             title=message.get("title"),
             body=message.get("body"),
             email=bool(data.get("email", True)),
@@ -1034,12 +1123,12 @@ class RequestSpec:
     #: The list of references it sends that the service receives with a receipt (ADR 0180),
     #: and the service's lab roles that receive them (any Editor's, if none).
     receives: str | None = None
-    receives_by: tuple[str, ...] = ()
+    received_by: tuple[str, ...] = ()
     #: Sent fields that identify the physical material commissioned for testing.
     materials: tuple[str, ...] = ()
-    #: The service transition that certifies delivery of the request.
+    #: The service's state field, and its states, that certify delivery of the request.
     completed_field: str | None = None
-    completed_state: str | None = None
+    completed_states: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1165,17 +1254,19 @@ class StockCatalogue:
     name: str
     unit: str
     threshold: str
-    notify: tuple[str, ...]
+    #: The lab roles, qualified, whose holders in the item's project a low stock notifies.
+    notify_roles: tuple[str, ...]
     lots: StockLots
     orders: StockOrders
 
     @classmethod
     def read(cls, data: dict[str, Any], plugin: str) -> StockCatalogue:
+        """From its manifest."""
         return cls(
             name=data["name"],
             unit=data["unit"],
             threshold=data["threshold"],
-            notify=tuple(lab_role_name(r, plugin) for r in data["notify"]),
+            notify_roles=tuple(lab_role_name(r, plugin) for r in data["notify"]["roles"]),
             lots=StockLots(**{**data["lots"], "type": qualify(data["lots"]["type"], plugin)}),
             orders=StockOrders(
                 **{**data["orders"], "type": qualify(data["orders"]["type"], plugin)}
@@ -1190,8 +1281,10 @@ class DrawTarget:
     from_field: str
     source: str | None
     state_field: str
-    state: str
-    by: tuple[str, ...]
+    #: The states of ``state_field`` in which the record awaits its draw.
+    states: tuple[str, ...]
+    #: The lab roles, qualified, one of which whoever records the draw holds.
+    drawn_by: tuple[str, ...]
     ready: str | None
     amount: str | None
     stored: bool = False
@@ -1199,7 +1292,7 @@ class DrawTarget:
     unit: str | None = None
 
 
-#: The fields every lab list's options have (ADR 0270), which the list marker gives its type:
+#: The fields every lab list's options have (ADR 0270), which a list's type has before its own:
 #: its code, which is its identity, and its label, description and place in the list, which
 #: are registry facts its curators change.
 LIST_CODE = "code"
@@ -1213,10 +1306,13 @@ LIST_CODE_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_.+-]*$"
 LIST_LABEL_PATTERN = r"^\S(?:.*\S)?$"
 #: The most options a list may have, as a dropdown or its search can offer them.
 LIST_MAX_OPTIONS = 10000
+#: The HRID prefix of every list's options (ADR 0295): one sequence numbers them all, as
+#: they're named by their code and shown by their label. Iki reserves it: no type declares it.
+LIST_HRID_PREFIX = "OPTION"
 
 
 def list_fields() -> dict[str, Field]:
-    """The fields the list marker gives a type (ADR 0270), before the type's own."""
+    """The fields a lab list's options have (ADR 0270), before the list's own."""
     return {
         LIST_CODE: Field(
             name=LIST_CODE,
@@ -1276,6 +1372,34 @@ class ListSpec:
 
 
 @dataclass(frozen=True)
+class Draws:
+    """A type's records' draws (ADR 0139, 0180): what a draw from one meets, and what one
+    that receives a draw awaits. Each part is inherited on its own."""
+
+    #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
+    guards: dict[str, Guard] = field(default_factory=dict)
+    #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
+    purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: An optional one-draw ledger target, such as a scheduled stability pull.
+    target: DrawTarget | None = None
+    #: Optional record field maintained by the amounts ledger when a draw goes into this record.
+    received: str | None = None
+
+
+@dataclass(frozen=True)
+class Service:
+    """A type's part in a request between projects (ADR 0132): its records are requests,
+    a request's results, or a service's work for one."""
+
+    #: Its records are requests between projects. Subtypes have their ancestor's.
+    request: RequestSpec | None = None
+    #: Its records are a request's results.
+    result: ResultSpec | None = None
+    #: Its records are a service project's internal work for a request.
+    work_item: WorkItemSpec | None = None
+
+
+@dataclass(frozen=True)
 class EntityType:
     plugin: str
     name: str
@@ -1304,23 +1428,13 @@ class EntityType:
     #: Whom its records tell, and when (ADR 0129), by name. Subtypes' records tell what their
     #: ancestors' do too.
     notifications: dict[str, TypeNotification] = field(default_factory=dict)
-    #: Its records are requests between projects (ADR 0132). Subtypes have their
-    #: ancestor's.
-    request: RequestSpec | None = None
-    #: Its records are a request's results (ADR 0132).
-    result: ResultSpec | None = None
-    work_item: WorkItemSpec | None = None
+    #: Its part in a request between projects (ADR 0132).
+    service: Service = field(default_factory=Service)
     #: How much of each record there is (ADR 0139): its own or a parent's.
     amount: Amount | None = None
-    #: Optional record field maintained by the amounts ledger when a draw goes into this record.
-    draws_received: str | None = None
     stock_catalogue: StockCatalogue | None = None
-    #: Conditions on taking material. Every subtype keeps its ancestors' guards too.
-    draw_guards: dict[str, Guard] = field(default_factory=dict)
-    #: Lab roles allowed to draw for each purpose. A subtype may narrow each inherited list.
-    draw_purposes: dict[str, tuple[str, ...]] = field(default_factory=dict)
-    #: An optional one-draw ledger target, such as a scheduled stability pull.
-    draw_target: DrawTarget | None = None
+    #: Its records' draws: guards, purposes, and the draw a record awaits and receives.
+    draws: Draws = field(default_factory=Draws)
     #: Where its records are kept, and what they keep (ADR 0180): its own or a parent's.
     storage: Storage | None = None
     #: Its records are samples (ADR 0177): the files they hold, and those a run that read
@@ -1335,15 +1449,26 @@ class EntityType:
     #: these unless they name their own.
     refines_to: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: Its entities are a lab list's options (ADR 0270): registry entries every project in
-    #: their registry may pick, curated by its registrars and list curators.
+    #: their registry may pick, curated by its registrars and list curators. A ``kind: List``
+    #: manifest declares it (ADR 0295).
     list_spec: ListSpec | None = None
     #: How its records are reviewed (ADR 0301): its own, or an ancestor's.
     review: ReviewSpec | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
-    def is_list(self) -> bool:
+    def is_lab_list(self) -> bool:
         """Whether its entities are a lab list's options (ADR 0270)."""
         return self.list_spec is not None
+
+    @property
+    def numbering_prefix(self) -> str | None:
+        """The prefix its entities' HRIDs have: its own, or for a lab list, which has none,
+        the one every list's options share (ADR 0295). None for an abstract type."""
+        if self.is_lab_list:
+            return LIST_HRID_PREFIX
+        return None if self.abstract else self.hrid_prefix
 
     @property
     def qualified_name(self) -> str:
@@ -1454,7 +1579,7 @@ class PluginExport:
     """A type's records as a plugin's writer writes them (ADR 0230): the writer, by its
     qualified ID, and the field each of its roles reads."""
 
-    export: str  # the writer: "acme/liquid_handling.tecan-worklist"
+    export: str  # the writer: "acme/liquid_handling.tecan_worklist"
     #: role → the type's field it reads.
     fields: dict[str, str] = field(default_factory=dict)
 
@@ -1525,16 +1650,18 @@ class Writer:
 @dataclass(frozen=True)
 class Extension:
     plugin: str
-    extends_type: str  # qualified
+    adds_to: str  # qualified
     fields: dict[str, Field]
     description: str | None = None
     file: str | None = None
     #: Rules every save of the extended type's records keeps (ADR 0127), by name.
     rules: dict[str, Rule] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def table(self) -> str:
-        return naming.extension_table(self.plugin, self.extends_type)
+        return naming.extension_table(self.plugin, self.adds_to)
 
     @property
     def current_fields(self) -> dict[str, Field]:
@@ -1586,7 +1713,7 @@ class Resources:
 class Input:
     name: str
     type: str  # qualified
-    schema: str | None = None  # a schema-version constraint
+    schema_version: str | None = None  # a constraint on the type's schema versions
     cardinality: str = "one"
     max: int | None = None
     optional: bool = False
@@ -1606,6 +1733,9 @@ class Creates:
     derived_from: tuple[str, ...] = ()
     #: A unique field: a create with a value an entity in the project has updates it.
     match_on: str | None = None
+    #: What a create that matches does: ``update`` the entity with its values, or ``keep``
+    #: it as it is, as whoever made it first made it.
+    on_match: str = "update"
     #: For a fresh physical lot, the singular input naming its storage container.
     receive_into: str | None = None
 
@@ -1759,6 +1889,8 @@ class Action:
     retry_max: int = 0
     retry_on: tuple[str, ...] = ()
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1797,6 +1929,8 @@ class Environment:
     file: str | None = None
     #: Provisioned runs need an image supplied by this deployment.
     customer_image_required: bool = False
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 #: A condition's operators: how its value compares with its operand.
@@ -1856,10 +1990,12 @@ class Approval:
 
 @dataclass(frozen=True)
 class WorkflowStep:
-    """One step of a workflow: a run of one of the plugin's actions (ADR 0079)."""
+    """One step of a workflow: a run of one of the plugin's actions, or a dependency's
+    (ADR 0079, ADR 0298)."""
 
     id: str
-    action: str  # the action's name in the plugin
+    #: The action it runs, qualified: the plugin's own, or a declared dependency's (ADR 0298).
+    action: str
     label: str = ""
     #: The action's input → where it comes from: ``$inputs.<name>``,
     #: ``$steps.<id>.inputs.<name>`` or ``$steps.<id>.created.<namespace/plugin.Type>``.
@@ -1887,7 +2023,8 @@ class WorkflowStep:
 
 @dataclass(frozen=True)
 class Workflow:
-    """Steps that each run one of the plugin's actions, wired together (ADR 0079)."""
+    """Steps that each run an action, the plugin's or a dependency's, wired together
+    (ADR 0079, ADR 0298)."""
 
     plugin: str
     name: str
@@ -1897,6 +2034,8 @@ class Workflow:
     params: dict[str, Field] = field(default_factory=dict)
     steps: dict[str, WorkflowStep] = field(default_factory=dict)
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1964,8 +2103,9 @@ class Related:
 
 @dataclass(frozen=True)
 class Trigger:
-    """Runs one of the plugin's actions by itself when an entity of a type is created or
-    changed, or on a schedule, in projects whose Admins turn it on (ADR 0080)."""
+    """Runs an action, the plugin's or a dependency's (ADR 0298), by itself when an entity of
+    a type is created or changed, or on a schedule, in projects whose Admins turn it on
+    (ADR 0080)."""
 
     plugin: str
     name: str
@@ -1984,8 +2124,8 @@ class Trigger:
     #: it fires on a record entering; empty for any. Its manifest calls it ``field``.
     state_field: str = ""
     states: tuple[str, ...] = ()
-    #: The plugin's action it runs.
-    run: str = ""
+    #: The action it runs, qualified: the plugin's own, or a declared dependency's (ADR 0298).
+    action: str = ""
     #: The action's input that takes the entity: given, or the only one that takes its type.
     input: str = ""
     params: dict[str, Any] = field(default_factory=dict)
@@ -1994,6 +2134,8 @@ class Trigger:
     related: dict[str, Related] = field(default_factory=dict)
     recheck: str = ""
     watch_included: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2060,12 +2202,14 @@ class Component:
     entities: ComponentEntities | None = None
     #: The type of the entities it can select (qualified), or empty if it selects none.
     selects: str = ""
-    #: The plugin's actions it may offer to run on its tab's entity (qualified): Iki's run
-    #: page runs them, for whoever may.
+    #: The actions it may offer to run on its tab's entity (qualified), the plugin's own or
+    #: its dependencies' (ADR 0298): Iki's run page runs them, for whoever may.
     runs: tuple[str, ...] = ()
     #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
     sha256: str = ""
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -2122,7 +2266,7 @@ class Plugin:
     description: str | None = None
     license: str | None = None
     homepage: str | None = None
-    #: The Iki releases it works with, such as `>=0.1,<0.3`, or None to say nothing.
+    #: The Iki releases it works with, such as `>=0.1,<0.3`; plugin.yaml must say (ADR 0293).
     iki: str | None = None
     #: plugin name → {type name → schema-version constraint}
     dependencies: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -2146,6 +2290,8 @@ class Plugin:
     writers: dict[str, Writer] = field(default_factory=dict)
     #: The review procedures it declares, by qualified name and version (ADR 0301).
     procedures: dict[str, ReviewProcedure] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -2231,6 +2377,8 @@ _DATACLASSES = (
     StockOrders,
     StockLots,
     DrawTarget,
+    Draws,
+    Service,
     Grid,
     Storage,
     Field,
@@ -2307,28 +2455,27 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
         return {
             f.name: _to_json(getattr(value, f.name))
             for f in fields(value)
-            if not (
-                f.name == "draw_target"
-                and isinstance(value, EntityType)
-                and value.draw_target is None
+            if not (isinstance(value, Draws) and f.name == "target" and value.target is None)
+            and not (isinstance(value, EntityType) and f.name == "draws" and value.draws == Draws())
+            and not (
+                isinstance(value, EntityType) and f.name == "service" and value.service == Service()
             )
+            and not (isinstance(value, Service) and getattr(value, f.name) is None)
+            and not (f.name == "annotations" and not getattr(value, f.name))
             and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
             and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (
-                f.name == "reason_on_clear"
+                f.name in {"reason_on_clear", "cel", "cel_reads"}
                 and isinstance(value, Field)
-                and not value.reason_on_clear
+                and not getattr(value, f.name)
             )
             and not (
                 isinstance(value, RequestSpec)
-                and f.name in {"materials", "completed_field", "completed_state"}
+                and f.name in {"materials", "completed_field", "completed_states"}
                 and not getattr(value, f.name)
             )
             and not (
                 isinstance(value, ResultSpec) and f.name == "material" and value.material is None
-            )
-            and not (
-                isinstance(value, EntityType) and f.name == "work_item" and value.work_item is None
             )
             and not (
                 isinstance(value, EntityType) and f.name == "refines_to" and not value.refines_to
@@ -2401,25 +2548,15 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                             n: _notification(x) for n, x in (v.get("notifications") or {}).items()
                         },
                         # ...or requests.
-                        "request": _request(v.get("request")),
-                        "result": _result(v.get("result")),
-                        "work_item": WorkItemSpec(**v["work_item"]) if v.get("work_item") else None,
-                        "stock_catalogue": StockCatalogue.read(v["stock_catalogue"], data["name"])
+                        "service": _service(v.get("service") or {}),
+                        "stock_catalogue": _stock_catalogue(v["stock_catalogue"])
                         if v.get("stock_catalogue")
                         else None,
                         # ...or amounts (ADR 0139).
                         "amount": _amount(v["amount"]) if v.get("amount") else None,
                         # ...or storage (ADR 0180).
                         "storage": _storage(v.get("storage")),
-                        "draw_guards": _guards(v.get("draw_guards") or {}),
-                        "draw_purposes": {
-                            n: tuple(roles) for n, roles in (v.get("draw_purposes") or {}).items()
-                        },
-                        "draw_target": (
-                            DrawTarget(**{**target, "by": tuple(target["by"])})
-                            if (target := v.get("draw_target"))
-                            else None
-                        ),
+                        "draws": _draws(v.get("draws") or {}),
                         # ...or refined rows (ADR 0164).
                         "refines": {
                             n: {r: _row_role(x) for r, x in roles.items()}
@@ -2521,7 +2658,7 @@ def _procedure(data: dict[str, Any]) -> ReviewProcedure:
                 k: ReviewState(
                     **{
                         **v,
-                        "by": tuple(v["by"]),
+                        "set_by": tuple(v["set_by"]),
                         "signature": Signature(**v["signature"]) if v.get("signature") else None,
                         "maker": Maker(**v["maker"]) if v.get("maker") else None,
                         "independent_of": _exclusions(v.get("independent_of")),
@@ -2583,8 +2720,8 @@ def _notification(data: dict[str, Any]) -> TypeNotification:
             **data,
             "to_values": tuple(data["to_values"]),
             "from_values": tuple(data["from_values"]),
-            "tell_fields": tuple(data["tell_fields"]),
-            "tell_roles": tuple(data["tell_roles"]),
+            "notify_fields": tuple(data["notify_fields"]),
+            "notify_roles": tuple(data["notify_roles"]),
         }
     )
 
@@ -2597,9 +2734,46 @@ def _request(data: dict[str, Any] | None) -> RequestSpec | None:
         sends=tuple(data["sends"]),
         materials=tuple(data.get("materials") or ()),
         completed_field=data.get("completed_field"),
-        completed_state=data.get("completed_state"),
+        completed_states=tuple(data.get("completed_states") or ()),
         receives=data.get("receives"),
-        receives_by=tuple(data.get("receives_by") or ()),
+        received_by=tuple(data.get("received_by") or ()),
+    )
+
+
+def _service(data: dict[str, Any]) -> Service:
+    return Service(
+        request=_request(data.get("request")),
+        result=_result(data.get("result")),
+        work_item=WorkItemSpec(**data["work_item"]) if data.get("work_item") else None,
+    )
+
+
+def _stock_catalogue(data: dict[str, Any]) -> StockCatalogue:
+    return StockCatalogue(
+        **{
+            **data,
+            "notify_roles": tuple(data["notify_roles"]),
+            "lots": StockLots(**data["lots"]),
+            "orders": StockOrders(**data["orders"]),
+        }
+    )
+
+
+def _draws(data: dict[str, Any]) -> Draws:
+    target = data.get("target")
+    return Draws(
+        guards=_guards(data.get("guards") or {}),
+        purposes={n: tuple(roles) for n, roles in (data.get("purposes") or {}).items()},
+        target=DrawTarget(
+            **{
+                **target,
+                "states": tuple(target["states"]),
+                "drawn_by": tuple(target["drawn_by"]),
+            }
+        )
+        if target
+        else None,
+        received=data.get("received"),
     )
 
 
@@ -2768,6 +2942,7 @@ def _field(data: dict[str, Any]) -> Field:
             "to": (data["to"],) if isinstance(data.get("to"), str) else tuple(data.get("to") or ()),
             "items": _field(data["items"]) if data["items"] is not None else None,
             "assignment_states": tuple(data.get("assignment_states") or ()),
+            "cel_reads": tuple(data.get("cel_reads") or ()),
             # Plugins built before state fields have none.
             "states": {
                 n: State(

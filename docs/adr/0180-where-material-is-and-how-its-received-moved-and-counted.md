@@ -1,6 +1,6 @@
 # 0180. Where material is, and how it's received, moved and counted
 
-- Status: Accepted
+- Status: Accepted (layouts and containers: [0260](0260-a-labs-storage-layout-and-containers-are-its-own.md); preconditions amended by [0289](0289-a-change-names-the-revision-it-replaces-in-if-match.md))
 - Date: 2026-11-22
 - Refines: [0139](0139-a-records-amount-is-a-ledger-of-what-moved.md),
   [0132](0132-a-request-is-owned-by-the-project-that-asks-and-served-by-another.md),
@@ -265,8 +265,9 @@ Completing clears the former recorded location of each accepted tube. Its
 completed receipt line records its `put_away` destination or sets `received_unplaced` when the
 receiver took custody without placement. These fields describe the receipt
 at completion. To find records still awaiting placement, read
-`GET /api/v1/storage/awaiting-put-away`. Each entry identifies a readable
-tube, its current `custodian` and `custody_since`. Completing also records
+`GET /api/v1/storage/awaiting-put-away`, longest held first and a page at a
+time like every list. Each entry identifies a readable tube, its current
+`custodian` and `custody_since`. Completing also records
 `request.receipt_completed` in both projects' audit trails and emits a webhook
 event.
 

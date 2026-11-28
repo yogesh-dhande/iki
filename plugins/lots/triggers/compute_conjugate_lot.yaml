@@ -8,7 +8,7 @@ description: >-
   such as from its form.
 on: entity.created
 type: ConjugateLot
-run: compute_conjugate_lot
+action: compute_conjugate_lot
 ---
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
@@ -22,6 +22,7 @@ on: entity.updated
 type: ConjugateLot
 fields:
   [
+    conjugate,
     drug_loads,
     dar_method,
     a280,
@@ -32,4 +33,5 @@ fields:
   ]
 watch_included:
   conjugate: [carrier_light_copies, carrier_heavy_copies]
-run: compute_conjugate_lot
+  concentration_method: [calculation]
+action: compute_conjugate_lot

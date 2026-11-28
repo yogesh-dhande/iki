@@ -11,10 +11,10 @@ description: >-
   from the lot's A280 and measured ε280, while its concentration method is one Iki works
   out from its A280, or none is named. A DAR by UV/Vis is entered as measured.
 inputs:
-  lot: { type: ConjugateLot, schema: ">=5", include: [conjugate, concentration_method] }
+  lot: { type: ConjugateLot, schema_version: ">=5", include: [conjugate, concentration_method] }
 effects:
   updates:
-    - input: lot
+    lot:
       fields:
         [
           dar,

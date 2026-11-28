@@ -216,11 +216,28 @@ def _crate(
                 ),
                 source,
                 where,
-                hint="Run `cargo generate-lockfile` in it, then review and commit it."
+                hint="Run `cargo generate-lockfile` in it (or, for this Iki's own iki-writer, "
+                "its SDK's `build-writer.sh lock`), then review and commit it."
                 if name == "Cargo.lock"
                 else None,
             )
             return
+    try:
+        lock = tomllib.loads((crate / "Cargo.lock").read_text("utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        lock = {}
+    for package in lock.get("package", ()):
+        if package.get("name") == "iki-writer" and not package.get("checksum"):
+            semantics.add(
+                "writer-module",
+                f"`{writer.module}/Cargo.lock` pins iki-writer {package.get('version')} with no "
+                "checksum, as a path patch does: the build takes iki-writer from crates.io, "
+                "as the lock pins it, so the module doesn't depend on the Iki that builds it.",
+                source,
+                where,
+                hint="Run the SDK's `build-writer.sh lock` on the crate (or `cargo update -p "
+                "iki-writer` once its version is on crates.io), then review and commit it.",
+            )
     links = [
         p for p in crate.rglob("*") if p.is_symlink() and "target" not in p.relative_to(crate).parts
     ]

@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/lims_connector
-version: 0.1.1
+version: 0.1.2
 title: Protein LIMS connector
 description: Example of synchronizing Iki protein records with an external LIMS by its record ID.
 license: Apache-2.0

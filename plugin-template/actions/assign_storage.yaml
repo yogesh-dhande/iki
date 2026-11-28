@@ -8,11 +8,11 @@ name: assign_storage
 label: Assign storage
 description: Record the storage location for a sample that has none.
 inputs:
-  sample: { type: Sample, schema: ">=1" }
+  sample: { type: Sample, schema_version: ">=1" }
 params:
   location: { type: string, max_length: 100, default: "-80 °C freezer" }
 effects:
-  updates: [{ input: sample, fields: [storage] }]
+  updates: { sample: { fields: [storage] } }
 runs_on: { tier: container, environment: tools }
 command: [python, ./scripts/storage.py]
 deterministic: true

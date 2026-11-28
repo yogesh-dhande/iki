@@ -14,7 +14,7 @@ description: >-
   round, amplifies nothing and the run says which primer and why; a pair that makes
   several products registers none and lists them.
 inputs:
-  pcr: { type: Pcr, schema: ">=1", include: [template, forward_primer, reverse_primer] }
+  pcr: { type: Pcr, schema_version: ">=1", include: [template, forward_primer, reverse_primer] }
 params:
   least_three_prime_match:
     type: int
@@ -47,7 +47,7 @@ effects:
   creates:
     - { type: iki/dna.DNASequence, derived_from: [pcr] }
   updates:
-    - input: pcr
+    pcr:
       fields:
         - product_length
         - forward_melting_temperature

@@ -18,11 +18,13 @@ from uuid import UUID
 from django.core.exceptions import PermissionDenied
 from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
-from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
+from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
+from iki_server.api import preconditions
 from iki_server.api.common import caller, person, require
-from iki_server.api.entities import _expected, _find
+from iki_server.api.entities import _find
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import PersonRef
 from iki_server.entities import access
@@ -468,6 +470,7 @@ def _invalid(error: Invalid) -> Problem:
     "/entities/{ref}/signatures",
     response={201: SigningOut},
     summary="Start signing for a state",
+    openapi_extra=preconditions.changes(201, tagged=False),
 )
 def start_signing(
     request: HttpRequest,
@@ -475,7 +478,7 @@ def start_signing(
     payload: SigningIn,
     response: HttpResponse,
     project: UUID | None = None,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> Any:  # noqa: ANN401 - a status and its body
     """Starts giving one of the signatures setting the record's state needs (ADR 0126),
     as the person in
@@ -487,7 +490,7 @@ def start_signing(
     apps and AI agents are refused with 403."""
     me = caller(request)
     entity = _find(me, ref, project)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     session_key = "" if "HTTP_AUTHORIZATION" in request.META else request.session.session_key
     try:
         signing = services.begin(
@@ -506,11 +509,9 @@ def start_signing(
     except PermissionDenied as denied:
         raise Problem(403, str(denied), code="cannot_sign") from None
     except services.Stale as stale:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            stale.current,
             f"It changed since you read it. {stale} Read it again before signing.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
         ) from None
     except Invalid as error:
         raise _invalid(error) from None
@@ -574,16 +575,25 @@ def my_signing(request: HttpRequest) -> dict[str, Any]:
     }
 
 
+class UnlockIn(Schema):
+    reason: str = Field(
+        max_length=2000, description="Why it's safe to unlock: who made the failed attempts."
+    )
+
+
 @router.post("/users/{user_id}/signing/unlock", response={204: None}, summary="Unlock signing")
-def unlock_signing(request: HttpRequest, user_id: UUID) -> Any:  # noqa: ANN401 - a status
-    """Unlocks someone's signing after failed attempts to sign as them locked it. Org
-    Admins only."""
+def unlock_signing(request: HttpRequest, user_id: UUID, payload: UnlockIn) -> Any:  # noqa: ANN401 - a status
+    """Unlocks someone's signing after failed attempts to sign as them locked it, saying
+    why; the audit log keeps it. Another Org Admin unlocks theirs, signed in to Iki's web
+    app: no token, app or AI agent can."""
     me = caller(request)
     require(me, Action.ORG_MANAGE)
     try:
-        services.unlock(me, person(user_id))
+        services.unlock(me, person(user_id), payload.reason)
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
+    except Invalid as error:
+        raise _invalid(error) from None
     return Status(204, None)
 
 

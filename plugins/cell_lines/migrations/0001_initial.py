@@ -123,22 +123,12 @@ class Migration(iki.Migration):
             bases=(iki.ENTITY,),
         ),
         iki.CreateModel(
-            name='CellLineSource_Entry',
-            fields=[
-                ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
-                ('supplier', iki.CharField(db_index=True, max_length=128)),
-                ('catalogue_id', iki.CharField(db_index=True, max_length=128)),
-            ],
-            table='iki__cell_lines_celllinesource__entry',
-            bases=(iki.ENTITY,),
-        ),
-        iki.CreateModel(
             name='CellLineSource_Entry_History',
             fields=[
                 ('pk', iki.CompositePrimaryKey('entity_id', 'revision')),
                 ('entity_id', iki.UUIDField()),
                 ('revision', iki.PositiveIntegerField()),
-                ('supplier', iki.TextField(null=True)),
+                ('supplier', iki.UUIDField(db_column='supplier_id', null=True)),
                 ('catalogue_id', iki.TextField(null=True)),
                 ('line', iki.UUIDField(db_column='line_id', null=True)),
             ],
@@ -237,7 +227,6 @@ class Migration(iki.Migration):
                 ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
                 ('name', iki.CharField(db_index=True, max_length=255)),
                 ('parent', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to=iki.ENTITY)),
-                ('parent_source', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__cell_lines.celllinesource_entry')),
             ],
             table='iki__cell_lines_engineeredline',
             bases=(iki.ENTITY,),
@@ -297,7 +286,6 @@ class Migration(iki.Migration):
                 ('passage_unknown', iki.BooleanField(db_default=False)),
                 ('line', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to=iki.ENTITY)),
                 ('source_bank', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__cell_lines.cellbank')),
-                ('catalogue_source', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__cell_lines.celllinesource_entry')),
             ],
             table='iki__cell_lines_cellbank',
             bases=(iki.ENTITY,),
@@ -369,6 +357,21 @@ class Migration(iki.Migration):
             bases=(iki.ENTITY,),
         ),
         iki.CreateModel(
+            name='CellLineSource_Entry',
+            fields=[
+                ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
+                ('catalogue_id', iki.CharField(db_index=True, max_length=128)),
+                ('supplier', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__inventory.supplier_entry')),
+            ],
+            table='iki__cell_lines_celllinesource__entry',
+            bases=(iki.ENTITY,),
+        ),
+        iki.AddField(
+            model_name='cellbank',
+            name='catalogue_source',
+            field=iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__cell_lines.celllinesource_entry'),
+        ),
+        iki.CreateModel(
             name='CellSample',
             fields=[
                 ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
@@ -418,6 +421,11 @@ class Migration(iki.Migration):
                 ('description', iki.CharField(max_length=500)),
             ],
             table='iki__cell_lines_engineeredline__changes',
+        ),
+        iki.AddField(
+            model_name='engineeredline',
+            name='parent_source',
+            field=iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__cell_lines.celllinesource_entry'),
         ),
         iki.CreateModel(
             name='ParentalLine',
@@ -543,19 +551,7 @@ class Migration(iki.Migration):
         ),
         iki.AddIndex(
             model_name='celllinesource_entry',
-            index=iki.GinIndex(fields=['supplier'], name='supplier_trgm_374099166defb6e8', opclasses=['gin_trgm_ops']),
-        ),
-        iki.AddIndex(
-            model_name='celllinesource_entry',
             index=iki.GinIndex(fields=['catalogue_id'], name='catalogue_trgm_006d1ff0980c365', opclasses=['gin_trgm_ops']),
-        ),
-        iki.AddConstraint(
-            model_name='celllinesource_entry',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('supplier'), 1), name='iki__cell_lines_celllinesource__entry__supplier__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='celllinesource_entry',
-            constraint=iki.CheckConstraint(condition=iki.Q(('supplier__regex', '[\\r\\n]'), negated=True), name='iki__cell_lines_celllinesource__entry__supplier__one_line'),
         ),
         iki.AddConstraint(
             model_name='celllinesource_entry',

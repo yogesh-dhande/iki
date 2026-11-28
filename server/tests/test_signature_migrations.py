@@ -36,6 +36,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst }
 """
@@ -98,7 +99,7 @@ from iki_server.entities import entries
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity
 from iki_server.org.models import (
-    LabRoleGrant, OrgRole, OrgRoleAssignment, ProjectMembership, ProjectRole, Registrar,
+    LabRoleGrant, OrgRole, OrgRoleAssignment, ProjectMembership, ProjectRole, RegistryRole,
 )
 from iki_server.signatures import services as signatures
 
@@ -392,6 +393,8 @@ def test_a_restored_signed_entry_keeps_its_reversal_after_a_state_field_rename(
         monkeypatch.setenv(key, getattr(settings, key))
     manifest = lab / "types/sample.yaml"
     manifest.write_text(SAMPLE)
+    # Signed and exported at another deployment, whose own key signs its signatures.
+    monkeypatch.setenv("IKI_ENVIRONMENT", "Lab A")
     made("lab", "--no-input", cwd=lab.parent)
     source = build(lab.parent, "lab")
     migrate(source, database)
@@ -436,6 +439,7 @@ export.write(
 """,
     )
     assert exported.returncode == 0, exported.stdout + exported.stderr
+    monkeypatch.setenv("IKI_ENVIRONMENT", "test")
     target = tmp_path / "receiving/plugins/lab"
     (target / "types").mkdir(parents=True)
     (target / "plugin.yaml").write_text((lab / "plugin.yaml").read_text())
@@ -462,7 +466,7 @@ from iki_server.signatures import changes
 world = build_world()
 admin = world.users["admin"]
 OrgRoleAssignment.objects.create(user=admin, role=OrgRole.ORG_ADMIN)
-settings.IKI_BUNDLE_TRUSTED_KEYS = {{"test": (PUBLIC,)}}
+settings.IKI_BUNDLE_TRUSTED_KEYS = {{"Lab A": (PUBLIC,)}}
 api = Api(world.browser("admin"))
 done = applied(api, upload(api, world.project, Path({str(archive)!r})))
 assert done["state"] == "applied", done
@@ -502,7 +506,7 @@ from iki_server.signatures.models import Signature, Signing
 
 analyst = person("analyst", project)
 curator = person("curator")
-Registrar.objects.create(registry=project.registry, user=curator)
+RegistryRole.objects.create(registry=project.registry, user=curator, role="registrar")
 record = entities.create(
     analyst, "acme/lab.Reagent", project, {"code": "NACL-01", "cas": "7647-14-5"},
 ).entity
@@ -605,7 +609,7 @@ from iki_server.org.models import Project
 screens = Project.objects.create(team=team, name="Screens")
 analyst = person("analyst", project, screens)
 curator = person("curator")
-Registrar.objects.create(registry=project.registry, user=curator)
+RegistryRole.objects.create(registry=project.registry, user=curator, role="registrar")
 # Screens registers a reagent by a mistyped code, and signs its record into review.
 wrong = entities.create(
     analyst, "acme/lab.Reagent", screens,
@@ -645,8 +649,11 @@ with TemporaryDirectory() as tmp:
 
 before = {c.name: c.ok for c in signatures.verify(Signature.objects.get(entity_id=wrong.pk))}
 # A registrar supersedes the mistyped entry; Screens moves its record onto the right one.
-entries.supersede(curator, wrong_entry, Entity.objects.get(pk=right.entry_id), reason="Typo")
-entries.move(analyst, Entity.objects.get(pk=wrong.pk), reason="Superseded")
+wrong_entry.refresh_from_db()
+entries.supersede(curator, wrong_entry, Entity.objects.get(pk=right.entry_id),
+                  expected_revision=wrong_entry.revision, reason="Typo")
+held = Entity.objects.get(pk=wrong.pk)
+entries.move(analyst, held, expected_revision=held.revision, reason="Superseded")
 moved = Entity.objects.get(pk=wrong.pk)
 from api_client import Api
 from browser import Browser

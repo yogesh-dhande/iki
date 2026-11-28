@@ -15,10 +15,10 @@ description: >-
   backbone and inserts each. Nothing is registered: it's a preview of the bands, to
   choose one by or to check a gel against.
 inputs:
-  assembly: { type: Assembly, schema: ">=3", include: [backbone, inserts] }
+  assembly: { type: Assembly, schema_version: ">=3", include: [backbone, inserts] }
 effects:
   updates:
-    - input: assembly
+    assembly:
       fields: [fragments]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }

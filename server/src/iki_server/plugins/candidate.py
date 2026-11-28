@@ -57,6 +57,8 @@ def read(
         "name": name,
         "version": proposed.version,
     }
+    if proposed.iki is not None:
+        manifest["iki"] = proposed.iki
     # Compiled manifests include qualified IDs and explicit defaults. Check the
     # original declaration schema too, including the supported readers and viewers.
     if proposed.formats:
@@ -83,10 +85,10 @@ def read(
         _ancestors(entity_type, types)
         _fields(entity_type.fields, types)
         _rules(entity_type.rules, name, extension=False)
-        _guards(entity_type.draw_guards)
+        _guards(entity_type.draws.guards)
     for ext in proposed.extensions:
-        if ext.plugin != name or ext.extends_type not in types:
-            raise ValueError(f"Invalid extension of {ext.extends_type} by {ext.plugin}.")
+        if ext.plugin != name or ext.adds_to not in types:
+            raise ValueError(f"Invalid extension of {ext.adds_to} by {ext.plugin}.")
         _fields(ext.fields, types)
         _rules(ext.rules, name, extension=True)
     return check_compiled_rules(proposed, installed)

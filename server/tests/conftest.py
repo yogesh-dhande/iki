@@ -119,6 +119,42 @@ def _watch_browser_click_stability(
     finish(request.config.rootpath, request.node.nodeid, browser.browser_type.name, records)
 
 
+#: Firefox before 163 writes through a null pointer, crashing the page's content process, when
+#: an element's reflected ARIA element property (`ariaLabelledByElements`, say) is read in one
+#: JavaScript world after another has read it unchanged (Mozilla bug 2090055). Playwright's
+#: locators and expectations read it in their own world; axe, run by `page.evaluate`, reads it
+#: in the page's. So the page's world goes without it, as in a browser that doesn't reflect
+#: them: axe then reads the attributes, which the app sets (it never sets these properties).
+ONE_WORLD_READS_ARIA_ELEMENTS = """
+for (const name of [
+  "ariaLabelledByElements", "ariaDescribedByElements", "ariaOwnsElements",
+  "ariaControlsElements", "ariaFlowToElements", "ariaDetailsElements",
+  "ariaErrorMessageElements",
+]) {
+  delete Element.prototype[name];
+}
+"""
+
+
+@pytest.fixture(autouse=True)
+def _firefox_reads_aria_elements_in_one_world(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if "browser" not in request.fixturenames:
+        return
+    browser: Browser = request.getfixturevalue("browser")
+    if browser.browser_type.name != "firefox":
+        return
+    new_context = browser.new_context
+
+    def one_world(**options: Any) -> "BrowserContext":
+        context = new_context(**options)
+        context.add_init_script(ONE_WORLD_READS_ARIA_ELEMENTS)
+        return context
+
+    monkeypatch.setattr(browser, "new_context", one_world)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--scale",
@@ -382,13 +418,13 @@ def _empties_past_late_requests() -> Iterator[None]:
 
 
 def synced_objects() -> dict[str, list[str]]:
-    """What ``sync_plugins`` made beyond migrations that a migration can take away: unique
-    fields' triggers (ADR 0082), locked records' guards (ADR 0125), references' edges'
-    triggers (ADR 0123), requests' guards (ADR 0132), references' types' triggers (ADR 0136)
-    and analysts' views."""
+    """What ``sync_plugins`` made beyond migrations that a migration can take away: rules'
+    triggers (ADR 0127), unique fields' among them (ADR 0082), vendor barcodes' checks,
+    locked records' guards (ADR 0125), references' edges' triggers (ADR 0123), requests'
+    guards (ADR 0132), references' types' triggers (ADR 0136) and analysts' views."""
     from django.db import connection
 
-    from iki_server.entities import requests, states, targets, unique
+    from iki_server.entities import constraints, requests, states, targets, unique
     from iki_server.graph import edges
     from iki_server.plugins import sync
 
@@ -397,11 +433,13 @@ def synced_objects() -> dict[str, list[str]]:
             "SELECT c.relname || ' ' || t.tgname FROM pg_trigger t "
             "JOIN pg_class c ON c.oid = t.tgrelid "
             "WHERE NOT t.tgisinternal AND (t.tgname LIKE %s OR t.tgname LIKE %s "
-            "OR t.tgname LIKE %s OR t.tgname LIKE %s OR t.tgname LIKE %s) ORDER BY 1",
+            "OR t.tgname LIKE %s OR t.tgname LIKE %s OR t.tgname LIKE %s OR t.tgname LIKE %s) "
+            "ORDER BY 1",
             [
                 p.replace("_", r"\_") + "%"
                 for p in (
-                    unique.TRIGGER_PREFIX,
+                    constraints.TRIGGER_PREFIX,
+                    unique.BARCODE_TRIGGER_PREFIX,
                     states.TRIGGER_PREFIX,
                     edges.TRIGGER_PREFIX,
                     requests.TRIGGER_PREFIX,

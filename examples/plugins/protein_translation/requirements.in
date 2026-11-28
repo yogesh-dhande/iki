@@ -1,2 +1,0 @@
-# The local actions use Biopython's translation and protein property calculations.
-biopython==1.88

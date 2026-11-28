@@ -184,10 +184,10 @@ def _curator_help() -> str:
 
 def list_choices() -> list[tuple[str, str]]:
     """The installed lab lists, by their plural label."""
-    from iki_server.entities import lists
+    from iki_server.entities import registry
 
     return sorted(
-        ((name, t.label_plural) for name, t in lists.types().items()),
+        ((name, t.label_plural) for name, t in registry.lab_lists().items()),
         key=lambda c: (c[1].casefold(), c[0]),
     )
 

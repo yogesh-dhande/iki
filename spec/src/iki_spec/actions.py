@@ -100,13 +100,14 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
     return Action(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("_", " ").capitalize(),
         description=body.get("description"),
         inputs={
             n: Input(
                 name=n,
                 type=qualify(spec["type"], plugin),
-                schema=spec.get("schema"),
+                schema_version=spec.get("schema_version"),
                 cardinality=spec.get("cardinality", "one"),
                 max=spec.get("max"),
                 optional=bool(spec.get("optional", False)),
@@ -127,12 +128,14 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 cardinality=c.get("cardinality", "one"),
                 derived_from=tuple(c.get("derived_from", ())),
                 match_on=c.get("match_on"),
+                on_match=c.get("on_match", "update"),
                 receive_into=c.get("receive_into"),
             )
             for c in effects.get("creates", ())
         ),
         updates=tuple(
-            Updates(input=u["input"], fields=tuple(u["fields"])) for u in effects.get("updates", ())
+            Updates(input=n, fields=tuple(u["fields"]))
+            for n, u in (effects.get("updates") or {}).items()
         ),
         tier=runs_on["tier"],
         environment=runs_on["environment"],
@@ -180,6 +183,7 @@ def read_environment(plugin: str, body: dict[str, Any], document: Document) -> E
     return Environment(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("-", " ").capitalize(),
         description=body.get("description"),
         tiers=tuple(body["tiers"]),
@@ -628,15 +632,15 @@ class _Rules:
         target = self.s.reference(put.type, source, (*path, "type"))
         if (
             target is not None
-            and put.schema is not None
-            and not _validate.satisfies(target.schema_version, put.schema)
+            and put.schema_version is not None
+            and not _validate.satisfies(target.schema_version, put.schema_version)
         ):
             self.add(
                 "input-schema-unsatisfied",
                 f"`{put.type}` is at schema version {target.schema_version}, which "
-                f"`{put.schema}` doesn't allow.",
+                f"`{put.schema_version}` doesn't allow.",
                 source,
-                (*path, "schema"),
+                (*path, "schema_version"),
                 hint="Update the action for the new version, then the constraint.",
             )
         if target is not None:
@@ -695,7 +699,7 @@ class _Rules:
         ref = f.items if f.type == "list" and f.items is not None else f
         for target in ref.to:
             listed = self.s.types.get(target)
-            if listed is None or not listed.is_list:
+            if listed is None or not listed.is_lab_list:
                 continue
             changeable = sorted(
                 n
@@ -750,7 +754,7 @@ class _Rules:
         fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
         names = {target.qualified_name, *(a.qualified_name for a in self.s.ancestors(target))}
         for extension in self.s.plugin.extensions:
-            if extension.extends_type in names:
+            if extension.adds_to in names:
                 fields.update(extension.fields)
         found = fields.get(name)
         if found is None:
@@ -767,7 +771,7 @@ class _Rules:
                 "unique fields can be matched on.",
                 source,
                 path,
-                hint=f"Mark `{name}` `unique: true` (and `indexed: true`).",
+                hint=f"Mark `{name}` `unique: true`.",
             )
         elif found.registry is not None:
             self.add(
@@ -841,22 +845,21 @@ class _Rules:
                 self.receipt(action, creates, target, source, (*path, "receive_into"))
             if creates.match_on is not None and target is not None:
                 self.match_on(creates.match_on, target, source, (*path, "match_on"))
-        seen: dict[str, int] = {}
-        for index, updates in enumerate(action.updates):
-            path = ("effects", "updates", index)
-            if updates.input not in action.inputs:
-                self.unknown_input(action, updates.input, source, (*path, "input"))
-                continue
-            if updates.input in seen:
+            if creates.on_match != "update" and creates.match_on is None:
                 self.add(
-                    "duplicate-updates",
-                    f"`{updates.input}` is updated twice (in update {seen[updates.input] + 1} "
-                    "too).",
+                    "on-match-without-match-on",
+                    "`on_match` says what a create that matches an entity does, and this one "
+                    "matches on no field.",
                     source,
-                    (*path, "input"),
-                    hint="List all the fields it sets in one.",
+                    (*path, "on_match"),
+                    hint="Give `match_on`, a unique field, or drop `on_match`.",
                 )
-            seen[updates.input] = index
+        # Keyed by input, so an input can't be updated twice.
+        for updates in action.updates:
+            path = ("effects", "updates", updates.input)
+            if updates.input not in action.inputs:
+                self.unknown_input(action, updates.input, source, path)
+                continue
             self.updated_fields(action.inputs[updates.input], updates, source, path)
         if not action.creates and not action.updates and not action.artifacts:
             self.add(
@@ -888,9 +891,9 @@ class _Rules:
         fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
         lineage = [target, *self.s.ancestors(target)]
         chain = {t.qualified_name for t in lineage}
-        ledger_fields = {t.draws_received for t in lineage if t.draws_received}
+        ledger_fields = {t.draws.received for t in lineage if t.draws.received}
         for extension in self.plugin.extensions:
-            if extension.extends_type in chain:
+            if extension.adds_to in chain:
                 fields.update(extension.fields)
         for index, name in enumerate(updates.fields):
             f = fields.get(name)
@@ -922,6 +925,15 @@ class _Rules:
                     where,
                     hint="Read it as an input instead, or trigger the action on "
                     "`entity.state_changed`.",
+                )
+            elif f.cel is not None:
+                self.add(
+                    "updates-cel-computed",
+                    f"`{name}` is worked out from its record's own values at every save "
+                    "(ADR 0297): no one sets it, not even a run.",
+                    source,
+                    where,
+                    hint="Update the fields it's worked out from instead.",
                 )
             elif f.immutable:
                 self.add(

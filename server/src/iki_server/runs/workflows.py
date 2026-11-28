@@ -3,7 +3,9 @@
 
 A workflow run's steps are ordinary runs, launched by :func:`services.launch` as the person
 who started it, as they started it (through the web app, the API or an agent, whose runs
-then wait for approval as theirs would), in its project. A step starts once the steps it
+then wait for approval as theirs would), in its project. A step's action may be one of a
+dependency's (ADR 0298): its run is that action's, as its own plugin declares it, and the
+workflow records which step it was. A step starts once the steps it
 takes from or needs have succeeded, with the entities they say: the workflow's inputs, the
 entities a step created, or those a step was given.
 
@@ -28,6 +30,7 @@ from django.utils import timezone
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
+from iki_server.core import sweeps
 from iki_server.entities import access, hrids, registry
 from iki_server.entities.models import Entity
 from iki_server.entities.values import Invalid
@@ -105,7 +108,7 @@ def workflow(name: str) -> Workflow | None:
 
 def actions(of: Workflow) -> dict[str, Action | None]:
     """The action each step runs, by step ID, as installed now; None for one that isn't."""
-    return {i: catalog.action(f"{of.plugin}.{s.action}") for i, s in of.steps.items()}
+    return {i: catalog.action(s.action) for i, s in of.steps.items()}
 
 
 def visible(user: Any) -> QuerySet[WorkflowRun]:  # noqa: ANN401 - User or AnonymousUser
@@ -486,13 +489,15 @@ def advance(workflow_id: str | UUID, *, wait: bool = True) -> str:
 
 def recover() -> int:
     """Moves on every running workflow run no other transaction is: in case a task that
-    should have was lost. Returns how many ended."""
-    ended = 0
+    should have was lost. Returns how many ended. One that can't be moved on is logged
+    and left for the next pass, behind none of the others."""
     ids = WorkflowRun.objects.filter(status=WorkflowStatus.RUNNING).order_by("id")
-    for pk in ids.values_list("pk", flat=True)[:RECOVER_AT_MOST]:
-        if advance(pk, wait=False) not in ("running", "busy"):
-            ended += 1
-    return ended
+    return sweeps.each(
+        list(ids.values_list("pk", flat=True)[:RECOVER_AT_MOST]),
+        lambda pk: advance(pk, wait=False) not in ("running", "busy"),
+        failed="workflow_recovery_failed",
+        key="workflow",
+    )
 
 
 # --- Moving on ---------------------------------------------------------------------------------
@@ -665,12 +670,12 @@ def _launch(
     """Launch the step's run, or a run for each entity, as the person who started the
     workflow, as they started it. On failure the step fails, and None is returned."""
     declared = spec.steps[step.step]
-    action = catalog.action(f"{spec.plugin}.{declared.action}")
+    action = catalog.action(declared.action)
     now = timezone.now()
     step.started_at = now
     try:
         if action is None:
-            raise Refused(f"`{spec.plugin}.{declared.action}` is no longer installed.")
+            raise Refused(f"`{declared.action}` is no longer installed.")
         inputs = _inputs(run, spec, declared.inputs, action, runs)
         named = {pk for group in inputs.values() for pk in group}
         if access.project_reference_ids(run.project, named) != named:

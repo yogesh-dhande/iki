@@ -6,7 +6,7 @@
 # this plugin's table, so the protein plugin's structures are untouched without it.
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: iki/protein.ProteinStructure
+adds_to: iki/protein.ProteinStructure
 fields:
   immunebuilder_model:
     type: enum

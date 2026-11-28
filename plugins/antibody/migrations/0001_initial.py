@@ -116,7 +116,7 @@ class Migration(iki.Migration):
             constraints=[
                 iki.CheckConstraint(condition=iki.Q(('format__in', ['igg', 'fab', 'fv', 'scfv', 'vhh', 'other'])), name='iki__antibody_antibody__entry__format__values'),
                 iki.CheckConstraint(condition=iki.Q(('isotype__in', ['igg1', 'igg2', 'igg2a', 'igg2b', 'igg2c', 'igg3', 'igg4', 'igg', 'iga1', 'iga2', 'iga', 'igm', 'ige', 'igd'])), name='iki__antibody_antibody__entry__isotype__values'),
-                iki.CheckConstraint(condition=iki.Q(('constant_species__in', ['human', 'mouse', 'rat', 'rabbit'])), name='iki__antibody_antibody__entry__constant_species__values'),
+                iki.CheckConstraint(condition=iki.Q(('constant_species__in', ['human', 'macaque', 'mouse', 'rat', 'rabbit'])), name='iki__antibody_antibody__entry__constant_species__values'),
             ],
             bases=('iki__core.complex_entry',),
         ),

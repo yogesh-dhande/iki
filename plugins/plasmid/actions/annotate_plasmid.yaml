@@ -10,7 +10,7 @@ description: >-
   markers in the cells it's expressed in, and its promoters. A linear plasmid's two ends
   are ends: nothing is annotated across them.
 inputs:
-  plasmid: { type: Plasmid, schema: ">=2", include: [sequence] }
+  plasmid: { type: Plasmid, schema_version: ">=2", include: [sequence] }
 params:
   min_identity:
     type: float
@@ -23,7 +23,7 @@ params:
       long is annotated only where it matches exactly, whatever this says.
 effects:
   updates:
-    - input: plasmid
+    plasmid:
       fields:
         - length
         - topology

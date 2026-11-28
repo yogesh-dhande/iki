@@ -5,7 +5,8 @@ schema_version: 4
 label: Experiment
 hrid: { prefix: EXP }
 description: A project record for an experiment, its evidence, any external notebook entry and the signatures the project's review flow asks for.
-draws_received: material_draws
+draws:
+  received: material_draws
 fields:
   title: { type: string, required: true, max_length: 200 }
   eln_id:

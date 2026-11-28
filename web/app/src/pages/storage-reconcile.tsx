@@ -6,10 +6,11 @@
  *
  * A fresh scan or a first decision is one step. A scan that replaces what's recorded at a
  * position (an empty one too, or the same tube seen elsewhere), or a changed decision, asks
- * why and names the versions it replaces; the history keeps both.
+ * why, and is made from the versions the person saw when it asked (`useRevisioned`, ADR
+ * 0300); the history keeps both.
  */
 
-import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
+import { ifMatch, isStale, unwrap, type Schemas } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
@@ -33,7 +34,6 @@ import {
   historyKey,
   IDENTITY_BASES,
   indexOf,
-  isScanConflict,
   needsResolving,
   positionLabel,
   reconciliationQuery,
@@ -56,6 +56,7 @@ import {
   type UnregisteredSource,
   unregisteredChoice,
 } from "../storage";
+import { useRevisioned } from "../revisioned";
 import { IkiIdEntry, ScanBar, ScanChooser, ScanRefusedNote } from "../storage-ui";
 import {
   Button,
@@ -302,9 +303,7 @@ function showsOffer(r: Reconciliation, sources: readonly UnregisteredSource[]): 
   return sources.every((source) =>
     r.lines.some(
       (l) =>
-        l.id === source.line_id &&
-        l.found === source.position &&
-        l.line_revision === source.line_revision,
+        l.id === source.line_id && l.found === source.position && l.revision === source.revision,
     ),
   );
 }
@@ -346,10 +345,13 @@ function ScannedBy({ line }: { line: ReconciliationLine }) {
   );
 }
 
-/** A change being asked about, what was shown when it was asked, and what changed since. */
+/** A change being asked about, and what changed since it was asked. */
 type Asking = {
-  seen: number;
+  /** After a refusal before it was asked: what others changed. */
   changes: ObservationEvent[] | null;
+  /** Caught up to a newer count while asked: its history is read from this revision, for
+   * these lines (none: all of it). */
+  since?: { revision: number; lines: readonly string[] } | undefined;
 } & (
   | ({
       do: "scan";
@@ -366,7 +368,6 @@ type Asking = {
   | { do: "cancel" }
 );
 
-/** A newer version of what's recorded: not a scan that can't identify a tube, also a 409. */
 /** How a scan identifies its tube: by its label (the default), or a typed Iki ID; and the
  * tube chosen for a label several readable tubes share. */
 interface How {
@@ -404,13 +405,44 @@ type Unidentified =
       sources: UnregisteredSource[];
     };
 
-function isStale(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 409 && !isScanConflict(error.problem);
-}
-
 /** The line IDs a refused count change named, if it named them. */
 function affectedIds(error: unknown): string[] | null {
   return affectedLines(problemOf(error))?.map((l) => l.line_id) ?? null;
+}
+
+/** The lines a change asked about is about: what a scan replaces, a decision's line and the
+ * one its tube was found at, or none, for cancelling the count. */
+function relatedLines(
+  r: Reconciliation,
+  asking: Asking,
+  required: readonly string[] | null = null,
+): string[] {
+  switch (asking.do) {
+    case "scan":
+      return required
+        ? [...required]
+        : replacedBy(r, asking.at, asking.code, asking.required, asking).map(({ line }) => line.id);
+    case "resolve": {
+      const line = r.lines.find((l) => l.id === asking.line);
+      return [asking.line, line?.observation?.line_id].filter((x): x is string => !!x);
+    }
+    case "cancel":
+      return [];
+  }
+}
+
+/** What a change asked about is made from, in a count: the versions of the lines a scan
+ * replaces, or a decision's line's; or for cancelling, or none asked, the count's revision.
+ * Scans and decisions elsewhere in the box don't change it. */
+function versionOf(r: Reconciliation, asking: Asking | null): string {
+  if (!asking || asking.do === "cancel") return `count ${String(r.revision)}`;
+  if (asking.do === "resolve") {
+    const line = r.lines.find((l) => l.id === asking.line);
+    return line ? `${line.id} ${String(line.revision)}` : `${asking.line} gone`;
+  }
+  return replacedBy(r, asking.at, asking.code, asking.required, asking)
+    .map(({ line }) => `${line.id} ${String(line.revision)}`)
+    .join(",");
 }
 
 /**
@@ -437,7 +469,6 @@ function decisionOf(
 ): Schemas["ResolveIn"] {
   const note = text.trim();
   return {
-    line_revision: line.line_revision,
     resolution,
     // Left out, the saved note stays; clearing the decision clears its note too.
     ...(resolution !== null && note !== line.note ? { note: note || null } : {}),
@@ -478,7 +509,7 @@ function reviewedFor(
 ): Reviewed[] {
   return replacedBy(r, at, code, required, how).map(({ line }) => ({
     line_id: line.id,
-    line_revision: line.line_revision,
+    revision: line.revision,
   }));
 }
 
@@ -518,7 +549,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   // the background or after a refusal, replaces it only when the person reviews that one.
   const [reviewed, setReviewed] = useState(r);
   // What the Complete section shows: the count as it's read now while it's the plan reviewed.
-  const approving = r.plan_revision === reviewed.plan_revision ? r : reviewed;
+  const approving = r.revision === reviewed.revision ? r : reviewed;
   const shape = r.shape;
   const order = useMemo(() => {
     const all: { row: number; column: number; label: string }[] = [];
@@ -553,8 +584,8 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const current = () => client.getQueryData<Reconciliation>(queryKey) ?? r;
   const update = (next: Reconciliation) => {
     const latest = client.getQueryData<Reconciliation>(queryKey);
-    if (latest && latest.plan_revision > next.plan_revision) return;
-    if (next.plan_revision !== reviewed.plan_revision) {
+    if (latest && latest.revision > next.revision) return;
+    if (next.revision !== reviewed.revision) {
       setNote("");
       setAcknowledgedMissing(null);
       setReviewed(next);
@@ -563,9 +594,14 @@ function ReconcileView({ r }: { r: Reconciliation }) {
     client.setQueryData(queryKey, next);
     void client.invalidateQueries({ queryKey: historyKey("reconciliations", r.id) });
   };
+  // The newest count read here, which the page's query may not have rendered yet: what a
+  // dialog asked about it reads.
+  const [newest, setNewest] = useState(r);
+  const shown = newest.revision > r.revision ? newest : r;
   /** After a refusal: the count as it is now, and what changed since `seen`. */
   const refetch = async (seen: number, lines: readonly string[] = []) => {
     const fresh = await client.query({ ...reconciliationQuery(r.id), staleTime: 0 });
+    setNewest(fresh);
     let changes: ObservationEvent[] = [];
     try {
       changes = await changesSince("reconciliations", r.id, seen);
@@ -583,25 +619,28 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   const resolve = useApiMutation(
     async ({
       line,
+      revision,
       decision,
     }: {
       line: string;
-      decision: Parameters<typeof resolveCountLine>[2];
-    }) => resolveCountLine(r.id, line, decision),
+      revision: number;
+      decision: Parameters<typeof resolveCountLine>[3];
+    }) => resolveCountLine(r.id, line, revision, decision),
     [],
   );
   const complete = useApiMutation(
-    async (approval: Schemas["CompleteReconciliationIn"]) =>
+    async ({ revision, ...approval }: Schemas["CompleteReconciliationIn"] & { revision: number }) =>
       unwrap(
         await iki.POST("/api/v1/reconciliations/{reconciliation_id}/complete", {
-          params: { path: { reconciliation_id: r.id } },
+          params: { path: { reconciliation_id: r.id }, header: ifMatch(revision) },
           body: approval,
         }),
       ),
     [STORAGE],
   );
   const cancel = useApiMutation(
-    async (reason: string) => cancelCount(r.id, { plan_revision: current().plan_revision, reason }),
+    async ({ reason, revision }: { reason: string; revision: number }) =>
+      cancelCount(r.id, revision, { reason }),
     [STORAGE],
   );
   const writing = useRef(false);
@@ -610,22 +649,17 @@ function ReconcileView({ r }: { r: Reconciliation }) {
   // Another person's change, read in the background or met on completing: the approval is
   // for the plan as it was reviewed, so it's reviewed again. Scans and decisions carry
   // their own lines' versions, and go on.
-  const newer = r.plan_revision > reviewed.plan_revision;
-  const mustReview = newer || problem?.status === 409;
+  const newer = r.revision > reviewed.revision;
+  const mustReview = newer || problem?.status === 409 || problem?.status === 412;
   const locked = saving;
   const reviewChanges = useQuery({
-    queryKey: [
-      ...historyKey("reconciliations", r.id),
-      "since",
-      reviewed.plan_revision,
-      r.plan_revision,
-    ],
-    queryFn: ({ signal }) => changesSince("reconciliations", r.id, reviewed.plan_revision, signal),
+    queryKey: [...historyKey("reconciliations", r.id), "since", reviewed.revision, r.revision],
+    queryFn: ({ signal }) => changesSince("reconciliations", r.id, reviewed.revision, signal),
     enabled: mustReview,
     // What changed since the review stays shown while a newer count's changes are read, so
     // the note doesn't go and come back, moving the button under it.
     placeholderData: (previous, query) =>
-      query?.queryKey.at(-2) === reviewed.plan_revision ? previous : undefined,
+      query?.queryKey.at(-2) === reviewed.revision ? previous : undefined,
   });
   async function saveChange(
     send: () => Promise<Reconciliation>,
@@ -699,14 +733,13 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         ...how,
         offer,
         required: null,
-        seen: count.plan_revision,
         changes: null,
       });
       return;
     }
     const reviewed = replaced.map(({ line }) => ({
       line_id: line.id,
-      line_revision: line.line_revision,
+      revision: line.revision,
     }));
     void saveChange(
       () =>
@@ -743,8 +776,8 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         setUnidentified(null);
         setHeard(`${at} changed while you were scanning it. Check what’s recorded now.`);
         const required = affectedIds(error);
-        void refetch(count.plan_revision, required ?? reviewed.map((x) => x.line_id)).then(
-          ({ fresh, changes }) => {
+        void refetch(count.revision, required ?? reviewed.map((x) => x.line_id)).then(
+          ({ changes }) => {
             scan.reset();
             setAsking({
               do: "scan",
@@ -755,7 +788,6 @@ function ReconcileView({ r }: { r: Reconciliation }) {
               ...(offer ? { unregistered: undefined } : {}),
               offer,
               required: offer ? withoutOffered(required, offer) : required,
-              seen: fresh.plan_revision,
               changes,
             });
           },
@@ -781,15 +813,14 @@ function ReconcileView({ r }: { r: Reconciliation }) {
         line: line.id,
         resolution,
         note: text,
-        seen: current().plan_revision,
         changes: null,
       });
       return;
     }
-    const seen = current().plan_revision;
+    const seen = current().revision;
     const decision = decisionOf(line, resolution, text);
     void saveChange(
-      () => resolve.mutateAsync({ line: line.id, decision }),
+      () => resolve.mutateAsync({ line: line.id, revision: line.revision, decision }),
       undefined,
       (error) => {
         if (!isStale(error)) return;
@@ -803,7 +834,6 @@ function ReconcileView({ r }: { r: Reconciliation }) {
               line: line.id,
               resolution,
               note: text,
-              seen: fresh.plan_revision,
               changes,
             });
           else setLineStale({ line: line.id, changes });
@@ -811,109 +841,126 @@ function ReconcileView({ r }: { r: Reconciliation }) {
       },
     );
   };
-  /** The asked-about change, with its reason, at the versions shown now. */
-  const confirm = (reason: string) => {
-    if (!asking) return;
-    const count = current();
-    const retry = (lines: readonly string[]) => (error: unknown) => {
-      if (!isStale(error)) return;
-      // Never sent again by itself: the person reviews what's recorded now.
-      const required = affectedIds(error);
-      void refetch(asking.seen, required ?? lines).then(({ fresh, changes }) => {
-        setAsking(
-          asking.do === "scan"
-            ? asking.offer
-              ? {
-                  // Which tube it is was asked about evidence that's changed: asked again.
-                  ...asking,
-                  unregistered: undefined,
-                  required: withoutOffered(required ?? asking.required, asking.offer),
-                  seen: fresh.plan_revision,
-                  changes,
-                  about: aboutOf(count, asking),
-                }
-              : {
-                  ...asking,
-                  required: required ?? asking.required,
-                  seen: fresh.plan_revision,
-                  changes,
-                }
-            : { ...asking, seen: fresh.plan_revision, changes },
-        );
-      });
-    };
-    switch (asking.do) {
-      case "scan": {
-        const { at, code, required } = asking;
-        const reviewed = reviewedFor(count, at, code, required, asking);
-        const said = intentText(count, asking);
-        void saveChange(
-          () =>
-            scan.mutateAsync({
-              scans: [scanItem(at, code, asking)],
-              ...(reviewed.length ? { reviewed_lines: reviewed } : {}),
-              reason,
-            }),
-          (next) => {
-            setAsking(null);
-            scanned(at, code, said)(next);
-          },
-          (error) => {
-            const choice = unregisteredChoice(problemOf(error));
-            if (!choice || code === null) {
-              retry(reviewed.map((x) => x.line_id))(error);
-              return;
-            }
-            setUnidentified(null);
-            const moving = movingLine(asking);
-            if (!moving) {
-              // Asked here first: nothing changed, and the reason stays as typed.
-              scan.reset();
-              setAsking({ ...asking, offer: choice.sources, about: undefined });
-              return;
-            }
-            // The tube chosen can't have moved here any more: the count as it is now, what
-            // changed, and the choice again.
-            void refetch(asking.seen, [moving]).then(({ fresh, changes }) => {
-              scan.reset();
-              setAsking({
+  // A change asked about is made from the count as it was when it was asked: one whose
+  // lines changed meanwhile is caught up to and said, never sent from unseen (ADR 0300).
+  const askingError =
+    asking?.do === "scan" ? scan.error : asking?.do === "resolve" ? resolve.error : cancel.error;
+  const rev = useRevisioned(shown, {
+    open: asking !== null,
+    error: askingError,
+    refresh: queryKey,
+    version: (count) => versionOf(count, asking),
+    onCatchUp: (now, was) => {
+      if (!asking) return;
+      // The lines a refusal named, at the versions now: exactly those are reviewed.
+      const required = isStale(askingError) ? affectedIds(askingError) : null;
+      const since = { revision: was.revision, lines: relatedLines(was, asking, required) };
+      setAsking(
+        asking.do === "scan"
+          ? asking.offer
+            ? {
+                // Which tube it is was asked about evidence that's changed: asked again.
                 ...asking,
                 unregistered: undefined,
-                offer: choice.sources,
-                required: withoutOffered(asking.required, asking.offer ?? []),
-                seen: fresh.plan_revision,
-                changes,
-                about: aboutOf(count, asking),
+                required: withoutOffered(required ?? asking.required, asking.offer),
+                changes: null,
+                since,
+                about: aboutOf(was, asking),
+              }
+            : { ...asking, required: required ?? asking.required, changes: null, since }
+          : { ...asking, changes: null, since },
+      );
+    },
+  });
+  const askedSince = asking?.since;
+  const askedChanges = useQuery({
+    queryKey: [
+      ...historyKey("reconciliations", r.id),
+      "asked",
+      askedSince?.revision ?? null,
+      askedSince?.lines ?? null,
+    ],
+    queryFn: async ({ signal }) => {
+      const since = askedSince ?? { revision: r.revision, lines: [] };
+      const all = await changesSince("reconciliations", r.id, since.revision, signal);
+      const own = all.filter((e) => e.line_id && since.lines.includes(e.line_id));
+      return own.length ? own : all;
+    },
+    enabled: !!askedSince,
+  });
+  /** The asked-about change, with its reason, at the versions the person saw. */
+  const confirm = (reason: string) => {
+    if (!asking) return;
+    rev.submit((_, count) => {
+      switch (asking.do) {
+        case "scan": {
+          const { at, code, required } = asking;
+          const reviewed = reviewedFor(count, at, code, required, asking);
+          const said = intentText(count, asking);
+          void saveChange(
+            () =>
+              scan.mutateAsync({
+                scans: [scanItem(at, code, asking)],
+                ...(reviewed.length ? { reviewed_lines: reviewed } : {}),
+                reason,
+              }),
+            (next) => {
+              setAsking(null);
+              scanned(at, code, said)(next);
+            },
+            (error) => {
+              // Refused as stale: the count is read again, and the person reviews it (above).
+              const choice = unregisteredChoice(problemOf(error));
+              if (!choice || code === null) return;
+              setUnidentified(null);
+              const moving = movingLine(asking);
+              if (!moving) {
+                // Asked here first: nothing changed, and the reason stays as typed.
+                scan.reset();
+                setAsking({ ...asking, offer: choice.sources, about: undefined });
+                return;
+              }
+              // The tube chosen can't have moved here any more: the count as it is now, what
+              // changed, and the choice again.
+              void refetch(count.revision, [moving]).then(({ changes }) => {
+                scan.reset();
+                setAsking({
+                  ...asking,
+                  unregistered: undefined,
+                  offer: choice.sources,
+                  required: withoutOffered(asking.required, asking.offer ?? []),
+                  changes,
+                  since: undefined,
+                  about: aboutOf(count, asking),
+                });
               });
-            });
-          },
-        );
-        return;
+            },
+          );
+          return;
+        }
+        case "resolve": {
+          const line = count.lines.find((l) => l.id === asking.line);
+          if (!line) return;
+          const decision = decisionOf(line, asking.resolution, asking.note, reason);
+          void saveChange(
+            () => resolve.mutateAsync({ line: line.id, revision: line.revision, decision }),
+            () => {
+              setAsking(null);
+              say("Saved, with your reason.");
+            },
+          );
+          return;
+        }
+        case "cancel":
+          void saveChange(
+            () => cancel.mutateAsync({ reason, revision: count.revision }),
+            () => {
+              setAsking(null);
+              say(`Cancelled reconciling ${r.container.hrid}.`);
+            },
+          );
       }
-      case "resolve": {
-        const line = count.lines.find((l) => l.id === asking.line);
-        if (!line) return;
-        const decision = decisionOf(line, asking.resolution, asking.note, reason);
-        void saveChange(
-          () => resolve.mutateAsync({ line: line.id, decision }),
-          () => {
-            setAsking(null);
-            say("Saved, with your reason.");
-          },
-          retry([line.id, line.observation?.line_id].filter((x): x is string => !!x)),
-        );
-        return;
-      }
-      case "cancel":
-        void saveChange(
-          () => cancel.mutateAsync(reason),
-          () => {
-            setAsking(null);
-            say(`Cancelled reconciling ${r.container.hrid}.`);
-          },
-          retry([]),
-        );
-    }
+    });
   };
   const errors = fieldErrors(problem);
   const findings = findingsAt(r);
@@ -1207,7 +1254,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   onClick={() => {
                     if (!ready) return;
                     const approval = {
-                      plan_revision: reviewed.plan_revision,
+                      revision: reviewed.revision,
                       missing_rest: missingRest,
                       note: note.trim(),
                     };
@@ -1219,7 +1266,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                       (error) => {
                         // Refused: the count is read again, for the person to review.
                         if (!isStale(error)) return;
-                        refetch(reviewed.plan_revision).catch(() => {
+                        refetch(reviewed.revision).catch(() => {
                           // The page says why it couldn't be read.
                         });
                       },
@@ -1233,7 +1280,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
                   disabled={locked}
                   onClick={() => {
                     cancel.reset();
-                    setAsking({ do: "cancel", seen: current().plan_revision, changes: null });
+                    setAsking({ do: "cancel", changes: null });
                   }}
                 >
                   Cancel it
@@ -1263,21 +1310,16 @@ function ReconcileView({ r }: { r: Reconciliation }) {
       )}
       {asking ? (
         <CountDialog
-          r={r}
+          r={rev.read}
           asking={asking}
+          changes={asking.changes ?? (asking.since ? (askedChanges.data ?? []) : null)}
           names={names}
-          busy={saving}
+          busy={saving || rev.rereading}
           onUnregistered={(intent) => {
             scan.reset();
             if (asking.do === "scan") setAsking({ ...asking, unregistered: intent });
           }}
-          problem={
-            asking.do === "scan"
-              ? scan.error
-              : asking.do === "resolve"
-                ? resolve.error
-                : cancel.error
-          }
+          problem={askingError}
           onConfirm={confirm}
           onChoose={(choice) => {
             scan.reset();
@@ -1298,6 +1340,7 @@ function ReconcileView({ r }: { r: Reconciliation }) {
 function CountDialog({
   r,
   asking,
+  changes,
   names,
   busy,
   problem,
@@ -1306,8 +1349,11 @@ function CountDialog({
   onUnregistered,
   onClose,
 }: {
+  /** The count as it was when this was asked, or caught up to since. */
   r: Reconciliation;
   asking: Asking;
+  /** What changed since it was asked, if it did. */
+  changes: ObservationEvent[] | null;
   names: ReadonlyMap<string, string>;
   busy: boolean;
   problem: unknown;
@@ -1340,8 +1386,8 @@ function CountDialog({
         <ReasonDialog
           {...common}
           stale={
-            asking.changes ? (
-              <StaleNote changes={eventItems(asking.changes, names)} what={asking.about ?? at} />
+            changes ? (
+              <StaleNote changes={eventItems(changes, names)} what={asking.about ?? at} />
             ) : null
           }
           title={title}
@@ -1430,11 +1476,7 @@ function CountDialog({
       return (
         <ReasonDialog
           {...common}
-          stale={
-            asking.changes ? (
-              <StaleNote changes={eventItems(asking.changes, names)} what={name} />
-            ) : null
-          }
+          stale={changes ? <StaleNote changes={eventItems(changes, names)} what={name} /> : null}
           title={
             asking.resolution ? `Change the decision on ${name}?` : `Clear the decision on ${name}?`
           }
@@ -1467,9 +1509,7 @@ function CountDialog({
         <ReasonDialog
           {...common}
           stale={
-            asking.changes ? (
-              <StaleNote changes={eventItems(asking.changes, names)} what="The count" />
-            ) : null
+            changes ? <StaleNote changes={eventItems(changes, names)} what="The count" /> : null
           }
           title="Cancel this reconciliation?"
           question="Why are you cancelling it?"
@@ -1538,7 +1578,7 @@ function UnregisteredChooser({
 }) {
   const id = useId();
   const heading = useRef<HTMLHeadingElement>(null);
-  const offered = lines.map((line) => `${line.id}@${String(line.line_revision)}`).join(",");
+  const offered = lines.map((line) => `${line.id}@${String(line.revision)}`).join(",");
   useEffect(() => {
     // Said, and where the keyboard goes next: the scanner still works from here.
     heading.current?.focus();

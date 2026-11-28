@@ -117,12 +117,15 @@ class _Schema:
             names = {t.qualified_name for t in chain}
             declarations: list[EntityType | Extension] = [
                 *reversed(chain),
-                *(e for e in self.extensions if e.extends_type in names),
+                *(e for e in self.extensions if e.adds_to in names),
             ]
             for item in declarations:
                 for rule in item.rules.values():
                     rules[rule.key] = rule
-                    scopes[rule.key] = item.table
+                    # A `within: registry` rule's fields are its entries' (ADR 0115).
+                    scopes[rule.key] = (
+                        naming.entry_table(item.table) if rule.within == "registry" else item.table
+                    )
                 retired.update(
                     {n: f for n, f in item.fields.items() if f.removed and f.type == "state"}
                 )
@@ -146,8 +149,8 @@ def _touched(old: Plugin | None, new: Plugin) -> set[str]:
     """Types the candidate defines differently or extends differently, including removals."""
     old_types = old.types if old else {}
     names = {n for n in old_types.keys() | new.types.keys() if old_types.get(n) != new.types.get(n)}
-    before = {e.extends_type: e for e in old.extensions} if old else {}
-    after = {e.extends_type: e for e in new.extensions}
+    before = {e.adds_to: e for e in old.extensions} if old else {}
+    after = {e.adds_to: e for e in new.extensions}
     return names | {n for n in before.keys() | after.keys() if before.get(n) != after.get(n)}
 
 

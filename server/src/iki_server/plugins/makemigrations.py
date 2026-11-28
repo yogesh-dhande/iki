@@ -306,7 +306,7 @@ def _autodetector() -> type:
                                 op = migrations.AddField(
                                     op.model_name, op.name, field, preserve_default=False
                                 )
-                    elif hasattr(model, "IKI_TYPE") or hasattr(model, "IKI_EXTENDS"):
+                    elif hasattr(model, "IKI_TYPE") or hasattr(model, "IKI_ADDS_TO"):
                         # Live plugin columns can acquire a field or rule guard even in a
                         # later manifest with no migration (ADR 0127).
                         op = AddField(op.model_name, op.name, op.field, op.preserve_default)
@@ -553,7 +553,7 @@ def _part(app_label: str, history_model: str) -> str:
 
     model = apps.get_model(app_label, history_model)
     model = apps.get_model(app_label, model.IKI_HISTORY_OF)
-    extends = getattr(model, "IKI_EXTENDS", None)
+    extends = getattr(model, "IKI_ADDS_TO", None)
     name = f"{_plugin(app_label)}:{extends}" if extends else str(model.IKI_TYPE)
     return name + ("#entry" if getattr(model, "IKI_ENTRY", False) else "")
 

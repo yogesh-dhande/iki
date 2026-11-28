@@ -262,7 +262,8 @@ export const WORKFLOW = {
 
 export const WORKFLOW_ID = "00000000-0000-7000-8000-0000000000w1";
 
-/** WF-000001: acme/protein_translation.translate_and_characterize, translated, characterizing. */
+/** WF-000001: acme/protein_translation.translate_and_characterize, a lab's workflow of
+ * iki/protein's actions (ADR 0298): translated, characterizing. */
 export function workflowRun(
   overrides: Partial<Schemas["WorkflowRunOut"]> = {},
 ): Schemas["WorkflowRunOut"] {
@@ -292,7 +293,7 @@ export function workflowRun(
       {
         id: "translate",
         label: "Translate",
-        action: "acme/protein_translation.translate",
+        action: "iki/protein.translate",
         after: [],
         each: null,
         when: [],
@@ -312,7 +313,7 @@ export function workflowRun(
       {
         id: "properties",
         label: "Properties",
-        action: "acme/protein_translation.compute_properties",
+        action: "iki/protein.compute_properties",
         after: ["translate"],
         each: null,
         when: [],

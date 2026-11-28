@@ -26,7 +26,7 @@ def stock_world(monkeypatch: pytest.MonkeyPatch) -> tuple[World, Entity, dict[UU
     world = build_world()
     item = Entity.objects.get(pk=sample(world, "Stock item")["id"])
     available = {item.pk: Decimal(10)}
-    monkeypatch.setattr(stock, "catalogues", lambda: {SAMPLE: SimpleNamespace(notify=[ROLE])})
+    monkeypatch.setattr(stock, "catalogues", lambda: {SAMPLE: SimpleNamespace(notify_roles=[ROLE])})
     monkeypatch.setattr(
         stock, "items", lambda project: Entity.objects.filter(type=SAMPLE, owner_project=project)
     )

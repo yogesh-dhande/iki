@@ -3,8 +3,10 @@
 A plugin's triggers live under `triggers/`. The schema checks each document's shape; the
 rules here check it against the plugin's types and actions: that the type exists and the
 fields it watches are the type's, that the action it runs takes an entity of that type and
-needs nothing else, and that its params fit. A scheduled trigger's schedule must read,
-come round, and run at most every five minutes, and its action must need no inputs.
+needs nothing else, and that its params fit. The action is the plugin's own, or, named
+`namespace/plugin.action`, a declared dependency's (ADR 0298), checked the same way. A
+scheduled trigger's schedule must read, come round, and run at most every five minutes, and
+its action must need no inputs.
 
 A trigger may give other inputs the entities related to the one that fired it (ADR 0123):
 ``related: {aliquots: {direction: downstream}}`` gives ``aliquots`` every Aliquot in the
@@ -14,6 +16,16 @@ it the entity, nor needs to give it anything.
 
 ``request.received`` fires in a service's project as a request of its type is sent there
 (ADR 0232): its type must be a request type.
+
+A calculation, a trigger ``on: entity.updated`` whose action updates the entity it's given,
+says what it reads through the references its input includes (ADR 0080, amended
+2026-11-24), with ``watch_included``: a change to one of those fields flags each record it
+was worked out for as needing it again. So each included reference whose entities have a
+value that can change is watched, naming the fields of them it reads; a fixed one (required
+and immutable, or a lab list's immutable fact) never changes in place, and naming it only
+says the calculation reads it. The reference itself is watched too, among `fields`, fixed
+or not: pointed at another entity, the record is worked out from that one, and a move to a
+superseded entry's or option's replacement re-points even a fixed one (ADR 0115, ADR 0270).
 """
 
 from __future__ import annotations
@@ -23,7 +35,7 @@ from typing import TYPE_CHECKING, Any
 
 from iki_spec import cron, schemas
 from iki_spec import validate as _validate
-from iki_spec.model import Action, Related, Trigger, qualify
+from iki_spec.model import Action, EntityType, Field, Related, Trigger, included_reference, qualify
 from iki_spec.problems import Path
 from iki_spec.workflows import literal
 
@@ -41,6 +53,7 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
     return Trigger(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("_", " ").capitalize(),
         description=body.get("description"),
         on=body["on"],
@@ -50,7 +63,9 @@ def read_trigger(plugin: str, body: dict[str, Any], document: Document) -> Trigg
         fields=tuple(body.get("fields") or ()),
         state_field=body.get("field") or "",
         states=tuple(body.get("states") or ()),
-        run=body["run"],
+        # Qualified: a bare name is the plugin's own, `namespace/plugin.action` a
+        # dependency's (ADR 0298).
+        action=qualify(body["action"], plugin),
         # Filled in by `check` when it's left out and one input takes the type.
         input=body.get("input") or "",
         params=dict(body.get("params") or {}),
@@ -155,25 +170,19 @@ class _Rules:
                     ("on",),
                     hint="Use `on: entity.created`, which fires for each new entity.",
                 )
-        action = self.plugin.actions.get(trigger.run)
+        action = self.s.action(trigger.action, "trigger-unknown-action", source, ("action",))
         if action is None:
-            self.add(
-                "trigger-unknown-action",
-                f"This plugin has no action `{trigger.run}`.",
-                source,
-                ("run",),
-                hint=schemas._did_you_mean(trigger.run, list(self.plugin.actions)),
-            )
             return trigger
         if scheduled:
             for name, put in action.inputs.items():
                 if not put.optional and not put.from_project:
                     self.add(
                         "trigger-input-missing",
-                        f"`{trigger.run}` needs `{name}`, and a scheduled trigger gives it no "
+                        f"`{self.s.shown(trigger.action)}` needs `{name}`, and a scheduled trigger "
+                        "gives it no "
                         "entities.",
                         source,
-                        ("run",),
+                        ("action",),
                         hint="Run an action that needs no inputs, such as an import.",
                     )
             given = ""
@@ -189,7 +198,33 @@ class _Rules:
                 source,
                 ("watch_included",),
             )
-        if trigger.recheck:
+        elif given:
+            self.reads(trigger, action, given, source)
+        if trigger.recheck and trigger.watch_included:
+            self.add(
+                "trigger-recheck-watch-included",
+                "A recheck runs with the credential of whoever edited the record, so only an "
+                "edit of the record itself can start it: a change to what its references name "
+                "has no editor to run it as.",
+                source,
+                ("watch_included",),
+                key=True,
+                hint="Drop `watch_included`, or keep the calculation in a trigger without "
+                "`recheck`.",
+            )
+        if trigger.recheck and action.plugin != trigger.plugin:
+            # A recheck is on in every project without an Admin turning it on, and clears
+            # what it rechecks in the edit's transaction: only the calculation's own plugin
+            # may declare that (ADR 0298).
+            self.add(
+                "trigger-recheck",
+                f"A recheck is on in every project by default, so it runs only this plugin's "
+                f"own action, and `{trigger.action}` is the {action.plugin} plugin's.",
+                source,
+                ("recheck",),
+                hint="Leave `recheck` out: a project's Admin can then turn the trigger on.",
+            )
+        elif trigger.recheck:
             outputs = {n for update in action.updates for n in update.fields}
             target = self.s.types.get(trigger.type)
             fields = self.s.all_fields(target) if target else {}
@@ -208,7 +243,7 @@ class _Rules:
                 or trigger.recheck not in outputs
                 or any(
                     n not in fields
-                    or not fields[n][0].computed
+                    or not fields[n][0].set_by_runs
                     or fields[n][0].required
                     or fields[n][0].immutable
                     or fields[n][0].registry
@@ -235,10 +270,11 @@ class _Rules:
                 ):
                     self.add(
                         "trigger-input-missing",
-                        f"`{trigger.run}` also needs `{name}`, and a trigger gives it only the "
+                        f"`{self.s.shown(trigger.action)}` also needs `{name}`, and a trigger "
+                        "gives it only the "
                         "entity that changed.",
                         source,
-                        ("run",),
+                        ("action",),
                         hint="Run an action that needs only that entity, or make the rest "
                         "optional.",
                     )
@@ -248,7 +284,8 @@ class _Rules:
             if name not in trigger.params and param.required:
                 self.add(
                     "trigger-param-missing",
-                    f"`{trigger.run}` needs the param `{name}`, and this trigger doesn't give it.",
+                    f"`{self.s.shown(trigger.action)}` needs the param `{name}`, "
+                    "and this trigger doesn't give it.",
                     source,
                     ("params",) if trigger.params else (),
                     hint=f"Add `{name}:` under `params`, with a value.",
@@ -256,6 +293,115 @@ class _Rules:
         if given and given != trigger.input:
             return Trigger(**{**trigger.__dict__, "input": given})
         return trigger
+
+    def reads(self, trigger: Trigger, action: Action, given: str, source: Document) -> None:
+        """What the action reads through the references its input includes: that each field
+        watched of them is one their entities have; and, for a calculation, that each
+        reference whose entities can change, and each reference field that can, is
+        watched (see the module's docstring)."""
+        target = self.s.types.get(trigger.type)
+        if target is None:
+            return
+        own = {n: f for n, (f, _) in self.s.all_fields(target).items()}
+        for name, watched in trigger.watch_included.items():
+            ref = included_reference(own, name)
+            if ref is None:
+                continue
+            theirs = self.fields_of(self.targets(ref))
+            for index, field in enumerate(watched):
+                f = theirs.get(field)
+                path = ("watch_included", name, index)
+                if f is None or f.removed:
+                    self.add(
+                        "unknown-field",
+                        f"What `{name}` names has no field `{field}`"
+                        + (" any more (it was removed)." if f is not None else "."),
+                        source,
+                        path,
+                        hint=schemas._did_you_mean(
+                            field, [n for n, x in theirs.items() if not x.removed]
+                        ),
+                    )
+                elif f.type == "state":
+                    self.add(
+                        "trigger-field-is-state",
+                        f"`{field}` is a state field: setting it isn't a change of the record's "
+                        "values, so it never wakes what reads it.",
+                        source,
+                        path,
+                    )
+        calculation = (
+            trigger.on == "entity.updated"
+            and not trigger.recheck
+            and any(update.input == given for update in action.updates)
+        )
+        if not calculation:
+            return
+        for name in action.inputs[given].include:
+            ref = included_reference(own, name)
+            if ref is None:
+                continue
+            if name not in trigger.watch_included:
+                changing = sorted(
+                    {
+                        n
+                        for t in self.targets(ref)
+                        for n, f in self.fields_of([t]).items()
+                        if _changes(f, t)
+                    }
+                )
+                if changing:
+                    shown = ", ".join(f"`{n}`" for n in changing[:4])
+                    self.add(
+                        "trigger-reads-unwatched",
+                        f"`{self.s.shown(trigger.action)}` reads what `{name}` names, whose "
+                        f"values can change ({shown}{', …' if len(changing) > 4 else ''}), and "
+                        "this trigger doesn't watch it: a record worked out from one would stay "
+                        "as it was "
+                        "when it changes, with no notice that it needs working out again.",
+                        source,
+                        ("watch_included",) if trigger.watch_included else ("action",),
+                        hint=f"Add `watch_included: {{ {name}: [...] }}`, naming the fields of "
+                        "it the calculation reads; a fixed one never changes, and naming it "
+                        "says the calculation reads it.",
+                    )
+            field_name = name.partition(".")[0]
+            f = own.get(field_name)
+            if trigger.fields and field_name not in trigger.fields and f and not f.removed:
+                self.add(
+                    "trigger-reference-unwatched",
+                    f"`{field_name}` can be pointed at another record, if only by a move to a "
+                    "superseded one's replacement, and this trigger doesn't watch it: the "
+                    "record would stay worked out from the one before.",
+                    source,
+                    ("fields",),
+                    hint=f"Add `{field_name}` to `fields`.",
+                )
+
+    def targets(self, ref: Field) -> list[EntityType]:
+        """The types a reference, or a list of them, can name."""
+        names = ref.items.to if ref.type == "list" and ref.items is not None else ref.to
+        return [t for n in names if (t := self.s.types.get(n)) is not None]
+
+    def fields_of(self, targets: list[EntityType]) -> dict[str, Field]:
+        """Every field an entity of ``targets`` can have: theirs, their parents', their
+        subtypes', and what this plugin's extensions add to any of them."""
+        kinds = {t.qualified_name for t in targets}
+        every = [
+            t for t in self.s.types.values() if any(self.is_a(t.qualified_name, k) for k in kinds)
+        ]
+        chain = {t.qualified_name for t in every} | {
+            a.qualified_name for t in targets for a in self.s.ancestors(t)
+        }
+        out: dict[str, Field] = {}
+        for t in every:
+            for n, (f, _) in self.s.all_fields(t).items():
+                out.setdefault(n, f)
+        for extension in self.plugin.extensions:
+            if extension.adds_to in chain:
+                for n, f in extension.fields.items():
+                    out.setdefault(n, f)
+        return out
 
     def related(self, trigger: Trigger, action: Action, given: str, source: Document) -> None:
         """That each input given related entities is one, other than the entity's, that
@@ -266,7 +412,7 @@ class _Rules:
             if put is None:
                 self.add(
                     "trigger-unknown-input",
-                    f"`{trigger.run}` has no input `{name}`.",
+                    f"`{self.s.shown(trigger.action)}` has no input `{name}`.",
                     source,
                     path,
                     key=True,
@@ -295,7 +441,8 @@ class _Rules:
             elif put.cardinality != "many":
                 self.add(
                     "trigger-related-one",
-                    f"`{trigger.run}`'s `{name}` takes one entity, and related ones can be any "
+                    f"`{self.s.shown(trigger.action)}`'s `{name}` takes one entity, and related "
+                    "ones can be any "
                     "number.",
                     source,
                     path,
@@ -365,7 +512,7 @@ class _Rules:
         fields = {n: f for n, (f, _) in self.s.all_fields(target).items()}
         chain = {trigger.type, *(t.qualified_name for t in self.s.ancestors(target))}
         for extension in self.plugin.extensions:
-            if extension.extends_type in chain:
+            if extension.adds_to in chain:
                 fields.update(extension.fields)
         for index, name in enumerate(trigger.fields):
             f = fields.get(name)
@@ -455,7 +602,7 @@ class _Rules:
             if put is None:
                 self.add(
                     "trigger-unknown-input",
-                    f"`{trigger.run}` has no input `{trigger.input}`.",
+                    f"`{self.s.shown(trigger.action)}` has no input `{trigger.input}`.",
                     source,
                     ("input",),
                     hint=schemas._did_you_mean(trigger.input, list(action.inputs)),
@@ -474,7 +621,8 @@ class _Rules:
             if not self.is_a(trigger.type, put.type):
                 self.add(
                     "trigger-wrong-type",
-                    f"The trigger fires for `{trigger.type}`, and `{trigger.run}`'s "
+                    f"The trigger fires for `{trigger.type}`, and "
+                    f"`{self.s.shown(trigger.action)}`'s "
                     f"`{trigger.input}` takes `{put.type}`.",
                     source,
                     ("input",),
@@ -487,19 +635,19 @@ class _Rules:
         if not fits:
             self.add(
                 "trigger-wrong-type",
-                f"None of `{trigger.run}`'s inputs takes `{trigger.type}`, which the trigger "
+                f"None of `{self.s.shown(trigger.action)}`'s inputs takes `{trigger.type}`, which "
+                "the trigger "
                 "fires for.",
                 source,
-                ("run",),
+                ("action",),
             )
         else:
             self.add(
                 "trigger-input-ambiguous",
-                f"More than one of `{trigger.run}`'s inputs takes `{trigger.type}`: "
-                + ", ".join(f"`{n}`" for n in fits)
-                + ".",
+                f"More than one of `{self.s.shown(trigger.action)}`'s inputs takes "
+                f"`{trigger.type}`: " + ", ".join(f"`{n}`" for n in fits) + ".",
                 source,
-                ("run",),
+                ("action",),
                 hint="Say which with `input:`.",
             )
         return ""
@@ -533,3 +681,14 @@ class _Rules:
             return
         for message in _validate.value_problems(wanted, literal(value)):
             self.add("trigger-invalid-param", f"The value {message}", source, path)
+
+
+def _changes(f: Field, owner: EntityType) -> bool:
+    """Whether ``f`` of an entity of ``owner`` can change once the entity exists, as an
+    edit, a run or a curator changes it. A required, immutable value is fixed; so is a lab
+    list option's immutable one, set as the option is added (ADR 0270), as no one changes
+    it after. An optional immutable value elsewhere can still be filled once. A state isn't
+    one of its values, and setting it is no edit."""
+    if f.removed or f.type == "state":
+        return False
+    return not (f.immutable and (f.required or owner.is_lab_list))

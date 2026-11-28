@@ -80,7 +80,7 @@ notifications:
       Whoever recorded the plan hears when a check finds that what it makes isn't the
       sequence the clone has.
     when: { field: matches_product, to: false }
-    tell: { creator: true, watchers: true }
+    notify: { creator: true, watchers: true }
     message:
       title: "{{ hrid }}: the plan doesn't make its product"
       body: "{{ name or 'The assembly' }} makes another molecule than {{ product }}."
@@ -88,6 +88,6 @@ notifications:
     label: Verified
     description: Whoever recorded the plan hears when a reviewer verifies the construct.
     when: { field: status, to: verified }
-    tell: { creator: true, watchers: true }
+    notify: { creator: true, watchers: true }
 display:
   title: "{{ name or hrid }}"

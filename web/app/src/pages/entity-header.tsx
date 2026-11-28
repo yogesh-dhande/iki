@@ -5,9 +5,9 @@
  * such as exporting and archiving, are in its ⋯ menu.
  */
 
-import { unwrap } from "@ikisci/sdk";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { unwrap, isStale } from "@ikisci/sdk";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import {
   Button as AriaButton,
@@ -18,7 +18,7 @@ import {
   Separator,
 } from "react-aria-components";
 
-import { iki, isStale, problemOf, useApiMutation, useOpenedRevision } from "../api";
+import { iki, problemOf, useApiMutation } from "../api";
 import { useFoundTabs } from "../component-entities";
 import { componentsQuery, entityTabs } from "../components";
 import {
@@ -33,6 +33,7 @@ import {
 import { entityAppsQuery } from "../apps";
 import { lineageGraphQuery, type LineageEntity, type LineageGraph } from "../lineage";
 import { PhoneActions, TopBar, usePhone } from "../page-top";
+import { changedProblem, useRevisioned, type IfMatch } from "../revisioned";
 import { TabStrip } from "../tab-strip";
 import { ExportDialog, exportFormats } from "./entity-export";
 import { signaturesQuery } from "./entity-signatures";
@@ -47,6 +48,16 @@ import {
   TextField,
   useMessages,
 } from "../ui";
+
+/** The entity the page is about, from the `$ref` in its address, and `?project=` for a
+ * record of a registry entry. */
+export function useEntity(): { entity: Entity; type: EntityType | undefined; types: EntityType[] } {
+  const { ref } = useParams({ from: "/entities/$ref" });
+  const { project } = useSearch({ from: "/entities/$ref" });
+  const entity = useSuspenseQuery(entityQuery(ref, project)).data;
+  const types = useSuspenseQuery(typesQuery).data;
+  return { entity, type: types.find((t) => t.name === entity.type), types };
+}
 
 /** The records it's directly linked to, either way: what its Lineage tab counts, and its
  * page's rail lists. One step each way, as the graph has them (ADR 0123). */
@@ -406,13 +417,12 @@ function ArchiveDialog({
   const [reason, setReason] = useState("");
   const { say } = useMessages();
   const client = useQueryClient();
-  const archiving = !entity.archived;
   const change = useApiMutation(
-    async (header: { "If-Match": string }) =>
+    async ({ header, archived }: { header: IfMatch; archived: boolean }) =>
       unwrap(
         await iki.PATCH("/api/v1/entities/{ref}", {
           params: { path: { ref: entity.id }, header },
-          body: { archived: archiving, reason: reason.trim() },
+          body: { archived, reason: reason.trim() },
         }),
       ),
     [ENTITIES],
@@ -423,40 +433,37 @@ function ArchiveDialog({
     change.reset();
   };
   // From the revision it was opened at, which the person reviewed.
-  const opened = useOpenedRevision(entity.revision, { open: isOpen, error: change.error });
-  const stale = isStale(change.error);
+  const rev = useRevisioned(entity, { open: isOpen, error: change.error, refresh: ENTITIES });
+  const archiving = !rev.read.archived;
   return (
     <ConfirmDialog
       isOpen={isOpen}
       title={`${archiving ? "Archive" : "Restore"} ${entity.hrid}?`}
       confirmLabel={archiving ? "Archive" : "Restore"}
       confirmVariant={archiving ? "danger" : "primary"}
-      busy={change.isPending}
+      busy={change.isPending || rev.rereading}
       problem={
-        stale && change.error
-          ? {
-              ...change.error.problem,
-              detail:
-                "Someone changed it while this was open. The page now shows their change: check it, then try again.",
-            }
-          : change.error
+        rev.changed
+          ? changedProblem(
+              "Someone changed it while this was open. The page now shows their change: check it, then try again.",
+            )
+          : change.error && !isStale(change.error)
             ? problemOf(change.error)
             : undefined
       }
       onCancel={close}
       onConfirm={() => {
-        change.mutate(opened.ifMatch, {
-          onSuccess: (saved) => {
-            client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-            close();
-            say(archiving ? `Archived ${saved.hrid}.` : `Restored ${saved.hrid}.`);
-          },
-          onError: (error) => {
-            // Read it again, so trying again sends the revision it's at now.
-            if (error.problem.code === "stale") {
-              void client.invalidateQueries({ queryKey: ENTITIES });
-            }
-          },
+        rev.submit((header) => {
+          change.mutate(
+            { header, archived: archiving },
+            {
+              onSuccess: (saved) => {
+                client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+                close();
+                say(archiving ? `Archived ${saved.hrid}.` : `Restored ${saved.hrid}.`);
+              },
+            },
+          );
         });
       }}
     >

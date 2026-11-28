@@ -8,7 +8,7 @@ description: >-
   soon as it's registered, such as from its form.
 on: entity.created
 type: CompoundBatch
-run: compute_formula_weight
+action: compute_formula_weight
 ---
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
@@ -20,5 +20,9 @@ description: >-
   or how many of either it has.
 on: entity.updated
 type: CompoundBatch
-fields: [salt, salt_equivalents, solvate, solvate_equivalents]
-run: compute_formula_weight
+fields: [compound, salt, salt_equivalents, solvate, solvate_equivalents]
+# Its compound's SMILES is fixed once registered, so this never fires: it says that the
+# formula weight is worked out from nothing else of the compound.
+watch_included:
+  compound: [smiles]
+action: compute_formula_weight

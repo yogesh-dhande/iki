@@ -8,10 +8,11 @@
  *
  * A first observation is one step: a scan, or an outcome chosen. Changing what someone
  * recorded (another outcome, Clear, a saved note, removing or restoring an extra, the
- * handover, cancelling) asks why, names the version seen, and keeps both in the history.
+ * handover, cancelling) asks why, is made from what the person saw when it asked
+ * (`useRevisioned`, ADR 0300), and keeps both in the history.
  */
 
-import { ApiError, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
+import { ApiError, isStale, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { buttonState } from "@ikisci/ui/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
@@ -28,13 +29,14 @@ import {
   StaleNote,
   type StaleItem,
 } from "../observations";
+import { useRevisioned } from "../revisioned";
 import { useSteadyBlock } from "../steady";
 import {
   affectedLines,
-  isScanConflict,
   cancelReceipt,
   checkReceiptLine,
   completeReceipt,
+  placeableQuery,
   previewReceiptPlacement,
   containerQuery,
   describeReceipt,
@@ -157,10 +159,7 @@ function StartReceipt({
     );
     if (!by.trim()) return started;
     // Nothing was recorded yet, so there's nothing to say why it changed.
-    return describeReceipt(started.id, {
-      plan_revision: started.plan_revision,
-      handed_over_by: by.trim(),
-    });
+    return describeReceipt(started.id, started.revision, { handed_over_by: by.trim() });
   }, [STORAGE]);
   const problem = start.error ? problemOf(start.error) : undefined;
   return (
@@ -265,37 +264,43 @@ function writing(fix: Fix, receipt: Receipt): string {
   }
 }
 
-/** Sends a change, with the version of what it replaces as it's shown now. */
+/** Sends a change, made from the revision of what it replaces in `receipt`: as it's shown
+ * now, or as the person saw it when they were asked why. */
 async function send(receipt: Receipt, fix: Fix, reason: string | undefined): Promise<Receipt> {
   const id = receipt.id;
   const why = reason ?? "";
   const given = reason ? { reason } : {};
   const line = lineOf(receipt, fix);
-  const revision = line?.line_revision ?? 0;
+  const revision = line?.revision;
   switch (fix.do) {
     case "outcome": {
-      const checked = await checkReceiptLine(id, fix.line, {
-        outcome: fix.outcome,
-        // Left out, the saved note stays: sent only when it was edited, null when cleared.
-        ...edited(fix.note, line?.note ?? ""),
-        line_revision: revision,
-        ...given,
-      });
+      const checked = await checkReceiptLine(
+        id,
+        fix.line,
+        {
+          outcome: fix.outcome,
+          // Left out, the saved note stays: sent only when it was edited, null when cleared.
+          ...edited(fix.note, line?.note ?? ""),
+          ...given,
+        },
+        revision,
+      );
       return checked.receipt;
     }
     case "remove":
-      return removeReceiptLine(id, fix.line, { line_revision: revision, reason: why });
+      if (revision === undefined) throw new Error("This line isn’t on the receipt any more.");
+      return removeReceiptLine(id, fix.line, { revision, reason: why });
     case "restore":
-      return restoreReceiptLine(id, fix.line, { line_revision: revision, reason: why });
+      if (revision === undefined) throw new Error("This line isn’t on the receipt any more.");
+      return restoreReceiptLine(id, fix.line, { revision, reason: why });
     case "handoff":
-      return describeReceipt(id, {
-        plan_revision: receipt.plan_revision,
+      return describeReceipt(id, receipt.revision, {
         ...(fix.by !== receipt.handed_over_by ? { handed_over_by: fix.by } : {}),
         ...edited(fix.note, receipt.note),
         ...given,
       });
     case "cancel":
-      return cancelReceipt(id, { plan_revision: receipt.plan_revision, reason: why });
+      return cancelReceipt(id, receipt.revision, { reason: why });
   }
 }
 
@@ -313,9 +318,17 @@ interface Asking {
   changes: StaleItem[] | null;
 }
 
-/** A newer version of what's recorded: not a scan that can't identify a tube, also a 409. */
-function isStale(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 409 && !isScanConflict(error.problem);
+/** What a change asked about is made from, in a receipt: its line's revision, and whether
+ * it's removed; or for the handover or cancelling, the receipt's revision. */
+function versionOf(receipt: Receipt, fix: Fix | undefined): string {
+  const line = fix ? lineOf(receipt, fix) : undefined;
+  if (!line) return `receipt ${String(receipt.revision)}`;
+  return `${line.id} ${String(line.revision)}${receipt.removed_lines.includes(line) ? " removed" : ""}`;
+}
+
+/** Put-away positions that changed since Complete's were shown (409): shown again. */
+function isPlanChanged(error: unknown): boolean {
+  return error instanceof ApiError && error.problem.code === "moves_plan_changed";
 }
 
 /**
@@ -422,7 +435,7 @@ function dispositions(
 /** What Complete sends: the revision reviewed, and one decision for each received tube. */
 interface CompletePlan {
   automatic: Set<string>;
-  plan_revision: number;
+  revision: number;
   missing_rest: boolean;
   put_away: { line: string; to: string; position: string }[];
   keep_in_custody: string[];
@@ -492,7 +505,7 @@ function revisedLines(shown: Receipt, now: Receipt): { line_id: string }[] {
     new Map(
       [...r.lines, ...r.removed_lines].map((l) => [
         l.id,
-        `${String(l.line_revision)}${r.removed_lines.includes(l) ? " removed" : ""}`,
+        `${String(l.revision)}${r.removed_lines.includes(l) ? " removed" : ""}`,
       ]),
     );
   const before = seen(shown);
@@ -524,12 +537,12 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const [read, setRead] = useState(initial);
   if (initial !== read) {
     setRead(initial);
-    if (initial.plan_revision > receipt.plan_revision) setReceipt(initial);
+    if (initial.revision > receipt.revision) setReceipt(initial);
   }
   // The newest receipt, for handlers: what's shown, or a response not yet rendered.
   const latest = useRef(receipt);
   useEffect(() => {
-    if (receipt.plan_revision >= latest.current.plan_revision) latest.current = receipt;
+    if (receipt.revision >= latest.current.revision) latest.current = receipt;
   }, [receipt]);
   const [heard, setHeard] = useState("");
   const [restorable, setRestorable] = useState<string | null>(null);
@@ -559,7 +572,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const names = namesOf(receipt);
   /** The newest receipt wins: two people's scans can answer in either order. */
   const update = (next: Receipt) => {
-    if (next.plan_revision >= latest.current.plan_revision) {
+    if (next.revision >= latest.current.revision) {
       latest.current = next;
       setReceipt(next);
     }
@@ -657,10 +670,21 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     [],
   );
   const fixing = useApiMutation(
-    async ({ fix, reason }: { fix: Fix; reason: string | undefined }) =>
-      send(latest.current, fix, reason),
+    async ({ fix, reason, shown }: { fix: Fix; reason: string | undefined; shown: Receipt }) =>
+      send(shown, fix, reason),
     [],
   );
+  // A change asked about is made from the line, or receipt, as it was when it was asked:
+  // one changed meanwhile is caught up to and said, never sent from unseen (ADR 0300).
+  const rev = useRevisioned(receipt, {
+    open: asking !== null,
+    error: fixing.error,
+    refresh: receiptsQuery(request).queryKey,
+    version: (r) => versionOf(r, asking?.fix),
+    onCatchUp: (now, was) => {
+      if (asking) setAsking({ ...asking, changes: changedSince(was, now, revisedLines(was, now)) });
+    },
+  });
   /** A change: straight away if it replaces nothing; else asked about first. */
   const change = (fix: Fix) => {
     fixing.reset();
@@ -669,7 +693,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
       return;
     }
     fixing.mutate(
-      { fix, reason: undefined },
+      { fix, reason: undefined, shown: latest.current },
       {
         onSettled: begin(writing(fix, latest.current)),
         onSuccess: (next) => {
@@ -696,33 +720,30 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const confirm = (reason: string) => {
     if (!asking) return;
     const { fix } = asking;
-    fixing.mutate(
-      { fix, reason },
-      {
-        onSettled: begin(writing(fix, latest.current)),
-        onSuccess: (next) => {
-          update(next);
-          setAsking(null);
-          if (fix.do === "restore") setRestorable(null);
-          if (fix.do === "cancel") {
-            say(`Cancelled receiving ${request}.`);
-            void client.invalidateQueries({ queryKey: STORAGE });
-          } else if (fix.do === "handoff") setHandoffSaid("Saved, with your reason.");
-          // Where scans are heard, in space kept for it: the checklist doesn't move.
-          else {
-            const line = lineOf(next, fix);
-            setHeard(`${line ? shortName(line) : "It"}: saved, with your reason.`);
-          }
+    rev.submit((_, read) => {
+      fixing.mutate(
+        { fix, reason, shown: read },
+        {
+          onSettled: begin(writing(fix, read)),
+          onSuccess: (next) => {
+            update(next);
+            setAsking(null);
+            if (fix.do === "restore") setRestorable(null);
+            if (fix.do === "cancel") {
+              say(`Cancelled receiving ${request}.`);
+              void client.invalidateQueries({ queryKey: STORAGE });
+            } else if (fix.do === "handoff") setHandoffSaid("Saved, with your reason.");
+            // Where scans are heard, in space kept for it: the checklist doesn't move.
+            else {
+              const line = lineOf(next, fix);
+              setHeard(`${line ? shortName(line) : "It"}: saved, with your reason.`);
+            }
+          },
+          // Refused as stale: never sent again by itself. The receipt is read again, and the
+          // person reviews what's recorded now (above).
         },
-        onError: (error) => {
-          if (!isStale(error)) return;
-          // Never sent again by itself: the person reviews what's recorded now.
-          void refetch(error).then(({ changes }) => {
-            setAsking({ fix, changes });
-          });
-        },
-      },
-    );
+      );
+    });
   };
   // The box typed or scanned, by its barcode, ID or Iki label; shown by its ID once found.
   const [boxFound, setBoxFound] = useState<
@@ -777,13 +798,25 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   const shownBox = boxShown && shape ? container.data : undefined;
   const typesRead = useQuery(typesQuery);
   const types = typesRead.data;
+  // Whether each tube can go in this box at all, as completing will check: its project's
+  // data, say, isn't readable by the box's project.
+  const placeable = useQuery({
+    ...placeableQuery(receipt.id, receipt.revision, shownBox?.id ?? "-"),
+    enabled: receipt.status === "open" && !!shownBox && putting.length > 0,
+  });
   const waitingFor = findBox.isPending
     ? "Finding the box and its free positions…"
     : boxFound?.kind === "ambiguous"
       ? `Choose which box “${boxFound.code.trim()}” is, above.`
-      : (boxShown && container.isPending) || reread.isPending || (shownBox && typesRead.isPending)
+      : (boxShown && container.isPending) ||
+          reread.isPending ||
+          (shownBox && typesRead.isPending) ||
+          (shownBox && putting.length > 0 && placeable.isPending)
         ? "Loading the box’s free positions…"
         : null;
+  const refusedHere = new Map(
+    (placeable.data ?? []).flatMap((p) => (p.problem ? [[p.line, p.problem] as const] : [])),
+  );
   // Only wells that can be used are offered: the server checks again when it's completed.
   const boxWhyNot = !shownBox
     ? null
@@ -806,6 +839,10 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
           l.id,
           `${shownBox.hrid} doesn’t hold a ${typeLabel(types, l.ref.type)}: choose another box, or keep it in your custody.`,
         );
+      else {
+        const refused = refusedHere.get(l.id);
+        if (refused) whyNot.set(l.id, `${refused} Choose another box, or keep it in your custody.`);
+      }
     }
   }
   const cannot = new Set(boxWhyNot ? putting.map((l) => l.id) : whyNot.keys());
@@ -830,16 +867,13 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
     ): Promise<{ done: Receipt } | { changed: Receipt } | { placement: Schemas["MovesOut"] }> => {
       // The receipt as it is now: what's approved is what was reviewed, every write included.
       const now = await readReceipt(id);
-      if (now.plan_revision !== plan.plan_revision) return { changed: now };
+      if (now.revision !== plan.revision) return { changed: now };
       const put_away = plan.put_away.map((p) =>
         plan.automatic.has(p.line) ? { ...p, position: null } : p,
       );
       let approved: string | undefined;
       if (plan.automatic.size) {
-        const preview = await previewReceiptPlacement(id, {
-          plan_revision: plan.plan_revision,
-          put_away,
-        });
+        const preview = await previewReceiptPlacement(id, plan.revision, { put_away });
         if (
           !preview.plan ||
           preview.items.length !== plan.put_away.length ||
@@ -852,8 +886,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
         approved = preview.plan;
       }
       return {
-        done: await completeReceipt(id, {
-          plan_revision: plan.plan_revision,
+        done: await completeReceipt(id, plan.revision, {
           missing_rest: plan.missing_rest,
           put_away,
           ...(approved ? { plan: approved } : {}),
@@ -865,7 +898,10 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   );
   // A refusal of what was sent: each error on the line it's about, and listed by Complete.
   const problem =
-    complete.error && !isStale(complete.error) && !scanRefusal(problemOf(complete.error))
+    complete.error &&
+    !isStale(complete.error) &&
+    !isPlanChanged(complete.error) &&
+    !scanRefusal(problemOf(complete.error))
       ? problemOf(complete.error)
       : undefined;
   const errors = fieldErrors(problem);
@@ -912,7 +948,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
   // What Complete would send, while it can: a press completes only the plan it began on.
   const planKey = ready
     ? JSON.stringify([
-        receipt.plan_revision,
+        receipt.revision,
         missingRest,
         shownBox?.id ?? null,
         planned.map((p) => [p.line.id, p.position]),
@@ -937,7 +973,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
       automatic: new Set(
         planned.filter(({ line }) => where[line.id] === undefined).map(({ line }) => line.id),
       ),
-      plan_revision: receipt.plan_revision,
+      revision: receipt.revision,
       missing_rest: missingRest,
       put_away: shownBox
         ? planned.map(({ line, position }) => ({
@@ -1472,9 +1508,9 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
       </section>
       {asking ? (
         <FixDialog
-          receipt={receipt}
+          receipt={rev.read}
           asking={asking}
-          busy={fixing.isPending}
+          busy={fixing.isPending || rev.rereading}
           problem={fixing.error ? problemOf(fixing.error) : undefined}
           onNote={(text) => {
             if (asking.fix.do === "outcome")

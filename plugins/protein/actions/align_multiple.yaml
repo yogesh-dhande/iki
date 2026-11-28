@@ -12,13 +12,13 @@ description: >-
 inputs:
   proteins:
     type: Protein
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 2000
     description: The proteins to align, in the order their rows should be.
   reference:
     type: Protein
-    schema: ">=1"
+    schema_version: ">=1"
     optional: true
     description: The protein the others are compared with, such as the wild type. It's aligned too.
 params:

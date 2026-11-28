@@ -3,9 +3,12 @@ exports through one maps, and what `iki plugin validate` refuses of either."""
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import shutil
+import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -42,9 +45,9 @@ def test_the_example_declares_its_writer_and_its_transfers_export_through_it(
     result = load_plugin(plugin)
     assert codes(result) == []
     assert result.plugin is not None
-    writer = result.plugin.writers["acme/liquid_handling.tecan-worklist"]
+    writer = result.plugin.writers["acme/liquid_handling.tecan_worklist"]
     assert (writer.format, writer.many, writer.memory) == (
-        "acme/liquid_handling.tecan-gwl",
+        "acme/liquid_handling.tecan_gwl",
         "file",
         16 * 1024 * 1024,
     )
@@ -54,7 +57,7 @@ def test_the_example_declares_its_writer_and_its_transfers_export_through_it(
     transfer = result.plugin.types["acme/liquid_handling.Transfer"]
     assert transfer.exports == (
         PluginExport(
-            "acme/liquid_handling.tecan-worklist",
+            "acme/liquid_handling.tecan_worklist",
             {
                 "source_plate": "source",
                 "source_well": "source_well",
@@ -92,9 +95,9 @@ def test_a_writer_cant_write_what_a_browser_would_run(plugin: Path) -> None:
 
 
 def test_a_writers_format_is_one_the_plugin_can_name(plugin: Path) -> None:
-    edit(plugin / "plugin.yaml", "format: tecan-gwl", "format: acme/other.gwl")
+    edit(plugin / "plugin.yaml", "format: tecan_gwl", "format: acme/other.gwl")
     assert "writer-format-dependency" in codes(load_plugin(plugin))
-    edit(plugin / "plugin.yaml", "format: acme/other.gwl", "format: tecan-csv")
+    edit(plugin / "plugin.yaml", "format: acme/other.gwl", "format: tecan_csv")
     assert "unknown-format" in codes(load_plugin(plugin))
 
 
@@ -144,7 +147,7 @@ def test_every_required_role_is_mapped_and_no_other(plugin: Path) -> None:
 
 
 def test_a_type_exports_only_through_an_installed_writer(plugin: Path) -> None:
-    edit(plugin / "types" / "transfer.yaml", "export: tecan-worklist", "export: hamilton-worklist")
+    edit(plugin / "types" / "transfer.yaml", "export: tecan_worklist", "export: hamilton_worklist")
     assert codes(load_plugin(plugin)) == ["unknown-writer"]
 
 
@@ -157,6 +160,104 @@ def test_the_plugin_images_dockerfile_runs_the_builder_iki_plugin_writers_runs()
         assert writer_build.BUILDER_ARG in text, path
         assert writer_build.BUILDER_STAGES in text, path
         assert text.startswith(writer_build.SYNTAX), path
-    # The build stage runs with no network.
+    # The build stage runs with no network, and says which builder it ran in.
     assert "RUN --network=none" in writer_build.BUILDER_STAGES
-    assert writer_build.BUILDER.split("@")[0] in (ROOT / "server" / "Dockerfile").read_text()
+    assert f"> /out/{writer_build.BUILT_BY};" in writer_build.BUILDER_STAGES
+
+
+def test_the_writer_builder_is_pinned_by_digest_on_its_own() -> None:
+    """Moving Iki's own toolchain doesn't move the writer builder, which every writer's
+    digest depends on: it's pinned in one place, by digest, and the local builds and
+    iki-writer's packaging read its Rust version from there."""
+    image, _, digest = writer_build.BUILDER.partition("@sha256:")
+    assert image.startswith("rust:") and re.fullmatch(r"[0-9a-f]{64}", digest)
+    version = image.removeprefix("rust:").split("-")[0]
+    toolchain = [str(ROOT / "scripts" / "writer-toolchain.sh")]
+    printed = subprocess.run(toolchain, capture_output=True, text=True, check=True)  # noqa: S603
+    assert printed.stdout.strip() == version
+    full = subprocess.run([*toolchain, "--image"], capture_output=True, text=True, check=True)  # noqa: S603
+    assert full.stdout.strip() == writer_build.BUILDER
+    for script in ("build-writer-wasm.sh", "pin-iki-writer.sh"):
+        text = (ROOT / "scripts" / script).read_text()
+        assert "writer-toolchain.sh" in text and "/worker/rust-toolchain.toml" not in text
+
+
+SDK = ROOT / "worker" / "crates" / "iki-writer"
+
+
+def _lock(path: Path) -> dict[str, tuple[str, str]]:
+    packages = tomllib.loads(path.read_text())["package"]
+    return {p["name"]: (p["version"], p.get("checksum", "")) for p in packages}
+
+
+def test_iki_writer_is_versioned_with_iki_and_locks_what_the_workspace_does() -> None:
+    sdk = tomllib.loads((SDK / "Cargo.toml").read_text())["package"]
+    workspace = tomllib.loads((ROOT / "worker" / "Cargo.toml").read_text())
+    assert sdk["version"] == workspace["workspace"]["package"]["version"]
+    assert "build-writer.sh" not in sdk["include"]
+    # The lock its published crate carries pins the crates the workspace's lock does.
+    ours, theirs = _lock(SDK / "Cargo.lock"), _lock(ROOT / "worker" / "Cargo.lock")
+    assert ours.pop("iki-writer") == (sdk["version"], "")
+    assert ours and all(theirs.get(name) == pinned for name, pinned in ours.items()), (
+        "Run scripts/pin-iki-writer.sh."
+    )
+
+
+def test_the_build_stages_what_iki_writer_is_packaged_from() -> None:
+    backend = ast.parse((ROOT / "spec" / "backend" / "iki_spec_build.py").read_text())
+    (carried,) = [
+        ast.literal_eval(node.value)
+        for node in backend.body
+        if isinstance(node, ast.Assign) and ast.unparse(node.targets[0]) == "_SDK_FILES"
+    ]
+    assert carried == writer_build.SDK_FILES
+    dockerfile = (ROOT / "server" / "Dockerfile").read_text()
+    for name in writer_build.SDK_FILES:
+        assert (SDK / name).is_file(), name
+        assert f"worker/crates/iki-writer/{name}" in dockerfile, name
+
+
+def test_the_example_pins_this_ikis_iki_writer_from_crates_io_with_its_checksum() -> None:
+    sum_, name = (SDK / "iki-writer.crate.sha256").read_text().split()
+    version = tomllib.loads((SDK / "Cargo.toml").read_text())["package"]["version"]
+    assert name == f"iki-writer-{version}.crate" and re.fullmatch(r"[0-9a-f]{64}", sum_)
+    crate = EXAMPLE / "writers" / "tecan-worklist"
+    locked = tomllib.loads((crate / "Cargo.lock").read_text())["package"]
+    (pin,) = [p for p in locked if p["name"] == "iki-writer"]
+    assert pin == {
+        "name": "iki-writer",
+        "version": version,
+        "source": "registry+https://github.com/rust-lang/crates.io-index",
+        "checksum": sum_,
+        "dependencies": ["serde", "serde_json"],
+    }, "Run scripts/pin-iki-writer.sh."
+    assert f'iki-writer = "={version}"' in (crate / "Cargo.toml").read_text()
+
+
+def test_the_examples_digest_says_what_it_was_built_with() -> None:
+    crate = EXAMPLE / "writers" / "tecan-worklist"
+    text = (EXAMPLE / "writers" / "tecan-worklist.wasm.sha256").read_text()
+    assert re.fullmatch(r"[0-9a-f]{64}  tecan-worklist\.wasm", text.splitlines()[0])
+    found = writer_build.read_built_with(text)
+    now = writer_build.built_with(crate)
+    assert found is not None and re.fullmatch(r"[0-9a-f]{64}", found.script)
+    # A build script that changes without changing modules doesn't make digests stale.
+    assert (found.source, found.sdk, found.builder) == (now.source, now.sdk, now.builder), (
+        "The example's source or the writer builder changed since its digest was written: "
+        "run uv run iki plugin writers examples/plugins/liquid_handling --update."
+    )
+
+
+def test_a_writer_pinning_iki_writer_by_a_path_patch_is_refused(plugin: Path) -> None:
+    lock = plugin / "writers" / "tecan-worklist" / "Cargo.lock"
+    text = lock.read_text()
+    pinned = re.sub(
+        r'(name = "iki-writer"\nversion = "[^"]+"\n)source = "[^"]+"\nchecksum = "[^"]+"\n',
+        r"\1",
+        text,
+    )
+    assert pinned != text
+    lock.write_text(pinned)
+    result = load_plugin(plugin)
+    assert codes(result) == ["writer-module"]
+    assert "with no checksum, as a path patch does" in result.problems[0].message

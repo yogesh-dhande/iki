@@ -9,10 +9,10 @@ description: >-
   standard curve. Iki gives the worker the file only once its malware scan
   found it clean. The file must be the one whose SHA-256 the record names.
 inputs:
-  run: { type: QPCRRun, schema: ">=1" }
+  run: { type: QPCRRun, schema_version: ">=1" }
 effects:
   updates:
-    - input: run
+    run:
       fields:
         - experiment_name
         - experiment_type

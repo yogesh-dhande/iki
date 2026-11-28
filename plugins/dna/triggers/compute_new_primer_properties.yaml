@@ -10,4 +10,4 @@ description: >-
   fill in fields, so they never fire a trigger again.
 on: entity.registered
 type: Primer
-run: primer_properties
+action: primer_properties

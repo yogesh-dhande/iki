@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/list/v1",
+  "title": "Iki lab list (iki/v1)",
+  "description": "A list the lab curates (ADR 0270, ADR 0295), such as purification methods or deviation categories: a field that refers to it, `{ type: ref, to: PurificationMethod }`, is a dropdown of its options. Each option is a registry entry, identified by its `code`, with a `label`, a `description` and a place in the list's order, which its registry's registrars and list curators change, each with a reason; every project in the registry picks from it. Only descriptive vocabulary is a list: a value a guard, state, rule, signature or calculation reads stays an `enum`.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "schema_version"],
+  "properties": {
+    "apiVersion": {
+      "description": "The spec version this manifest follows.",
+      "const": "iki/v1"
+    },
+    "kind": {
+      "description": "What the manifest declares: `List`.",
+      "const": "List"
+    },
+    "name": {
+      "description": "The list's name in PascalCase, such as `PurificationMethod`. Elsewhere it is `plugin.Name`, and a field refers to it by it.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeName"
+    },
+    "label": {
+      "description": "What people call one of its options, such as `Purification method`. Defaults to the name split into words.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "label_plural": {
+      "description": "What people see for the list, such as `Sample matrices`. Defaults to the label with an `s`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+    },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
+    "schema_version": {
+      "description": "Increase it whenever the fields change. Other plugins' dependencies and actions name the versions they work with.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "fields": {
+      "description": "Its options' facts besides their `code`, `label`, `description` and `position`, by name, such as a method's SOP. Each is a registry fact its curators give; a reference names another list.",
+      "type": "object",
+      "maxProperties": 100,
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/fact"
+      }
+    },
+    "options": {
+      "description": "The options each registry starts with, in the order the list shows them. Installing the plugin adds them to every registry, and a registry made later gets them too; an upgrade adds those a registry hasn't got, by code, at the end of its list, and never changes, reorders or restores the options a registry has. Without it, the list starts empty.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {
+        "$ref": "#/$defs/option"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "option": {
+      "description": "A starting option: its code and label, and values for the list's other fields, by name. A reference to another list's option names it by its code.",
+      "type": "object",
+      "required": ["code", "label"],
+      "properties": {
+        "code": {
+          "description": "Its identity in the list, which never changes, such as `hplc`: what exports and the API give for it, and what an upgrade finds it by. A wrong one is superseded, never changed.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
+        },
+        "label": {
+          "description": "What people see and pick, such as `HPLC purification`: one line, unique in the list. Curators can change it, with a reason.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "description": {
+          "description": "What it means, or when to choose it, shown beside it.",
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      }
+    },
+    "fact": {
+      "description": "One of the options' facts: a field as a type has, with only what a registry fact can be. Its curators give it; with `immutable: true` it's fixed once the option is added (ADR 0143), and a wrong one is superseded.",
+      "$ref": "https://ikisci.org/schemas/field/v1",
+      "properties": {
+        "type": {
+          "description": "The kind of value: a fact is never a state, a person, free text, JSON or a file.",
+          "enum": [
+            "string",
+            "int",
+            "float",
+            "bool",
+            "enum",
+            "date",
+            "datetime",
+            "quantity",
+            "ref",
+            "list"
+          ]
+        }
+      },
+      "propertyNames": {
+        "enum": [
+          "type",
+          "label",
+          "description",
+          "required",
+          "immutable",
+          "indexed",
+          "unique",
+          "link",
+          "removed",
+          "default",
+          "format",
+          "pattern",
+          "pattern_help",
+          "min_length",
+          "max_length",
+          "min",
+          "max",
+          "values",
+          "unit",
+          "display_unit",
+          "to",
+          "items",
+          "min_items",
+          "max_items"
+        ]
+      }
+    }
+  }
+}

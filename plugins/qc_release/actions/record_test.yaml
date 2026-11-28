@@ -54,7 +54,7 @@ effects:
     - { type: ReleaseTest, derived_from: [case, assay, repeat_of, investigation] }
     - { type: ResearchOOSInvestigation, derived_from: [case, assay, repeat_of, investigation] }
     - { type: QCOOSInvestigation, derived_from: [case, assay, repeat_of, investigation] }
-  updates: [{ input: case, fields: [attempts] }]
+  updates: { case: { fields: [attempts] } }
 runs_on: { tier: backend, environment: qc-tools }
 command: [python, ./scripts/qc_release.py, record_test]
 timeout: 1m

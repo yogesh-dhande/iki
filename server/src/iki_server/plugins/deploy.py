@@ -11,6 +11,9 @@ code doesn't know. So before migrating, this:
    - a plugin missing from the build, unless the lockfile purges it
    - a migration that changed after it was applied
    - a plugin migration that isn't atomic
+   - a type given another HRID prefix while it has records under its old one,
+     by the lockfile's ``hrids`` or by its plugin (ADR 0033); checked again in the
+     transaction, before the sync
    - a proposed schema with blocking preflight findings that the operator
      hasn't acknowledged for this candidate (ADR 0181)
 2. Runs Iki's own migrations, and Django's, each in a transaction of its own as
@@ -48,7 +51,7 @@ import hashlib
 import re
 import sys
 import types
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -88,6 +91,7 @@ from iki_server.plugins.operations import (
 )
 from iki_server.plugins.preflight_types import Report as PreflightReport
 from iki_spec import migration_api, naming, releases
+from iki_spec.model import Plugin
 
 Key = tuple[str, str]
 
@@ -243,6 +247,9 @@ def migrate_deployment(
                     "Migrated records disagree with their history.\n" + "\n".join(problems)
                 )
             report.archived = _keep_copies(installed)
+            # Again, under the deploy's lock: a record may have been made since preflight.
+            if (saved := baseline.current()) is not None and (moved := moved_prefixes(saved[1])):
+                raise DeployError("\n".join(moved))
             report.synced = sync.sync(analyst_role)
             if app_role:
                 report.granted = db_roles.grant(app_role)
@@ -266,6 +273,8 @@ def _check_preflight(applied: set[Key], acknowledged: set[str]) -> None:
                 "from the currently deployed build with the baseline migration applied."
             )
         revision, current = saved
+        if moved := moved_prefixes(current):
+            raise DeployError("\n".join(moved))
         proposed = registry.plugins()
         if shadowed := list(integrity.shadowed_history(current, proposed)):
             raise DeployError("\n".join(shadowed))
@@ -280,6 +289,34 @@ def _check_preflight(applied: set[Key], acknowledged: set[str]) -> None:
                 "Plugin preflight requires review before deploying. Correct the records or "
                 "acknowledge the reviewed candidate:\n" + "\n".join(refusals)
             )
+
+
+def moved_prefixes(deployed: Mapping[str, Plugin]) -> list[str]:
+    """Each type this build gives another HRID prefix while it has records under the one
+    it had (ADR 0033), whether a lockfile's ``hrids`` or its plugin moved it. HRIDs are
+    printed on labels and tubes, so a type's records keep one prefix."""
+    before = {
+        name: t.hrid_prefix
+        for plugin in deployed.values()
+        for name, t in plugin.types.items()
+        if t.hrid_prefix and not t.abstract
+    }
+    refusals = []
+    for name, entity_type in sorted(registry.types().items()):
+        old, new = before.get(name), entity_type.hrid_prefix
+        if old is None or new is None or entity_type.abstract or new == old:
+            continue
+        held = Entity.objects.filter(type=name, hrid__startswith=f"{old}-")
+        example = held.order_by("hrid").values_list("hrid", flat=True).first()
+        if example is None:
+            continue
+        refusals.append(
+            f"{name} has records under the HRID prefix {old}, such as {example}, and this "
+            f"build gives it {new}. HRIDs are printed on labels, so a type's records keep one "
+            f"prefix: keep {old} with `hrids: {{ {name}: {old} }}` in plugins.lock.yaml, or "
+            "take out the override that moves it."
+        )
+    return refusals
 
 
 def _preflight_refusal(report: PreflightReport) -> list[str]:
@@ -379,13 +416,13 @@ def _could_be_plugin(label: str) -> bool:
 
 # --- The guards on what migrations change -------------------------------------------------------
 
-#: The triggers ``sync_plugins`` makes that name their table's columns: unique fields' and
-#: rules' in ``UPDATE OF`` and their arguments, references' edges' and references' types'
-#: (ADR 0136) in their arguments. The other guards name none: a locked record's and a
-#: request's read only ``entity_id``, and history's refuses any change to a row
-#: (:class:`~iki_server.plugins.operations.AppendOnly`).
+#: The triggers ``sync_plugins`` makes that name their table's columns: rules' (a unique
+#: field's among them) and vendor barcodes' in ``UPDATE OF`` and their arguments,
+#: references' edges' and references' types' (ADR 0136) in their arguments. The other
+#: guards name none: a locked record's and a request's read only ``entity_id``, and
+#: history's refuses any change to a row (:class:`~iki_server.plugins.operations.AppendOnly`).
 COLUMN_TRIGGERS = (
-    unique.TRIGGER_PREFIX,
+    unique.BARCODE_TRIGGER_PREFIX,
     constraints.TRIGGER_PREFIX,
     edges.TRIGGER_PREFIX,
     targets.TRIGGER_PREFIX,

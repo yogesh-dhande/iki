@@ -1,6 +1,7 @@
 # 0032. The iki/v1 plugin manifest spec, its validator, and UCUM units
 
 - Status: Accepted
+- Amended by [0294](0294-a-manifest-says-each-thing-one-way.md): one spelling per idea, and grouped `draws` and `service` blocks
 - Date: 2026-11-10
 - Refines: [0006](0006-deploy-time-plugins-as-django-apps.md),
   [0007](0007-typed-table-per-type-entity-storage.md),

@@ -4,8 +4,8 @@ name: weigh_and_align
 label: Weigh and align
 description: Weighs the query, then aligns it with the target.
 inputs:
-  query: { type: Protein, schema: ">=1" }
-  target: { type: Protein, schema: ">=1" }
+  query: { type: Protein, schema_version: ">=1" }
+  target: { type: Protein, schema_version: ">=1" }
 params:
   mode: { type: enum, values: [global, local], default: local }
 steps:

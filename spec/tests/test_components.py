@@ -19,6 +19,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 TYPES = """\
@@ -444,7 +445,7 @@ apiVersion: iki/v1
 kind: Action
 name: fit_curve
 inputs:
-  assay: { type: Assay, schema: ">=1" }
+  assay: { type: Assay, schema_version: ">=1" }
 effects:
   creates: [{ type: Readout, derived_from: [assay] }]
 runs_on: { tier: backend, environment: tools }
@@ -454,9 +455,9 @@ apiVersion: iki/v1
 kind: Action
 name: read_plate
 inputs:
-  readout: { type: Readout, schema: ">=1" }
+  readout: { type: Readout, schema_version: ">=1" }
 effects:
-  updates: [{ input: readout, fields: [signal] }]
+  updates: { readout: { fields: [signal] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./run.py]
 """

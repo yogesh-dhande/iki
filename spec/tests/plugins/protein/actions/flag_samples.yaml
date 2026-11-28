@@ -3,11 +3,11 @@ kind: Action
 name: flag_samples
 label: Flag samples
 inputs:
-  protein: { type: Protein, schema: ">=1" }
+  protein: { type: Protein, schema_version: ">=1" }
   samples: { type: Sample, cardinality: many, max: 50 }
   structures: { type: ProteinStructure, cardinality: many, optional: true }
 effects:
-  updates: [{ input: samples, fields: [notes] }]
+  updates: { samples: { fields: [notes] } }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/flag.py]
 timeout: 5m

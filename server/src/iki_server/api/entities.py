@@ -20,7 +20,7 @@
 import json
 import re
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
@@ -30,7 +30,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q, QuerySet
+from django.db.models import F, Q, QuerySet, prefetch_related_objects
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict, ValidationError, field_serializer
@@ -38,9 +38,10 @@ from pydantic import ConfigDict, ValidationError, field_serializer
 from iki_server.accounts.models import User
 from iki_server.amounts import eligibility
 from iki_server.amounts.models import DrawPurpose
-from iki_server.api import common, csvs
+from iki_server.api import common, csvs, preconditions
 from iki_server.api.common import caller, project, require
 from iki_server.api.pagination import DEFAULT_LIMIT, MAX_LIMIT, PageParams, page
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import (
     AgentOut,
@@ -173,9 +174,18 @@ class OverlapOut(Schema):
     per: list[str] = Field(description="Ranges only clash with the same values of these.")
 
 
+class WhileOut(Schema):
+    field: str = Field(description="The state, enum or bool field it counts records by.")
+    states: list[str] = Field(
+        description="The values of `field` that count: states, an enum's values, or `true` "
+        "or `false`."
+    )
+
+
 class RuleOut(Schema):
     """A rule its records keep at every save (ADR 0127): a CEL `check`, or one the
-    database holds (`unique` together, ranges that don't overlap)."""
+    database holds (`unique` together, ranges that don't overlap). A unique field is a
+    one-field `unique` rule named for it (ADR 0082)."""
 
     name: str = Field(description="Its name; an extension's is `plugin:name`.")
     plugin: str
@@ -196,14 +206,26 @@ class RuleOut(Schema):
         "save that breaks it needs `hold_reason`.",
     )
     unique: list[str] = Field(
-        default_factory=list, description="No two of a project's records share these together."
+        default_factory=list,
+        description="No two of a project's records share these together, or with `within` "
+        "`registry`, no two entries in a registry.",
+    )
+    within: Literal["project", "registry"] | None = Field(
+        None,
+        description="For `unique`: where no two share the values, a project's records or a "
+        "registry's entries.",
+    )
+    key_field: str | None = Field(
+        None,
+        description="The field whose `unique: true` this rule is: a key, which lookups and "
+        "a run's `match_on` use (ADR 0082).",
     )
     no_overlap: OverlapOut | None = None
-    while_: dict[str, list[str]] = Field(
-        default_factory=dict,
+    while_: WhileOut | None = Field(
+        None,
         alias="while",
-        description="For `unique` and `no_overlap`: only records with one of these values of "
-        "each field count.",
+        description="For `unique` and `no_overlap`: only records whose `field` is in one of "
+        "these `states` count.",
     )
 
 
@@ -316,7 +338,19 @@ class FieldOut(Schema):
     plugin: str = Field(description="The plugin that defines the field.")
     required: bool
     immutable: bool = Field(description="Can be set once, and can't change after.")
-    computed: bool = Field(description="Set only by actions.")
+    computed: bool = Field(
+        description="Set by Iki, never by a person: by actions' runs, or worked out from "
+        "the record's own values at every save, by `cel` (ADR 0297)."
+    )
+    cel: str | None = Field(
+        None,
+        description="A computed field's CEL expression, which Iki works its value out by at "
+        "every save, over `record` (ADR 0297). Null for a field people or runs set.",
+    )
+    cel_reads: list[str] = Field(
+        default_factory=list,
+        description="The record's fields `cel` reads: changing one changes this field.",
+    )
     reason_on_clear: bool | None = Field(
         None, description="True when clearing this Boolean requires a reason."
     )
@@ -474,7 +508,7 @@ ExportFormat = Annotated[
         min_length=1,
         max_length=200,
         pattern=r"^[a-z0-9][a-z0-9._/-]*$",
-        examples=["genbank", "acme/liquid_handling.tecan-worklist"],
+        examples=["genbank", "acme/liquid_handling.tecan_worklist"],
     ),
 ]
 
@@ -589,7 +623,7 @@ class RequestTypeOut(Schema):
         description="The reference whose records the service receives against what was "
         "sent, such as its tubes (ADR 0180).",
     )
-    receives_by: list[str] = Field(
+    received_by: list[str] = Field(
         default_factory=list,
         description="The lab roles in the service that receive it: any of its Editors, if none.",
     )
@@ -680,7 +714,16 @@ class EntityTypeOut(Schema):
         "and no new ones can be made."
     )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
-    hrid_prefix: str | None
+    hrid_prefix: str | None = Field(
+        description="The prefix of its entities' HRIDs, such as PRT. None for an abstract type, "
+        "and for a lab list, whose options are named by their code and numbered in the one "
+        "sequence every list's options share (ADR 0295)."
+    )
+    annotations: dict[str, str] = Field(
+        default_factory=dict,
+        description="Its lab's own metadata about the type, by name, such as its owner or "
+        "validation status (ADR 0293): shown, never acted on.",
+    )
     identity: list[str] = Field(
         description="The fields that tell two entities apart. With one, its entities are "
         "projects' records of registry entries (ADR 0115): one entry per identity in a "
@@ -917,6 +960,18 @@ class SupersededOut(Schema):
     by_id: UUID
     at: datetime
     reason: str
+    carries: list[str] | None = Field(
+        None,
+        description="For a replacement of another type (ADR 0165), which a record can't "
+        "become: the fields whose values a move gives the project's new record of it, those "
+        "the two types' records share. The rest stay with this record, which the move "
+        "archives. None for one of its own type, which the record moves to whole.",
+    )
+    held: bool = Field(
+        False,
+        description="The record's project has a record of the replacement, which a move "
+        "can't go onto: the one a move to an entry of another type made, say.",
+    )
 
 
 class EntryRefOut(Schema):
@@ -1047,10 +1102,12 @@ class AmountOut(Schema):
         description="The state field whose state holds it, such as quarantine: none of it is "
         "drawn, transferred or split off until that changes. None if nothing holds it."
     )
+    revision: int = Field(
+        ge=1,
+        description="One more with each movement. Its ETag: send it as If-Match to recount it.",
+    )
     updated_at: datetime = Field(
-        description="The balance revision. Send this exact string in If-Balance-Revision "
-        "when recording an absolute count.",
-        json_schema_extra={"format": "date-time"},
+        description="When it last moved.", json_schema_extra={"format": "date-time"}
     )
 
     @field_serializer("updated_at")
@@ -1454,6 +1511,8 @@ def field_out(name: str, f: SpecField, plugin: str) -> dict[str, Any]:
         "detached": plugin in registry.detached(),
         "link": unique.link(f, plugin),
         "computed": f.computed,
+        "cel": f.cel,
+        "cel_reads": list(f.cel_reads),
         "reason_on_clear": f.reason_on_clear or None,
         "unit": f.unit,
         "unit_symbol": units.symbol(f.unit) if f.unit else None,
@@ -1579,10 +1638,11 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "extends": entity_type.extends if entity_type.extends != "iki/core.Entity" else None,
         "abstract": entity_type.abstract,
         "sample": name in registry.sample_types(),
-        "lab_list": entity_type.is_list,
+        "lab_list": entity_type.is_lab_list,
         "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
+        "annotations": entity_type.annotations,
         "identity": list(owner.identity) if owner is not None else [],
         "fields": fields,
         "values_schema": schema.for_type(name),
@@ -1638,6 +1698,8 @@ def _rule_out(rule: Rule) -> dict[str, Any]:
         "reads": list(rule.reads),
         "hold": {"reviewed_by": list(rule.hold)} if rule.hold else None,
         "unique": list(rule.unique),
+        "within": rule.within if rule.unique else None,
+        "key_field": rule.unique[0] if rule.from_field else None,
         "no_overlap": {
             "from": rule.no_overlap[0],
             "to": rule.no_overlap[1],
@@ -1645,7 +1707,9 @@ def _rule_out(rule: Rule) -> dict[str, Any]:
         }
         if rule.no_overlap
         else None,
-        "while": {name: list(values) for name, values in rule.only_while},
+        "while": {"field": rule.only_while[0][0], "states": list(rule.only_while[0][1])}
+        if rule.only_while
+        else None,
     }
 
 
@@ -1657,7 +1721,7 @@ def _request_type_out(name: str) -> dict[str, Any] | None:
         "service_fields": list(spec.service_fields),
         "sends": list(spec.sends),
         "receives": spec.receives,
-        "receives_by": list(spec.receives_by),
+        "received_by": list(spec.received_by),
     }
 
 
@@ -1910,9 +1974,12 @@ def _gone(user: User, ref: str) -> None:
 
 
 def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
+    # Their projects, for their states' and signatures' checks: one read for the page.
+    prefetch_related_objects(entities, "owner_project")
     # Read these versions before the values. A concurrent change may show newer values
     # alongside an older version, which the review or signature then refuses.
     entries = _entries_of(user, entities)
+    holding = _holding(user, entities, entries)
     held, breaches = _holds_of(user, entities, entries)
     recalculations: dict[UUID, list[str]] = defaultdict(list)
     for entity_id, action in (
@@ -1951,6 +2018,8 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         e.owner_project_id for e in entities if eligibility.purpose_roles(e.type)
     }
     permissions.remember_roles(user, [p for p in projects.values() if p.pk in restricted_projects])
+    offered = states.options_of(user, entities, values, history=signed_history)
+    signs = _signs_can(user, entities, values, signing, offered)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -1973,7 +2042,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             and storage.spec(entity.type) is not None
             and storage.holds_material(user, entity)
         )
-        transitions = states.options(user, entity, values[entity.pk], history=signed_history)
+        transitions = offered.get(entity.pk, {})
         mine = ids_in(fields, values[entity.pk])
         shown = {
             name: to_json(fields[name], value, readable_refs=refs)
@@ -2005,7 +2074,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                 ]
                 if entity.owner_project_id in readers
                 else [],
-                "entry": entries.get(entity.entry_id) if entity.entry_id is not None else None,
+                "entry": _entry_of(entity, entries, holding),
                 "needs_recalculation": recalculations.get(entity.pk, []),
                 "holds": held.get(entity.pk, []),
                 "breaches": breaches.get(entity.pk, []),
@@ -2032,7 +2101,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     if draw_amount
                     else [],
                     "states": _states_can(transitions),
-                    "sign": _sign_can(user, entity, values[entity.pk], signing, transitions),
+                    "sign": signs.get(entity.pk, []),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
@@ -2201,21 +2270,27 @@ class _Signing:
         return self._cant[0]
 
 
-def _sign_can(
+def _signs_can(
     user: User,
-    entity: Entity,
-    values: dict[str, Any],
+    entities: list[Entity],
+    values: Mapping[Any, dict[str, Any]],
     signing: _Signing,
-    transitions: dict[str, list[states.Option]],
-) -> list[dict[str, Any]]:
-    out = []
-    for change in sig_changes.signed(transitions, values):
-        slots = sig_services.slots(
-            user, entity, change, given=signing.given(entity), cant=signing.cant(), values=values
-        )
+    offered: Mapping[Any, dict[str, list[states.Option]]],
+) -> dict[Any, list[dict[str, Any]]]:
+    """What each record's signed states need, and whether ``user`` may give them: their
+    guards and holds checked for the whole page at once."""
+    wanted = [
+        sig_services.Signable(entity, change, signing.given(entity), values[entity.pk])
+        for entity in entities
+        for change in sig_changes.signed(offered.get(entity.pk, {}), values[entity.pk])
+    ]
+    found = sig_services.slots_of(user, wanted, cant=signing.cant()) if wanted else []
+    out: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for each, slots in zip(wanted, found, strict=True):
+        change = each.change
         allowed = any(s.why_not is None for s in slots)
         open_slots = [s for s in slots if s.signature is None]
-        out.append(
+        out[each.entity.pk].append(
             {
                 "field": change.field,
                 "field_label": change.field_label,
@@ -2257,6 +2332,39 @@ def _slot_out(slot: Any) -> dict[str, Any]:  # noqa: ANN401 - a signatures.servi
     }
 
 
+def _holding(
+    user: User, entities: list[Entity], entries: Mapping[Any, Mapping[str, Any]]
+) -> set[tuple[Any, Any]]:
+    """Of these records whose entries were superseded, (replacement, project) for each whose
+    project has a record of its entry's replacement the user can read."""
+    wanted = {
+        (found["superseded"]["by_id"], e.owner_project_id)
+        for e in entities
+        if (found := entries.get(e.entry_id)) is not None and found["superseded"] is not None
+    }
+    if not wanted:
+        return set()
+    rows = access.visible(user).filter(
+        entry_id__in={r for r, _ in wanted}, owner_project_id__in={p for _, p in wanted}
+    )
+    return set(rows.values_list("entry_id", "owner_project_id")) & wanted
+
+
+def _entry_of(
+    entity: Entity, entries: Mapping[Any, Mapping[str, Any]], holding: set[tuple[Any, Any]]
+) -> dict[str, Any] | None:
+    """A record's entry, as ``EntryRefOut``: with whether its project has a record of the
+    entry's replacement, if it was superseded."""
+    found = entries.get(entity.entry_id) if entity.entry_id is not None else None
+    if found is None or found["superseded"] is None:
+        return dict(found) if found is not None else None
+    by = found["superseded"]["by_id"]
+    return {
+        **found,
+        "superseded": {**found["superseded"], "held": (by, entity.owner_project_id) in holding},
+    }
+
+
 def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]:
     """The registry entries these records are of (ADR 0115), as ``EntryRefOut``."""
     ids = {e.entry_id for e in entities if e.entry_id is not None}
@@ -2269,6 +2377,7 @@ def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]
     for row in rows:
         superseded = None
         if row.superseded_by_id is not None:
+            from iki_server.entities import entries
             from iki_server.entities.entries import supersession
 
             found = supersession(row)
@@ -2285,6 +2394,9 @@ def _entries_of(user: User, entities: list[Entity]) -> dict[Any, dict[str, Any]]
                 "by_id": row.superseded_by_id,
                 "at": found.at,
                 "reason": found.reason,
+                "carries": list(entries.carried(row.type, found.replacement.type))
+                if found.replacement.type != row.type
+                else None,
             }
         out[row.pk] = {
             "id": row.pk,
@@ -2396,7 +2508,7 @@ def _lookup(
             out["superseded"] = e.superseded_by_id is not None
         return out
 
-    listed = access.list_types()
+    listed = registry.lab_lists()
     named = lists.names_of([e.pk for e in entries if e.type in listed])
 
     refs: dict[Any, dict[str, Any]] = {}
@@ -2464,7 +2576,7 @@ def _title(entity: Entity, values: dict[str, Any]) -> str:
 
 
 def _etag(entity: Entity) -> str:
-    return f'"{entity.revision}"'
+    return preconditions.etag(entity.revision)
 
 
 def _plain(value: Decimal) -> str:
@@ -2486,6 +2598,7 @@ def _amount(entity: Entity, amount: Any, values: dict[str, Any]) -> dict[str, An
         "label": wanted.label,
         "display": amounts.displayed(wanted, amount.value),
         "held_by": amounts.held(entity, values),
+        "revision": amount.revision,
         "updated_at": amount.updated_at,
     }
 
@@ -2911,6 +3024,7 @@ def count_entities(request: HttpRequest, project: UUID | None = None) -> dict[st
     "/entities/{ref}",
     response={200: EntityOut, 304: None},
     summary="An entity, by ID or HRID",
+    openapi_extra=preconditions.reads(),
 )
 def get_entity(
     request: HttpRequest,
@@ -3041,31 +3155,18 @@ def _created(me: User, saved: services.Saved, response: HttpResponse) -> Any:  #
     return Status(200 if saved.reused else 201, out)
 
 
-def _expected(if_match: str | None) -> int:
-    if if_match is None:
-        raise Problem(
-            428,
-            "Send If-Match with the ETag you read, so you can’t overwrite someone else’s change.",
-            code="precondition_required",
-        )
-    tags = _etags(if_match)
-    numbers = [int(t.strip('"')) for t in tags if t.strip('"').isdigit() and t.startswith('"')]
-    if len(numbers) != 1 or len(tags) != 1:
-        raise Problem(
-            412,
-            'If-Match must be the one ETag you read, such as "3".',
-            code="precondition_failed",
-        )
-    return numbers[0]
-
-
-@router.patch("/entities/{ref}", response=EntityOut, summary="Change, archive or restore")
+@router.patch(
+    "/entities/{ref}",
+    response=EntityOut,
+    summary="Change, archive or restore",
+    openapi_extra=preconditions.changes(),
+)
 def patch_entity(
     request: HttpRequest,
     ref: str,
     payload: EntityPatch,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Send only the values to change and the ETag you read. If `can.correct` is true,
     changing a value requires a reason. Each locking state returns to its declared `on_edit`
@@ -3078,7 +3179,7 @@ def patch_entity(
         # A request's service changes only its own fields (ADR 0132): archiving is the
         # asking project's.
         require(me, access.edit_action(entity.type), owner)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         with transaction.atomic():
             # Locked for the whole request, so its steps can't interleave with another's.
@@ -3119,13 +3220,7 @@ def patch_entity(
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except services.Stale as stale:
-        raise Problem(
-            412,
-            f"Someone changed it since you read it: it’s at revision {stale.current} now. "
-            "Read it again, then make your change.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
-        ) from None
+        raise preconditions.stale_revision(stale.current) from None
     except Invalid as error:
         raise _invalid(error) from None
     return _one(me, _find(me, str(entity.pk)), response)
@@ -3139,6 +3234,7 @@ def _current(entity: Entity) -> int:
     "/entities/{ref}/states/{field}",
     response=EntityOut,
     summary="Set one of a record's state fields",
+    openapi_extra=preconditions.changes(),
 )
 def set_entity_state(
     request: HttpRequest,
@@ -3147,7 +3243,7 @@ def set_entity_state(
     payload: StateIn,
     response: HttpResponse,
     project: UUID | None = None,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> dict[str, Any]:
     """Sets one of the record's state fields (ADR 0125) to one of its states, from any other,
     as a revision of its own, with your reason. It needs one of the state's lab roles in the
@@ -3158,7 +3254,7 @@ def set_entity_state(
     for it. Send If-Match with the ETag you read."""
     me = caller(request)
     entity = _find(me, ref, project)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         states.set_state(
             me, entity, field, payload.state, expected_revision=expected, reason=payload.reason
@@ -3172,14 +3268,17 @@ def set_entity_state(
             409, str(refused), code="guard_refused", extensions={"guard": refused.guard}
         ) from None
     except services.Stale as stale:
-        raise Problem(
-            412,
-            f"Someone changed it since you read it: it’s at revision {stale.current} now. "
-            "Read it again, then make your change.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
-        ) from None
+        raise preconditions.stale_revision(stale.current) from None
     except Invalid as error:
+        if getattr(error, "broken", ()):
+            # It breaks the type's rules (ADR 0127): each named, as for a save.
+            found = _invalid(error)
+            if isinstance(error, checking.Held):
+                found.detail = (
+                    "It breaks rules that hold records for review. To set it anyway, say why "
+                    "in `reason`: the record is held until it's reviewed."
+                )
+            raise found from None
         raise Problem(
             422,
             "Setting that state needs more.",
@@ -3195,6 +3294,7 @@ def set_entity_state(
     "/entities/{ref}/holds/{hold_id}/review",
     response=EntityOut,
     summary="Review a hold",
+    openapi_extra=preconditions.changes(),
 )
 def review_hold(
     request: HttpRequest,
@@ -3202,7 +3302,7 @@ def review_hold(
     hold_id: UUID,
     payload: HoldReviewIn,
     response: HttpResponse,
-    if_match: Annotated[str | None, HeaderEx(alias="If-Match")] = None,
+    if_match: IfMatch = None,
     project: UUID | None = None,
 ) -> dict[str, Any]:
     """Reviews a rule's hold on the record (ADR 0127), with why it may stand. Send the
@@ -3212,7 +3312,7 @@ def review_hold(
     whoever saved what held it: `holds[].can_review` says whether you may."""
     me = caller(request)
     entity = _find(me, ref, project)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     try:
         holds.review(
             me,
@@ -3227,11 +3327,9 @@ def review_hold(
     except PermissionDenied as denied:
         raise Problem(403, str(denied)) from None
     except holds.ReviewChanged as changed:
-        raise Problem(
-            412,
+        raise preconditions.stale(
+            changed.current,
             "The record, hold or its rules changed. Read the record again before reviewing.",
-            code="hold_changed",
-            headers={"ETag": f'"{changed.current}"'},
         ) from None
     except Invalid as error:
         raise Problem(

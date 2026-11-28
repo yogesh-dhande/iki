@@ -406,7 +406,7 @@ class _Rules:
             fields = {n: f for n, (f, _) in self.s.all_fields(target).items() if not f.removed}
             chain = {put.type, *(t.qualified_name for t in self.s.ancestors(target))}
             for extension in self.plugin.extensions:
-                if extension.extends_type in chain:
+                if extension.adds_to in chain:
                     fields.update({n: f for n, f in extension.fields.items() if not f.removed})
             for index, field_name in enumerate(wanted):
                 if field_name not in fields:

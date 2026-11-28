@@ -108,6 +108,32 @@ class Migration(iki.Migration):
             model_name='Shelf_History',
         ),
         iki.CreateModel(
+            name='Supplier_Entry_History',
+            fields=[
+                ('pk', iki.CompositePrimaryKey('entity_id', 'revision')),
+                ('entity_id', iki.UUIDField()),
+                ('revision', iki.PositiveIntegerField()),
+                ('name', iki.TextField(null=True)),
+            ],
+            table='iki__inventory_supplier__entry__history',
+        ),
+        iki.AppendOnly(
+            model_name='Supplier_Entry_History',
+        ),
+        iki.CreateModel(
+            name='Supplier_History',
+            fields=[
+                ('pk', iki.CompositePrimaryKey('entity_id', 'revision')),
+                ('entity_id', iki.UUIDField()),
+                ('revision', iki.PositiveIntegerField()),
+                ('website', iki.TextField(null=True)),
+            ],
+            table='iki__inventory_supplier__history',
+        ),
+        iki.AppendOnly(
+            model_name='Supplier_History',
+        ),
+        iki.CreateModel(
             name='Tube_History',
             fields=[
                 ('pk', iki.CompositePrimaryKey('entity_id', 'revision')),
@@ -210,6 +236,37 @@ class Migration(iki.Migration):
             constraints=[
                 iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('name'), 1), name='iki__inventory_shelf__name__not_empty'),
                 iki.CheckConstraint(condition=iki.Q(('name__regex', '[\\r\\n]'), negated=True), name='iki__inventory_shelf__name__one_line'),
+            ],
+            bases=(iki.ENTITY,),
+        ),
+        iki.CreateModel(
+            name='Supplier',
+            fields=[
+                ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
+                ('website', iki.CharField(max_length=500, null=True)),
+            ],
+            table='iki__inventory_supplier',
+            constraints=[
+                iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('website'), 1), name='iki__inventory_supplier__website__not_empty'),
+                iki.CheckConstraint(condition=iki.Q(('website__regex', '[\\r\\n]'), negated=True), name='iki__inventory_supplier__website__one_line'),
+                iki.CheckConstraint(condition=iki.Q(('website__regex', '^[A-Za-z][A-Za-z0-9+.-]*:[^\\s]+$')), name='iki__inventory_supplier__website__format'),
+            ],
+            bases=(iki.ENTITY,),
+        ),
+        iki.CreateModel(
+            name='Supplier_Entry',
+            fields=[
+                ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
+                ('name', iki.CharField(db_index=True, max_length=200)),
+            ],
+            table='iki__inventory_supplier__entry',
+            indexes=[
+                iki.GinIndex(fields=['name'], name='name_trgm_877676f7ff3be68e7fdd', opclasses=['gin_trgm_ops']),
+            ],
+            constraints=[
+                iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('name'), 1), name='iki__inventory_supplier__entry__name__not_empty'),
+                iki.CheckConstraint(condition=iki.Q(('name__regex', '[\\r\\n]'), negated=True), name='iki__inventory_supplier__entry__name__one_line'),
+                iki.CheckConstraint(condition=iki.Q(('name__regex', '^(?:.*\\S.*)$')), name='iki__inventory_supplier__entry__name__pattern'),
             ],
             bases=(iki.ENTITY,),
         ),

@@ -8,10 +8,10 @@ description: >-
   repeat-unit fragments and implicit end-group options when the inspector
   supports the notation. Identify an error or report the unsupported feature.
 inputs:
-  polymer: { type: Polymer, schema: ">=1" }
+  polymer: { type: Polymer, schema_version: ">=1" }
 effects:
   updates:
-    - input: polymer
+    polymer:
       fields:
         [notation_status, notation_note, stochastic_objects, repeat_units, implicit_end_groups]
 runs_on: { tier: backend, environment: polymer-tools }

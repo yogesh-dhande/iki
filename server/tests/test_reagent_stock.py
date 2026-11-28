@@ -48,6 +48,12 @@ PREFIX = "iki/reagents."
 Attempt = tuple[ActionRun, dict[str, Any]]
 
 
+def supplier(who: Any, world: World, name: str) -> str:
+    """The registry's supplier of that name (iki/inventory.Supplier), its ID."""
+    made = services.create(who, "iki/inventory.Supplier", world.project, {"name": name})
+    return str(made.entity.pk)
+
+
 def test_supplier_receipts_keep_the_order_inventory_and_storage_consistent(
     tmp_path: Path, database: str
 ) -> None:
@@ -139,7 +145,7 @@ def exercise() -> None:
     # and all stock movements are synthetic. Source: https://ecatalog.corning.com/life-sciences/b2b/us/en/p/430790
     product = {
         "name": "Corning 15 mL centrifuge tubes",
-        "supplier": "Corning",
+        "supplier": supplier(editor, world, "Corning"),
         "catalogue_number": "430790",
         "stock_unit": "1",
         "pack_size": 500,
@@ -379,7 +385,7 @@ def exercise() -> None:
             world.project,
             {
                 "name": "Synthetic sealing film",
-                "supplier": "Synthetic supplier",
+                "supplier": supplier(editor, world, "Synthetic supplier"),
                 "catalogue_number": "SYN-FILM-1",
                 "stock_unit": "1",
                 "pack_size": 100,
@@ -475,6 +481,7 @@ def catalogue() -> None:
         role=PREFIX + "stock_manager",
     )
     editor = world.users["editor"]
+    synthetic = supplier(editor, world, "Synthetic supplier")
 
     def stocked(numbers: range, threshold: float | None) -> None:
         # Synthetic catalogue entries for a lab's buffers and plastics; none has stock yet.
@@ -485,7 +492,7 @@ def catalogue() -> None:
                 world.project,
                 {
                     "name": f"Synthetic PBS pH 7.4, 500 mL, item {n}",
-                    "supplier": "Synthetic supplier",
+                    "supplier": synthetic,
                     "catalogue_number": f"SYN-PBS-{n:03}",
                     "stock_unit": "1",
                     "pack_size": 1,
@@ -569,7 +576,7 @@ def critical() -> None:
         "StockItem",
         {
             "name": "Synthetic anti-human IgG HRP detection antibody",
-            "supplier": "Synthetic Antibodies Inc.",
+            "supplier": supplier(editor, world, "Synthetic Antibodies Inc."),
             "catalogue_number": "SYN-HRP-100",
             "stock_unit": "mL",
             "pack_size": 1,
@@ -579,7 +586,7 @@ def critical() -> None:
         "StockItem",
         {
             "name": "Synthetic 1.5 mL tubes",
-            "supplier": "Synthetic Plastics Inc.",
+            "supplier": supplier(editor, world, "Synthetic Plastics Inc."),
             "catalogue_number": "SYN-T15",
             "stock_unit": "1",
             "pack_size": 500,

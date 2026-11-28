@@ -1,13 +1,15 @@
 """Workflows: reading their manifests, and the rules beyond them (ADR 0079).
 
 A plugin's workflows live under `workflows/`. The schema checks each document's
-shape; the rules here check it against the plugin's actions: that each step runs
-one, that every input a step takes comes from somewhere of the right type and
+shape; the rules here check it against the actions its steps run: that each step runs
+one, the plugin's own or, named `namespace/plugin.action`, a declared dependency's
+(ADR 0298), that every input a step takes comes from somewhere of the right type and
 number, that its params fit, and that no step comes before itself.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -39,13 +41,14 @@ def read_workflow(plugin: str, body: dict[str, Any], document: Document) -> Work
     return Workflow(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("_", " ").capitalize(),
         description=body.get("description"),
         inputs={
             n: Input(
                 name=n,
                 type=qualify(spec["type"], plugin),
-                schema=spec.get("schema"),
+                schema_version=spec.get("schema_version"),
                 cardinality=spec.get("cardinality", "one"),
                 max=spec.get("max"),
                 optional=bool(spec.get("optional", False)),
@@ -61,7 +64,7 @@ def read_workflow(plugin: str, body: dict[str, Any], document: Document) -> Work
         steps={
             i: WorkflowStep(
                 id=i,
-                action=step["action"],
+                action=qualify(step["action"], plugin),
                 label=step.get("label") or i.replace("_", " ").capitalize(),
                 inputs={
                     n: _qualified_ref(ref, plugin) for n, ref in (step.get("inputs") or {}).items()
@@ -109,7 +112,8 @@ class Source:
 
 
 def source_of(workflow: Workflow, actions_: dict[str, Action], ref: str) -> Source | None:
-    """What `ref` names in the workflow, or None if it names nothing."""
+    """What `ref` names in the workflow, or None if it names nothing. `actions_` are the
+    actions its steps can run, by qualified name."""
     parts = ref.split(".", 3)
     if parts[0] == "$inputs" and len(parts) == 2:
         given = workflow.inputs.get(parts[1])
@@ -136,7 +140,7 @@ def source_of(workflow: Workflow, actions_: dict[str, Action], ref: str) -> Sour
 
 
 def check(semantics: _validate._Semantics) -> None:
-    """Check the plugin's workflows against its actions."""
+    """Check the plugin's workflows against the actions their steps run."""
     _Rules(semantics).run()
 
 
@@ -147,6 +151,8 @@ class _Rules:
         self.plugin = semantics.plugin
         self.loaded = semantics.loaded
         self.actions = actions._Rules(semantics)
+        #: What its steps can run, by qualified name: its own and its dependencies'.
+        self.runnable = semantics.actions()
 
     def run(self) -> None:
         for name, workflow in self.plugin.workflows.items():
@@ -193,15 +199,8 @@ class _Rules:
         path: Path = ("steps", step.id)
         if step.approval is not None and step.approval.role not in APPROVAL_ROLES:
             self.s.lab_role(step.approval.role, source, (*path, "approval", "role"))
-        action = self.plugin.actions.get(step.action)
+        action = self.s.action(step.action, "workflow-unknown-action", source, (*path, "action"))
         if action is None:
-            self.add(
-                "workflow-unknown-action",
-                f"This plugin has no action `{step.action}`.",
-                source,
-                (*path, "action"),
-                hint=schemas._did_you_mean(step.action, list(self.plugin.actions)),
-            )
             return
         if step.each is not None:
             self.step_each(step, action, source, (*path, "each"))
@@ -211,8 +210,8 @@ class _Rules:
             if name not in step.inputs and not put.optional and not put.from_project:
                 self.add(
                     "workflow-input-missing",
-                    f"`{step.action}` needs `{name}`, and this step doesn't say where it comes "
-                    "from.",
+                    f"`{self.s.shown(step.action)}` needs `{name}`, and this step doesn't say "
+                    "where it comes from.",
                     source,
                     (*path, "inputs") if step.inputs else path,
                     hint=f"Add `{name}: $inputs.<name>`, or a step's created entities.",
@@ -223,7 +222,8 @@ class _Rules:
             if name not in step.params and param.required:
                 self.add(
                     "workflow-param-missing",
-                    f"`{step.action}` needs the param `{name}`, and this step doesn't give it.",
+                    f"`{self.s.shown(step.action)}` needs the param `{name}`, and this step "
+                    "doesn't give it.",
                     source,
                     (*path, "params") if step.params else path,
                     hint=f"Add `{name}:` with a value, or `$params.<name>` for the workflow's.",
@@ -244,7 +244,7 @@ class _Rules:
         if put is None:
             self.add(
                 "workflow-unknown-input",
-                f"`{step.action}` has no input `{step.each}`.",
+                f"`{self.s.shown(step.action)}` has no input `{step.each}`.",
                 source,
                 path,
                 hint=schemas._did_you_mean(step.each or "", list(action.inputs)),
@@ -252,7 +252,8 @@ class _Rules:
         elif put.cardinality != "one":
             self.add(
                 "workflow-each-takes-many",
-                f"`{step.action}`'s `{step.each}` takes many entities, so one run takes them all.",
+                f"`{self.s.shown(step.action)}`'s `{step.each}` takes many entities, so one run "
+                "takes them all.",
                 source,
                 path,
                 hint="Leave `each` out: the step runs once, on every entity.",
@@ -280,7 +281,7 @@ class _Rules:
         if wanted is None:
             self.add(
                 "workflow-unknown-input",
-                f"`{step.action}` has no input `{name}`.",
+                f"`{self.s.shown(step.action)}` has no input `{name}`.",
                 source,
                 path,
                 key=True,
@@ -290,7 +291,8 @@ class _Rules:
         if wanted.from_project:
             self.add(
                 "workflow-input-from-project",
-                f"`{step.action}`'s `{name}` is given every record of its type the project "
+                f"`{self.s.shown(step.action)}`'s `{name}` is given every record of its type the "
+                "project "
                 "owns: a step doesn't say where it comes from.",
                 source,
                 path,
@@ -307,9 +309,9 @@ class _Rules:
                 path,
             )
             return
-        found = source_of(workflow, self.plugin.actions, ref)
+        found = source_of(workflow, self.runnable, ref)
         if found is None:
-            why = _why_nothing(workflow, self.plugin.actions, ref)
+            why = _why_nothing(workflow, self.runnable, ref, self.s.shown)
             self.add(
                 "workflow-unknown-reference",
                 f"`{ref}` names nothing in this workflow{why}.",
@@ -320,14 +322,16 @@ class _Rules:
         if not self.is_a(found.type, wanted.type):
             self.add(
                 "workflow-wrong-type",
-                f"`{ref}` is `{found.type}`, and `{step.action}`'s `{name}` takes `{wanted.type}`.",
+                f"`{ref}` is `{found.type}`, and `{self.s.shown(step.action)}`'s `{name}` takes "
+                f"`{wanted.type}`.",
                 source,
                 path,
             )
         if found.cardinality == "many" and wanted.cardinality == "one" and name != step.each:
             self.add(
                 "workflow-many-into-one",
-                f"`{ref}` can be many entities, and `{step.action}`'s `{name}` takes one.",
+                f"`{ref}` can be many entities, and `{self.s.shown(step.action)}`'s `{name}` takes "
+                "one.",
                 source,
                 path,
                 hint=f"Add `each: {name}` to run the step once for each of them.",
@@ -455,14 +459,15 @@ class _Rules:
                 path,
             )
             return None
-        action = self.plugin.actions.get(other.action)
+        action = self.runnable.get(other.action)
         if action is None:
             return None  # reported where the step names it
         if parts[3] not in action.metrics:
             declared = ", ".join(f"`{m}`" for m in action.metrics) or "none"
             self.add(
                 "workflow-unknown-metric",
-                f"`{other.action}` declares no metric `{parts[3]}` (it declares {declared}).",
+                f"`{self.s.shown(other.action)}` declares no metric `{parts[3]}` (it declares "
+                f"{declared}).",
                 source,
                 path,
                 hint="An action declares the metrics its runs report under `metrics`.",
@@ -509,7 +514,12 @@ def _reachable_order(workflow: Workflow) -> list[str]:
             del left[i]
 
 
-def _why_nothing(workflow: Workflow, actions_: dict[str, Action], ref: str) -> str:
+def _why_nothing(
+    workflow: Workflow,
+    actions_: dict[str, Action],
+    ref: str,
+    shown: Callable[[str], str],
+) -> str:
     parts = ref.split(".", 3)
     if parts[0] == "$inputs":
         return ": it has no input `" + parts[1] + "`"
@@ -521,7 +531,7 @@ def _why_nothing(workflow: Workflow, actions_: dict[str, Action], ref: str) -> s
         return ""
     if parts[2] == "created":
         made = ", ".join(f"`{c.type}`" for c in action.creates) or "nothing"
-        return f": `{step.action}` creates {made}"
+        return f": `{shown(step.action)}` creates {made}"
     return f": step `{step.id}` isn't given `{parts[3]}`"
 
 

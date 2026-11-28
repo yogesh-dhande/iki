@@ -9,9 +9,9 @@ description: >-
   circular sequence. Each hit records the source accession and location. Each search
   is limited to 16 MiB of bases and 5,000 hits.
 inputs:
-  sequence: { type: iki/dna.DNASequence, schema: ">=4" }
+  sequence: { type: iki/dna.DNASequence, schema_version: ">=4" }
 effects:
-  updates: [{ input: sequence, fields: [library_features, library_annotated_with] }]
+  updates: { sequence: { fields: [library_features, library_annotated_with] } }
 software:
   - { name: Wasmtime, version: "50.0.1", url: https://wasmtime.dev }
 runs_on: { tier: backend, environment: plasmid-tools }

@@ -76,10 +76,8 @@ def kinases(world: World) -> None:
 
 
 def checked(page: Page) -> None:
-    """axe, as on every page. Playwright's Firefox crashes in axe on an import's pages, as
-    on others named by `aria-labelledby` (see assert_clean): Chromium and WebKit check
-    them, and the DOM is the same in every browser."""
-    assert_clean(page, axe_in_firefox=False)
+    """axe and the page's errors, as on every page."""
+    assert_clean(page)
 
 
 def fits_a_phone(page: Page) -> None:
@@ -427,6 +425,7 @@ def test_a_change_made_in_another_tab_is_shown_not_overwritten(
     deadline = time.monotonic() + 10
     while saved(other, import_id)["first_row"] != "5" and time.monotonic() < deadline:
         other.wait_for_timeout(50)
+    assert saved(other, import_id)["first_row"] == "5", "the other tab's change wasn't saved"
 
     # This tab still shows the first row it had, and leaves a row out.
     expect(page.get_by_role("spinbutton", name="First row")).to_have_value("4")
@@ -482,9 +481,18 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     manifest = b"Label,Tags\nParcel,Inbound\n"
 
     def submit(button: Locator) -> Response:
-        with button.page.expect_response("**/spreadsheet-imports/*/mappings") as response:
+        """A new mapping is a POST to the import; a replacement, a PUT of the saved one."""
+        with button.page.expect_response(
+            lambda r: (
+                r.request.method in ("POST", "PUT")
+                and ("/spreadsheet-mappings/" in r.url or r.url.endswith("/mappings"))
+            )
+        ) as response:
             button.click()
         return response.value
+
+    def tag(revision: int) -> str:
+        return f'"{revision}"'
 
     def omit_tags(tab: Page) -> int:
         with tab.expect_response(lambda r: r.request.method == "PATCH") as response:
@@ -518,17 +526,21 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     save = dialog.get_by_role("button", name="Save changes")
     expect(save).to_be_enabled()
     first_etag = source.value.headers["etag"]
+    first_revision = int(first_etag.strip('"'))
     changed_target = submit(other_save)
-    assert changed_target.status == 201, changed_target.text()
+    assert changed_target.status == 200, changed_target.text()
+    assert changed_target.request.method == "PUT"
     newer = changed_target.json()
     assert newer["id"] == target["id"]
     assert [c["header"] for c in newer["columns"]] == ["Label"]
 
+    # The saved mapping's revision reviewed is If-Match; the import's, in the body.
     stale = submit(save)
-    assert stale.status == 409, (stale.request.post_data_json, stale.text())
-    reviewed = {"name": name, "replace": target["id"], "target_revision": target["revision"]}
+    assert stale.status == 412, (stale.request.post_data_json, stale.text())
+    assert stale.url.endswith(f"/spreadsheet-mappings/{target['id']}")
+    reviewed = {"name": name, "import": import_id, "import_revision": first_revision}
     assert stale.request.post_data_json == reviewed
-    assert stale.request.header_value("if-match") == first_etag
+    assert stale.request.header_value("if-match") == tag(target["revision"])
     expect(dialog.get_by_role("alert")).to_contain_text(stale.json()["detail"])
     expect(save).to_be_disabled()
     assert SavedMapping.objects.get(pk=target["id"]).columns == newer["columns"]
@@ -541,9 +553,9 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     expect(current.get_by_role("row").filter(has_text="Tags")).to_have_count(0)
     expect(proposed.get_by_role("row").filter(has_text="Tags")).to_be_visible()
     retried = submit(save)
-    assert retried.status == 201, retried.text()
-    assert retried.request.header_value("if-match") == first_etag
-    assert retried.request.post_data_json == {**reviewed, "target_revision": newer["revision"]}
+    assert retried.status == 200, retried.text()
+    assert retried.request.header_value("if-match") == tag(newer["revision"])
+    assert retried.request.post_data_json == reviewed
     restored = retried.json()
     assert restored["columns"] == target["columns"]
     expect(dialog).to_have_count(0)
@@ -556,8 +568,7 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     revision = omit_tags(other)
     stale = submit(save)
     assert stale.status == 412, stale.text()
-    assert stale.request.header_value("if-match") == first_etag
-    reviewed = {**reviewed, "target_revision": restored["revision"]}
+    assert stale.request.header_value("if-match") == tag(restored["revision"])
     assert stale.request.post_data_json == reviewed
     expect(save).to_be_disabled()
     assert SavedMapping.objects.get(pk=target["id"]).revision == restored["revision"]
@@ -566,9 +577,9 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     expect(proposed.get_by_role("row").filter(has_text="Label")).to_be_visible()
     expect(proposed.get_by_role("row").filter(has_text="Tags")).to_have_count(0)
     accepted = submit(save)
-    assert accepted.status == 201, accepted.text()
-    assert accepted.request.header_value("if-match") == f'"{revision}"'
-    assert accepted.request.post_data_json == reviewed
+    assert accepted.status == 200, accepted.text()
+    assert accepted.request.header_value("if-match") == tag(restored["revision"])
+    assert accepted.request.post_data_json == {**reviewed, "import_revision": revision}
     assert accepted.json()["columns"] == newer["columns"]
     expect(dialog).to_have_count(0)
 
@@ -577,7 +588,8 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     expect(save).to_be_enabled()
     api = other.context.request
     removed = api.delete(
-        f"/api/v1/spreadsheet-mappings/{target['id']}", headers=csrf_headers(other)
+        f"/api/v1/spreadsheet-mappings/{target['id']}",
+        headers={**csrf_headers(other), "If-Match": tag(accepted.json()["revision"])},
     )
     assert removed.status == 204, removed.text()
     other_detail = f"/api/v1/spreadsheet-imports/{other_import}"
@@ -594,10 +606,7 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     gone = submit(save)
     # Removing the template leaves the import's saved attribution and revision intact.
     assert gone.status == 404, gone.text()
-    assert gone.request.post_data_json == {
-        **reviewed,
-        "target_revision": accepted.json()["revision"],
-    }
+    assert gone.request.header_value("if-match") == tag(accepted.json()["revision"])
     review_latest.click()
     expect(dialog.get_by_role("alert")).to_contain_text("no longer available")
     expect(save).to_be_disabled()
@@ -608,7 +617,10 @@ def test_replacing_a_saved_mapping_keeps_its_reviewed_source_and_target(
     fresh_name = "Revised dispatch format"
     current_source = api.get(f"/api/v1/spreadsheet-imports/{import_id}")
     assert current_source.ok, current_source.text()
-    assert gone.request.header_value("if-match") == current_source.headers["etag"]
+    assert gone.request.post_data_json == {
+        **reviewed,
+        "import_revision": int(current_source.headers["etag"].strip('"')),
+    }
     dialog.get_by_role("button", name="Save as a new mapping").click()
     dialog.get_by_role("textbox", name="Name").fill(fresh_name)
     created = submit(dialog.get_by_role("button", name="Save", exact=True))

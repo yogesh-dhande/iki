@@ -28,10 +28,14 @@ __all__ = [
     "NotApproved",
     "NotFound",
     "NotSignedIn",
+    "PreconditionRequired",
     "RateLimited",
     "RunFailed",
     "SignInFailed",
+    "Stale",
     "TimedOut",
+    "is_precondition_required",
+    "is_stale",
 ]
 
 
@@ -49,18 +53,22 @@ class SignInFailed(IkiError):
 
 @dataclass(frozen=True)
 class FieldError:
-    """One thing wrong with what was sent."""
+    """One thing wrong with what was sent: a body field, by its JSON Pointer, or a query
+    or path parameter, by its name."""
 
-    #: Where, as a JSON Pointer into the request (``#/values/sequence``).
-    pointer: str
+    #: Where in the body, as a JSON Pointer (``#/values/sequence``); None for a parameter.
+    pointer: str | None
     detail: str
     #: The plugin's rule it breaks, if it's a rule's.
     rule: str | None = None
     #: The rule holds records for review: saving with a ``hold_reason`` keeps it.
     hold: bool = False
+    #: The query or path parameter it's about (``cursor``, ``project``), if it's one's.
+    parameter: str | None = None
 
     def __str__(self) -> str:
-        return f"{self.pointer}: {self.detail}"
+        where = f"parameter {self.parameter}" if self.parameter else self.pointer or "#"
+        return f"{where}: {self.detail}"
 
 
 class ApiError(IkiError):
@@ -110,7 +118,28 @@ class Forbidden(ApiError):
 
 class Conflict(ApiError):
     """It can't be done as things are (409), or it changed since the revision you
-    named (412): read it again, then decide."""
+    named (412, :class:`Stale`): read it again, then decide."""
+
+
+class Stale(Conflict):
+    """It changed since the revision you named (412), and nothing was changed: read it
+    again, then decide (ADR 0289). For a change of several things, the problem says which
+    changed (``stale``, ``affected_lines``)."""
+
+
+class PreconditionRequired(ApiError):
+    """The change replaces what's recorded, but didn't say which revision it replaces
+    (428): pass the ``revision`` you read."""
+
+
+def is_stale(error: BaseException) -> bool:
+    """Whether a change was refused because what it named changed since it was read."""
+    return isinstance(error, ApiError) and error.status == 412
+
+
+def is_precondition_required(error: BaseException) -> bool:
+    """Whether a change was refused for not naming the revision it replaces."""
+    return isinstance(error, ApiError) and error.status == 428
 
 
 class ConsentRequired(Conflict):
@@ -186,8 +215,9 @@ _BY_STATUS: dict[int, type[ApiError]] = {
     403: Forbidden,
     404: NotFound,
     409: Conflict,
-    412: Conflict,
+    412: Stale,
     422: Invalid,
+    428: PreconditionRequired,
     429: RateLimited,
 }
 
@@ -203,10 +233,11 @@ def from_response(status: int, body: Any) -> ApiError:  # noqa: ANN401 - JSON
     detail = str(problem.get("detail") or problem.get("title") or f"Iki answered {status}.")
     errors = tuple(
         FieldError(
-            pointer=str(e.get("pointer", "#")),
+            pointer=str(e["pointer"]) if e.get("pointer") else None if e.get("parameter") else "#",
             detail=str(e.get("detail", "")),
             rule=str(e["rule"]) if e.get("rule") else None,
             hold=bool(e.get("hold")),
+            parameter=str(e["parameter"]) if e.get("parameter") else None,
         )
         for e in problem.get("errors") or []
         if isinstance(e, dict)

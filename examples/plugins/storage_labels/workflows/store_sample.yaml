@@ -9,7 +9,7 @@ name: store_sample
 label: Store a sample
 description: Gives a sample the default storage if it has none, then writes its storage in full.
 inputs:
-  sample: { type: Sample, schema: ">=1" }
+  sample: { type: Sample, schema_version: ">=1" }
 steps:
   assign:
     action: assign_storage

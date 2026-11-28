@@ -232,8 +232,8 @@ def test_an_input_may_have_the_fields_this_plugins_extension_adds(tmp_path: Path
     directory = tmp_path / "prediction"
     (directory / "actions" / "rescore.yaml").write_text(
         "apiVersion: iki/v1\nkind: Action\nname: rescore\n"
-        'inputs:\n  structure: { type: acme/protein.ProteinStructure, schema: ">=1" }\n'
-        "effects:\n  updates: [{ input: structure, fields: [plddt_mean] }]\n"
+        'inputs:\n  structure: { type: acme/protein.ProteinStructure, schema_version: ">=1" }\n'
+        "effects:\n  updates: { structure: { fields: [plddt_mean] } }\n"
         "runs_on: { tier: container, environment: colabfold }\n"
         "command: [python, /app/rescore.py]\ntimeout: 10m\n"
     )

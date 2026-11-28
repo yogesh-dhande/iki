@@ -14,7 +14,7 @@ description: >-
 inputs:
   alignment:
     type: iki/core.Alignment
-    schema: ">=1"
+    schema_version: ">=1"
     include: [reference]
     description: An alignment of DNA, such as reads aligned to a plasmid, or a multiple alignment.
 params:

@@ -24,7 +24,7 @@ import {
   type SheetColumn,
   type SheetImport,
 } from "./spreadsheets";
-import { answer, calls, CLEAN_SCAN, page, problem, respond, type Sent } from "./test-server";
+import { answer, calls, CLEAN_SCAN, made, page, problem, respond, type Sent } from "./test-server";
 
 // jsdom lays nothing out; the grid draws the rows that fit in its scrolling region.
 const sizes = { clientHeight: 600, clientWidth: 1000, offsetHeight: 600, offsetWidth: 1000 };
@@ -673,12 +673,13 @@ describe("an import's steps", () => {
         which === "source"
           ? "The source sheet changed. Review its mapping."
           : "The saved mapping changed. Review the current mapping.";
-      answer(`POST ${BASE}/mappings`, () =>
-        problem(
-          which === "deleted" ? 404 : which === "source" ? 412 : 409,
-          which === "source" ? "stale" : which === "target" ? "stale_template" : "not_found",
-          detail,
-        ),
+      // Replacing it is a PUT of the saved mapping, from its revision, naming the import
+      // reviewed (ADR 0289): either changed is 412, and one deleted 404.
+      const mappingAt = (mapping: string) => `/api/v1/spreadsheet-mappings/${mapping}`;
+      const replaced = () =>
+        calls("PUT").filter((c) => c.path.startsWith("/api/v1/spreadsheet-mappings/"));
+      answer(`PUT ${mappingAt(match.id)}`, () =>
+        which === "deleted" ? problem(404, "not_found", detail) : problem(412, "stale", detail),
       );
       const { user } = await renderApp(`/projects/kinase-atlas/entities/import/${ID}/`);
       await user.click(await screen.findByRole("button", { name: "Next: columns" }));
@@ -727,9 +728,15 @@ describe("an import's steps", () => {
       });
       await user.click(dialog.getByRole("button", { name: "Save changes" }));
       await dialog.findByText(detail);
-      const first = { name: match.name, replace: match.id, target_revision: 3 };
-      expect(calls("POST", `${BASE}/mappings`)[0]?.headers.get("If-Match")).toBe('"2"');
-      expect(calls("POST", `${BASE}/mappings`).map((c) => c.body)).toEqual([first]);
+      const first = {
+        "If-Match": '"3"',
+        name: match.name,
+        import: ID,
+        import_revision: 2,
+      };
+      expect(replaced().map((c) => c.path)).toEqual([mappingAt(match.id)]);
+      expect(replaced().map(made)).toEqual([first]);
+      expect(calls("POST", `${BASE}/mappings`)).toHaveLength(0);
       expect(dialog.getByRole("button", { name: "Save changes" })).toHaveAttribute(
         "aria-disabled",
         "true",
@@ -747,13 +754,14 @@ describe("an import's steps", () => {
         );
         const current = within(dialog.getByRole("region", { name: "Current saved mapping" }));
         expect(current.getByRole("rowheader", { name: "Current target label" })).toBeVisible();
-        expect(calls("POST", `${BASE}/mappings`)).toHaveLength(1);
-        answer(`POST ${BASE}/mappings`, respond(201, {}));
+        expect(replaced()).toHaveLength(1);
+        answer(`PUT ${mappingAt(ID)}`, respond(200, {}));
         await user.click(dialog.getByRole("button", { name: "Save changes" }));
         await waitFor(() => {
-          expect(calls("POST", `${BASE}/mappings`).map((c) => c.body)).toEqual([
+          expect(replaced().map((c) => c.path)).toEqual([mappingAt(match.id), mappingAt(ID)]);
+          expect(replaced().map(made)).toEqual([
             first,
-            { name: match.name, replace: ID, target_revision: 4 },
+            { "If-Match": '"4"', name: match.name, import: ID, import_revision: latest.revision },
           ]);
         });
         return;
@@ -771,21 +779,19 @@ describe("an import's steps", () => {
           name: which === "source" ? "Current source label" : "Name",
         }),
       ).toBeVisible();
-      expect(calls("POST", `${BASE}/mappings`)).toHaveLength(1);
-      answer(`POST ${BASE}/mappings`, respond(201, {}));
+      expect(replaced()).toHaveLength(1);
+      answer(`PUT ${mappingAt(match.id)}`, respond(200, {}));
       await user.click(dialog.getByRole("button", { name: "Save changes" }));
       await waitFor(() => {
-        expect(calls("POST", `${BASE}/mappings`).map((c) => c.body)).toEqual([
+        expect(replaced().map(made)).toEqual([
           first,
           {
+            "If-Match": `"${String(changedMatch.revision)}"`,
             name: changedMatch.name,
-            replace: match.id,
-            target_revision: changedMatch.revision,
+            import: ID,
+            import_revision: latest.revision,
           },
         ]);
-        expect(calls("POST", `${BASE}/mappings`)[1]?.headers.get("If-Match")).toBe(
-          `"${String(latest.revision)}"`,
-        );
       });
     },
   );

@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from iki_server.plugins.operations import same_value
 from iki_spec.builtin import using_core
-from iki_spec.model import Field, included_reference
+from iki_spec.model import Field, included_reference, stored_in_list_table
 
 if TYPE_CHECKING:
     from iki_server.entities.models import Entity
@@ -62,13 +62,13 @@ class _StepError(Exception):
 
 def _deploy(log: io.StringIO) -> None:
     """Migrates and syncs, as a deploy does: one database role, so no grants."""
-    from iki_server.entities import constraints, unique
+    from iki_server.entities import constraints
     from iki_server.plugins import sync
     from iki_server.plugins.deploy import DeployError, migrate_deployment
 
     try:
         report = migrate_deployment(log)
-    except (DeployError, unique.Clash, constraints.Clash) as error:
+    except (DeployError, constraints.Clash) as error:
         raise _StepError(f"The deploy refused it: {error}") from None
     except Exception as error:
         raise _StepError(f"A migration failed: {type(error).__name__}: {error}") from None
@@ -254,13 +254,11 @@ def _history(state: dict[str, Any], sample: dict[str, Any], entity: Any, when: s
 
 
 def _initial_value(field: Field) -> Any:  # noqa: ANN401 - JSON
-    from iki_server.entities.values import is_list_table
-
     if field.has_default:
         return field.default
     if field.type == "state":
         return field.initial
-    return [] if is_list_table(field) else None
+    return [] if stored_in_list_table(field) else None
 
 
 def _after(state: dict[str, Any]) -> None:

@@ -31,8 +31,8 @@ from iki_server.org.models import (
     Project,
     ProjectMembership,
     ProjectRole,
-    Registrar,
     Registry,
+    RegistryRole,
     TeamMembership,
 )
 from iki_server.org.permissions import Action
@@ -84,7 +84,8 @@ REACHABLE = {
     ("GET", "/registrations/locations"),
     ("GET", "/registries"),
     ("GET", "/registries/{registry_id}"),
-    ("GET", "/registries/{registry_id}/registrars"),
+    ("GET", "/registries/{registry_id}/roles"),
+    ("GET", "/registries/{registry_id}/roles/{role_id}"),
 }
 
 #: Operations reachable only as these paths: the rest of their uses aren't.
@@ -100,7 +101,9 @@ def everything(world: World) -> User:
     for project in (world.project, world.archived):
         ProjectMembership.objects.create(project=project, user=person, role=ProjectRole.ADMIN)
     TeamMembership.objects.create(team=world.team, user=person)
-    Registrar.objects.create(registry=Registry.default(), user=person)
+    RegistryRole.objects.create(
+        registry=Registry.default(), user=person, role=RegistryRole.Role.REGISTRAR
+    )
     return person
 
 

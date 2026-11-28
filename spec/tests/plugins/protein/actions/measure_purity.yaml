@@ -4,9 +4,9 @@ name: measure_purity
 label: Measure purity
 inputs:
   # With the lot it's of, and the lot's report (ADR 0105).
-  sample: { type: Sample, schema: ">=1", include: [lot] }
+  sample: { type: Sample, schema_version: ">=1", include: [lot] }
 effects:
-  updates: [{ input: sample, fields: [purity] }]
+  updates: { sample: { fields: [purity] } }
 runs_on: { tier: backend, environment: protein-tools }
 command: [python, ./scripts/purity.py]
 deterministic: true

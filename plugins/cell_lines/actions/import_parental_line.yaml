@@ -5,16 +5,19 @@ label: Register a parental line from Cellosaurus
 description: >-
   Reads one Cellosaurus text record. With a supplier and catalogue number, checks
   that they appear together among its cross-references and registers that source
-  too. Without them, registers the line alone.
+  too, with the supplier, by its name, if the registry hasn't got it. Without them,
+  registers the line alone.
 params:
   file: { type: file, required: true, media_types: [text/plain], max_size: 2MiB }
   supplier:
     type: string
     max_length: 128
-    description: The supplier of the project's material, such as ATCC, with its catalogue number.
+    description: >-
+      The supplier of the project's material, with its catalogue number, as Cellosaurus
+      names it, such as ATCC or Coriell.
   catalogue_id: { type: string, max_length: 128, label: Catalogue number }
 effects:
-  creates: [{ type: ParentalLine }, { type: CellLineSource }]
+  creates: [{ type: ParentalLine }, { type: iki/inventory.Supplier }, { type: CellLineSource }]
 runs_on: { tier: backend, environment: cell-line-tools }
 command: [python, ./scripts/import_cellosaurus.py]
 deterministic: true

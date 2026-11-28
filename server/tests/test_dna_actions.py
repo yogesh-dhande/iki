@@ -126,7 +126,7 @@ def test_a_run_of_one_base_is_counted(tmp_path: Path) -> None:
 def test_every_field_the_action_declares_is_one_a_primer_can_get(tmp_path: Path) -> None:
     """A field in `effects` the script never writes would promise an empty column."""
     declared = yaml.safe_load((DNA / "actions" / "primer_properties.yaml").read_text())
-    (fields,) = [update["fields"] for update in declared["effects"]["updates"]]
+    (fields,) = [update["fields"] for update in declared["effects"]["updates"].values()]
     found = run(tmp_path, "primers", "primer", ["GGGCCCTTTTGGGCCC"])
     assert set(fields) == set(next(iter(found.values())))
 

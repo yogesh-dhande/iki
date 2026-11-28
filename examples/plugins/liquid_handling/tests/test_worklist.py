@@ -20,7 +20,7 @@ from iki_spec.writers.runtime import Instance, engine
 
 EXAMPLE = Path(__file__).resolve().parents[1]
 MODULE = EXAMPLE / "writers" / "tecan-worklist.wasm"
-WRITER = "acme/liquid_handling.tecan-worklist"
+WRITER = "acme/liquid_handling.tecan_worklist"
 
 pytestmark = pytest.mark.skipif(not MODULE.is_file(), reason="build the writer's module first")
 
@@ -44,7 +44,6 @@ def transfer(at: str, to: str, volume: float, **roles: Any) -> dict[str, Any]:
     return {
         "hrid": "TRF-000001",
         "id": "0190e9a4-0000-7000-8000-000000000101",
-        "latest": True,
         "name": f"{at} to {to}",
         "revised_at": "2026-11-25T09:00:00Z",
         "revision": 1,
@@ -66,7 +65,7 @@ def written(*records: dict[str, Any]) -> list[tuple[int, bytes, list[dict[str, A
     writer = Instance(wasmtime.Module(compiler, MODULE.read_bytes()), compiler, 16 * 1024 * 1024)
     begin = {
         "abi": 1,
-        "format": "acme/liquid_handling.tecan-gwl",
+        "format": "acme/liquid_handling.tecan_gwl",
         "records": len(records),
         "writer": WRITER,
     }

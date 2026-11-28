@@ -28,7 +28,6 @@ from iki_server.entities.models import Entity
 from iki_server.notifications import kinds
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
-from iki_server.org.services import Refused
 from iki_server.storage import observations, scan_identity
 from iki_server.storage import services as storage
 from iki_server.storage.models import Outcome, Place, Receipt, ReceiptLine, ReceiptStatus
@@ -59,7 +58,7 @@ def receives(entity: Entity) -> tuple[str, tuple[str, ...]] | None:
     spec = requests.spec_of(entity.type)
     if spec is None or spec.receives is None:
         return None
-    return spec.receives, spec.receives_by
+    return spec.receives, spec.received_by
 
 
 def why_not_receiver(user: User, entity: Entity) -> str | None:
@@ -157,12 +156,19 @@ def start(user: User, entity: Entity) -> Receipt:
         return receipt
 
 
-class LinesChanged(Refused):
-    def __init__(self, message: str, lines: Iterable[tuple[UUID, int]]) -> None:
+class LinesChanged(Exception):  # noqa: N818 - reads as "the lines changed"
+    """The receipt or a line changed since the revision a change named (ADR 0289):
+    ``current`` is the revision of what the change addressed, and ``lines`` the lines that
+    changed, each with its revision now."""
+
+    def __init__(self, message: str, lines: Iterable[tuple[UUID, int]], *, current: int) -> None:
         super().__init__(message)
-        self.extensions = {
-            "affected_lines": [{"line_id": str(pk), "line_revision": rev} for pk, rev in lines]
-        }
+        self.current = current
+        self.lines = [{"line_id": str(pk), "revision": rev} for pk, rev in lines]
+
+
+class RevisionRequired(Exception):  # noqa: N818 - reads as "a revision is required"
+    """A change replaces what someone recorded without naming the revision it replaces."""
 
 
 def _open(user: User, receipt: Receipt, plan_revision: int | None = None) -> Receipt:
@@ -183,7 +189,9 @@ def _open(user: User, receipt: Receipt, plan_revision: int | None = None) -> Rec
             .values_list("pk", "line_revision")
         )
         raise LinesChanged(
-            "The receipt changed. Reload it and review its current observations.", versions
+            "The receipt changed. Reload it and review its current observations.",
+            versions,
+            current=locked.plan_revision,
         )
     return locked
 
@@ -205,7 +213,7 @@ def _line_state(line: ReceiptLine) -> dict[str, Any]:
     return {
         **({"entity_id": str(line.entity_id)} if line.entity_id else {}),
         "code": line.code,
-        "line_revision": line.line_revision,
+        "revision": line.line_revision,
         "expected": line.expected,
         "outcome": line.outcome,
         "note": line.note,
@@ -361,11 +369,14 @@ def _line(receipt: Receipt, line_id: UUID | str) -> ReceiptLine:
 
 def _reviewed_line(line: ReceiptLine, line_revision: int | None) -> None:
     if line_revision is None:
-        raise Wrong({"line_revision": ["is required: review this line before correcting it."]})
+        raise RevisionRequired(
+            "Send the line's ETag as If-Match: review it before correcting what was recorded."
+        )
     if line_revision != line.line_revision:
         raise LinesChanged(
             "This receipt line changed. Reload it and review its current observation.",
             [(line.pk, line.line_revision)],
+            current=line.line_revision,
         )
 
 
@@ -541,6 +552,36 @@ def preview_put_away(
         if line.entity_id and line.outcome in (*RECEIVED, Outcome.REJECTED)
     )
     return storage.plan(user, wanted, taken_into_custody=taken)
+
+
+@transaction.atomic
+def placeable(
+    user: User, receipt: Receipt, box: Entity, *, plan_revision: int
+) -> list[tuple[ReceiptLine, str | None]]:
+    """Each accepted line, and why its record can't go in ``box`` at all, if it can't: the
+    checks completing makes, before any position is chosen, so a receiver is told before
+    choosing a well rather than refused when completing."""
+    receipt = _open(user, receipt, plan_revision)
+    lines = [
+        line
+        for line in receipt.lines.filter(removed=False).select_related("entity").order_by("id")
+        if line.outcome in RECEIVED and line.entity is not None
+    ]
+    taken = frozenset(
+        line.entity_id
+        for line in receipt.lines.filter(removed=False)
+        if line.entity_id and line.outcome in (*RECEIVED, Outcome.REJECTED)
+    )
+    planned = storage.plan(
+        user,
+        [storage.Wanted(line.entity, box) for line in lines if line.entity is not None],
+        taken_into_custody=taken,
+        placing=False,
+    )
+    return [
+        (line, p.problems[0] if p.problems else None)
+        for line, p in zip(lines, planned, strict=True)
+    ]
 
 
 def complete(

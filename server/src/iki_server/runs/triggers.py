@@ -3,6 +3,8 @@
 A plugin declares triggers; none runs until a project's Admin turns it on in that project,
 and then its runs are launched as that Admin, with ``via="trigger"``, checked as any run
 they launched would be. One on the container or VM tier waits for the Admin's approval.
+Its action may be a dependency's (ADR 0298): the run is that action's, as its own plugin
+declares it, and the trigger only says when it starts and on what.
 
 An entity created or changed in the project whose trigger it fires is recorded, in the
 change's transaction, as a :class:`TriggerFiring`; a task launches its run once the change
@@ -24,6 +26,7 @@ from contextvars import ContextVar
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import structlog
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
 from django.db.models import Q, QuerySet
@@ -33,6 +36,7 @@ from iki_server.accounts.models import Kind as UserKind
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
+from iki_server.core import sweeps
 from iki_server.entities import registry, search
 from iki_server.entities.models import Entity, Revision, RevisionKind
 from iki_server.entities.values import Invalid, subtypes
@@ -64,12 +68,14 @@ __all__ = [
     "firings",
     "in_project",
     "label",
+    "moved",
     "next_run",
     "noticed",
     "received",
     "recheck_edit",
     "rechecks",
     "recover",
+    "repointed",
     "run_as_choices",
     "source_changed",
     "tick",
@@ -85,6 +91,10 @@ MAX_RELATED = 1000
 RECOVER_AFTER = timedelta(minutes=1)
 #: The most firings one housekeeping pass fires.
 RECOVER_AT_MOST = 500
+#: Tries at launching a firing's run that may fail unexpectedly before it fails.
+MAX_FAILURES = 5
+
+logger = structlog.get_logger("iki.runs")
 
 _EVENTS = {
     RevisionKind.CREATED: "entity.created",
@@ -199,10 +209,101 @@ def rechecks(entity_type: str, changed: set[str]) -> list[tuple[Trigger, tuple[s
     found = []
     for spec in triggers().values():
         if spec.recheck and _fires(spec, "entity.updated", entity_type, list(changed)):
-            action = catalog.action(f"{spec.plugin}.{spec.run}")
+            action = catalog.action(spec.action)
             if action is not None:
                 found.append((spec, tuple(n for u in action.updates for n in u.fields)))
     return found
+
+
+def _calculations(entity_type: str) -> Iterator[tuple[Trigger, Action, frozenset[str]]]:
+    """Each calculation of an ``entity_type`` record (ADR 0080), a trigger ``on:
+    entity.updated`` without ``recheck`` whose action updates the record it's given, with
+    the references its input includes (``protein``, ``components.part``)."""
+    for spec in triggers().values():
+        if (
+            spec.on != "entity.updated"
+            or spec.recheck
+            or not spec.input
+            or not services.is_a(entity_type, spec.type)
+        ):
+            continue
+        action = catalog.action(spec.action)
+        if action is None or not any(u.input == spec.input for u in action.updates):
+            continue
+        put = action.inputs.get(spec.input)
+        if put is not None and put.include:
+            yield spec, action, frozenset(put.include)
+
+
+def repointed(entity: Entity, fields: set[str]) -> int:
+    """A move to a superseded entry's or lab list option's replacement (ADR 0115, ADR 0270)
+    re-pointed these references of ``entity``: each calculation that reads through one
+    (ADR 0080) needs running again, as what it was worked out from is another record now,
+    even where all it reads of it is fixed (ADR 0143). Flags it, whether or not its project
+    turned it on; the re-pointing save fires those it did, as each calculation's trigger
+    watches its references, and a run clears the flag. Returns how many it flagged."""
+    actions = {
+        action.qualified_name
+        for _, action, include in _calculations(entity.type)
+        if fields & {name.partition(".")[0] for name in include}
+    }
+    Recalculation.objects.bulk_create(
+        [Recalculation(entity=entity, action=a) for a in sorted(actions)], ignore_conflicts=True
+    )
+    return len(actions)
+
+
+def moved(record: Entity) -> int:
+    """``record`` was moved to its superseded entry's replacement (ADR 0115): it's the
+    replacement's record now, with the replacement's facts. Each calculation of the
+    project's records that reads through a reference to it (ADR 0080) needs running again,
+    though the reference didn't change: flags each, and fires those the project turned on,
+    for records that aren't locked. Returns how many it flagged."""
+    if record.owner_project_id is None:
+        return 0
+    through: dict[UUID, set[str]] = {}
+    for node, field in Edge.objects.filter(kind=EdgeKind.REFERENCE, on_id=record.pk).values_list(
+        "node_id", "field"
+    ):
+        through.setdefault(node, set()).add(field)
+    referrers = Entity.objects.filter(
+        pk__in=through,
+        owner_project_id=record.owner_project_id,
+        archived_at__isnull=True,
+        purged_at__isnull=True,
+    ).order_by("pk")
+    run = _writing.get()
+    may_fire = run is None or run.via != Via.TRIGGER
+    on = {
+        row.trigger: row
+        for row in ProjectTrigger.objects.filter(project_id=record.owner_project_id, enabled=True)
+    }
+    flags: dict[tuple[UUID, str], Recalculation] = {}
+    firings: list[TriggerFiring] = []
+    for referrer in referrers:
+        for spec, action, include in _calculations(referrer.type):
+            if not through[referrer.pk] & include:
+                continue
+            flags[(referrer.pk, action.qualified_name)] = Recalculation(
+                entity=referrer, action=action.qualified_name
+            )
+            row = on.get(spec.qualified_name)
+            if may_fire and row is not None and not referrer.locked_by:
+                firings.append(
+                    TriggerFiring(
+                        trigger=row,
+                        entity=referrer,
+                        revision=referrer.revision,
+                        event="entity.updated",
+                    )
+                )
+    Recalculation.objects.bulk_create(list(flags.values()), ignore_conflicts=True)
+    TriggerFiring.objects.bulk_create(firings)
+    from iki_server.runs.tasks import fire_trigger
+
+    for firing in firings:
+        fire_trigger.enqueue(str(firing.pk))
+    return len(flags)
 
 
 def recheck_edit(user: User, entity: Entity, revision: Revision, spec: Trigger) -> str:
@@ -255,7 +356,7 @@ def source_changed(parent: Entity, revision: Revision) -> None:
         records_list = list(records.order_by("pk"))
         if not records_list:
             continue
-        action = f"{spec.plugin}.{spec.run}"
+        action = spec.action
         Recalculation.objects.bulk_create(
             [Recalculation(entity=r, action=action) for r in records_list],
             ignore_conflicts=True,
@@ -310,8 +411,29 @@ def fire(firing_id: str) -> str:
         )
         if firing is None:
             return "already fired"
-        _fire(firing)
+        try:
+            with transaction.atomic():
+                _fire(firing)
+        except Exception:
+            # What it doesn't end with why (a bug, a constraint the launch breaks) is
+            # undone and counted: the sweep tries it again, and past a few, it fails.
+            _failed(firing)
         return firing.state
+
+
+def _failed(firing: TriggerFiring) -> None:
+    firing.refresh_from_db(fields=["state", "run", "related", "error", "fired_at", "failures"])
+    firing.failures += 1
+    logger.exception("trigger_fire_failed", firing=str(firing.pk), failures=firing.failures)
+    firing.save(update_fields=["failures"])
+    if firing.failures >= MAX_FAILURES:
+        _end(
+            firing,
+            FiringState.FAILED,
+            "launch_failed",
+            f"Its run couldn't start: launching it failed {firing.failures} times with an "
+            "unexpected error, which the server's log records.",
+        )
 
 
 def _fire(firing: TriggerFiring, *, editor: User | None = None) -> None:
@@ -335,9 +457,21 @@ def _fire(firing: TriggerFiring, *, editor: User | None = None) -> None:
     if firing.entity is not None and firing.entity.archived_at is not None:
         _end(firing, FiringState.SKIPPED, "archived", f"{firing.entity.hrid} was archived first.")
         return
-    action = catalog.action(f"{spec.plugin}.{spec.run}")
+    action = catalog.action(spec.action)
     if action is None:
-        _end(firing, FiringState.FAILED, "not_installed", f"`{spec.run}` is no longer installed.")
+        _end(
+            firing, FiringState.FAILED, "not_installed", f"`{spec.action}` is no longer installed."
+        )
+        return
+    if action.plugin in registry.detached():
+        # A dependency's action (ADR 0298): detached, it stops this trigger as its own
+        # plugin's detachment would, and the trigger stays on for when it's reattached.
+        _end(
+            firing,
+            FiringState.SKIPPED,
+            "plugin_detached",
+            f"The {action.plugin} plugin is detached, so its action `{action.name}` doesn't run.",
+        )
         return
     authority = editor or row.enabled_by
     if authority is None or (spec.recheck and editor is None):
@@ -601,14 +735,21 @@ def _schedule(row: ProjectTrigger, at: datetime, now: datetime) -> None:
 
 
 def recover() -> int:
-    """Fires firings whose task was lost. Returns how many it fired."""
+    """Fires firings whose task was lost. Returns how many it fired or ended. One whose
+    launch fails unexpectedly stays pending for the next pass, and fails after
+    ``MAX_FAILURES``, behind none of the others."""
     due = timezone.now() - RECOVER_AFTER
     ids = list(
         TriggerFiring.objects.filter(state=FiringState.PENDING, created_at__lte=due)
         .order_by("id")
         .values_list("pk", flat=True)[:RECOVER_AT_MOST]
     )
-    return sum(fire(str(pk)) != "already fired" for pk in ids)
+    return sweeps.each(
+        ids,
+        lambda pk: fire(str(pk)) not in ("already fired", FiringState.PENDING),
+        failed="trigger_recovery_failed",
+        key="firing",
+    )
 
 
 # --- Turning on and off ------------------------------------------------------------------------
@@ -620,9 +761,9 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
         return "Only the project's Admins can turn its triggers on."
     if spec.recheck:
         return None
-    action = catalog.action(f"{spec.plugin}.{spec.run}")
+    action = catalog.action(spec.action)
     if action is None:
-        return f"`{spec.run}` is no longer installed."
+        return f"`{spec.action}` is no longer installed."
     try:
         services.may_launch(user, action, project)
     except PermissionDenied:
@@ -651,7 +792,7 @@ def why_not_enable(user: User, project: Project, spec: Trigger) -> str | None:
 def run_as_choices(project: Project, spec: Trigger) -> list[User]:
     """The service accounts a scheduled trigger may run as in the project: active members
     who can run its action's tier, by name."""
-    action = catalog.action(f"{spec.plugin}.{spec.run}")
+    action = catalog.action(spec.action)
     if spec.on not in ACCOUNT_EVENTS or action is None:
         return []
     least = permissions.least_role(services.TIER_PERMISSIONS[action.tier])
@@ -716,7 +857,7 @@ def enable(
             project=project,
             data={
                 "trigger": name,
-                "action": f"{spec.plugin}.{spec.run}",
+                "action": spec.action,
                 "on": spec.on,
                 **({"run_as": run_as.name} if run_as else {}),
                 **({"schedule": spec.schedule} if scheduled else {}),

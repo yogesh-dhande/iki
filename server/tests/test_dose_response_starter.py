@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 from wsgiref.simple_server import make_server
 
 import pytest
-from api_client import Api
+from api_client import Api, seen
 from django.conf import settings
 from django.core.wsgi import get_wsgi_application
 from django.db import transaction
@@ -380,9 +380,9 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
     assert {line["entity"] for line in reviewed["lines"] if line["outcome"] == "matched"} == set(
         tube_ids
     )
-    revision = reviewed["plan_revision"]
+    revision = reviewed["revision"]
     repeated = api.post(
-        path + "/complete", {"plan_revision": revision, "keep_in_custody": [line_id, line_id]}
+        path + "/complete", {"keep_in_custody": [line_id, line_id]}, headers=seen(revision)
     )
     assert repeated.status_code == 422, repeated.content
     assert api.get(path).json() == reviewed
@@ -395,7 +395,7 @@ def _run_example(world: World, flow: str, directory: Path, adapter: SdkApi) -> N
 
     waiting = api.get("/storage/awaiting-put-away")
     assert waiting.status_code == 200, waiting.content
-    held = {item["id"]: item for item in waiting.json()}
+    held = {item["id"]: item for item in waiting.json()["items"]}
     assert all(
         held[t]["custodian"]["id"] == str(admin.pk) and held[t]["custody_since"] for t in tube_ids
     )

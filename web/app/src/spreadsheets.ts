@@ -10,7 +10,7 @@
  * chose that wasn't.
  */
 
-import { ApiError, unwrap, type Schemas } from "@ikisci/sdk";
+import { ApiError, ifMatch, isStale, unwrap, type Schemas } from "@ikisci/sdk";
 import {
   infiniteQueryOptions,
   queryOptions,
@@ -31,6 +31,7 @@ export type Outcome = PreviewRow["outcome"];
 export type ColumnChoice = Schemas["SheetColumnIn"];
 export type SheetChange = Schemas["SpreadsheetImportChange"];
 export type SaveMapping = Schemas["SavedMappingIn"];
+export type SavedMapping = Schemas["SavedMappingOut"];
 export type SheetLocaleChange = Schemas["SheetLocaleIn"];
 
 /** The workbook and delimited text formats the spreadsheet importer reads. */
@@ -128,7 +129,7 @@ export function rowsQuery(made: SheetImport, outcome: Outcome | undefined) {
     queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/spreadsheet-imports/{import_id}/rows", {
-          headers: seen(made.revision),
+          headers: ifMatch(made.revision),
           params: {
             path: { import_id: made.id },
             query: {
@@ -153,15 +154,10 @@ export async function startImport(projectId: string, file: string, type: string)
   );
 }
 
-/** If-Match: the revision a request is made from. */
-function seen(revision: number) {
-  return { "If-Match": `"${String(revision)}"` };
-}
-
 export async function changeImport(id: string, revision: number, change: SheetChange) {
   return unwrap(
     await iki.PATCH("/api/v1/spreadsheet-imports/{import_id}", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
       body: change,
     }),
   );
@@ -170,7 +166,7 @@ export async function changeImport(id: string, revision: number, change: SheetCh
 export async function previewImport(id: string, revision: number) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/preview", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
     }),
   );
 }
@@ -182,16 +178,16 @@ export async function commitImport(
 ) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/commit", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
       body,
     }),
   );
 }
 
-export async function discardImport(id: string) {
+export async function discardImport(id: string, revision: number) {
   unwrap(
     await iki.DELETE("/api/v1/spreadsheet-imports/{import_id}", {
-      params: { path: { import_id: id } },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
     }),
   );
 }
@@ -208,15 +204,25 @@ export async function savedMappings(project: string, type: string, signal: Abort
 export async function saveMapping(id: string, revision: number, body: SaveMapping) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/mappings", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
       body,
     }),
   );
 }
 
-/** It moved on from the revision a request was made from (412). */
-export function isStale(error: unknown): error is ApiError {
-  return error instanceof ApiError && error.problem.code === "stale";
+/** Replaces a saved mapping, from the revision of it the person reviewed, with the mapping of
+ * an import at the revision they reviewed it. */
+export async function replaceMapping(
+  mapping: { id: string; revision: number },
+  imported: { id: string; revision: number },
+  name: string,
+) {
+  return unwrap(
+    await iki.PUT("/api/v1/spreadsheet-mappings/{mapping_id}", {
+      params: { path: { mapping_id: mapping.id }, header: ifMatch(mapping.revision) },
+      body: { name, import: imported.id, import_revision: imported.revision },
+    }),
+  );
 }
 
 // --- Saving changes in turn ---------------------------------------------------------------

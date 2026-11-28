@@ -217,18 +217,17 @@ def fill_notes(row):
 
 
 class Migration(iki.Migration):
-
     dependencies = [
-        ('acme__lab', '0002_notes'),
+        ("acme__lab", "0002_notes"),
     ]
 
     operations = [
         iki.MigrateValues(
-            'Sample',
+            "Sample",
             fill_notes,
-            version='1.1.0',
-            migration='0003_fill',
-            reason='Copy the sample label into the notes.',
+            version="1.1.0",
+            migration="0003_fill",
+            reason="Copy the sample label into the notes.",
         ),
     ]
 ```

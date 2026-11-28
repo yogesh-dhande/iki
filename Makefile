@@ -128,7 +128,7 @@ client: ## Regenerate the API clients (TypeScript, and the Python SDK's types) f
 	uv run python -m iki_codegen.sdk web/packages/sdk/openapi.json > sdk/python/src/iki/schema.py
 
 .PHONY: first-party
-first-party: ## List each first-party plugin's current tree, which mirrors are checked against (ADR 0114)
+first-party: ## List each first-party plugin's current tree (ADR 0114) and the HRID prefixes Iki keeps (ADR 0033)
 	uv run python scripts/first_party_trees.py
 
 .PHONY: protocol
@@ -150,7 +150,7 @@ check-web: ## The parsers (iki-wasm), ESLint, Prettier, tsc, Vitest, the generat
 
 .PHONY: web
 web: ## Build the server's web app and the standalone package stories
-	$(PNPM) --filter @ikisci/app --filter @ikisci/science --filter @ikisci/ui build
+	$(PNPM) --filter @ikisci/app --filter @ikisci/component --filter @ikisci/science --filter @ikisci/ui build
 
 .PHONY: web-dev
 web-dev: ## Serve the web app with instant reloads at http://localhost:5173 (needs the dev cluster)
@@ -168,7 +168,7 @@ check-scale-grid: test-wasm ## Load test: the grid at 100M rows (IKI_SCALE_GRID_
 	uv run pytest server/tests/test_scale_grid.py --scale -s
 
 .PHONY: check-scale-queue
-check-scale-queue: test-wasm ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished (IKI_SCALE_QUEUE_* set the sizes)
+check-scale-queue: test-wasm ## Load test: 32 workers leasing from 100k queued jobs behind 1M finished, then packs of 100 runs within projects' quotas (IKI_SCALE_QUEUE_* set the sizes)
 	uv run pytest server/tests/test_scale_queue.py --scale -s
 
 .PHONY: check-scale-files

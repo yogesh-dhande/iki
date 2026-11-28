@@ -19,10 +19,10 @@ description: >-
   and ε280 with its disulfides, its own and its parts': two hydrogens
   off and a cystine's 125 L/(mol.cm) on for each.
 inputs:
-  complex: { type: iki/core.Complex, schema: ">=1", include: [components.part] }
+  complex: { type: iki/core.Complex, schema_version: ">=1", include: [components.part] }
 effects:
   updates:
-    - input: complex
+    complex:
       fields:
         [
           molecular_formula,

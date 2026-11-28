@@ -1,5 +1,6 @@
 """Detached plugins (ADR 0091): their data stays and can be read, but nothing changes it."""
 
+import dataclasses
 import os
 from collections.abc import Callable, Iterator
 from io import StringIO
@@ -24,7 +25,7 @@ from iki_server.org.models import Project, ProjectMembership, ProjectRole, Team
 from iki_server.org.services import Refused
 from iki_server.plugins import sync
 from iki_server.plugins.models import PluginState
-from iki_server.runs import catalog, queue
+from iki_server.runs import catalog, queue, triggers
 from iki_server.runs.models import (
     ActionRun,
     FiringState,
@@ -390,6 +391,37 @@ def test_a_detached_plugins_triggers_are_skipped_and_stay_on(
     )
     assert refused.status_code == 409, refused.content
     assert "The acme/protein plugin is detached" in refused.json()["detail"]
+
+
+def test_a_trigger_running_a_detached_dependencys_action_is_skipped_and_stays_on(
+    world: World, deployed: Callable[..., None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A plugin's trigger that runs its dependency's action (ADR 0298): the dependency's
+    # detachment stops it, as its own plugin's would, and it stays on for when it's back.
+    installed = triggers.triggers()
+    own = installed["acme/protein.weigh_new_proteins"]
+    borrowed = dataclasses.replace(own, plugin="acme/prediction")
+    assert borrowed.action == "acme/protein.compute_properties"
+    every = {**installed, borrowed.qualified_name: borrowed}
+    monkeypatch.setattr(triggers, "triggers", lambda: every)
+    turned_on = api_as(world, "admin").post(
+        f"/projects/{world.project.pk}/triggers/{borrowed.qualified_name}/enable", {}
+    )
+    assert turned_on.status_code == 200, turned_on.content
+    protein(api_as(world, "editor"), world.project)
+    deployed("acme/protein")
+    Runner(queues=["default"]).run_ready()
+    firing = TriggerFiring.objects.get()
+    assert (firing.state, firing.error) == (
+        FiringState.SKIPPED,
+        {
+            "code": "plugin_detached",
+            "message": "The acme/protein plugin is detached, so its action `compute_properties` "
+            "doesn't run.",
+        },
+    )
+    assert ProjectTrigger.objects.get(trigger=borrowed.qualified_name).enabled
+    assert ActionRun.objects.count() == 0
 
 
 # --- People can tell -----------------------------------------------------------------------

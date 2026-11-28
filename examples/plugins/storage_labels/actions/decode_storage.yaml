@@ -8,9 +8,9 @@ name: decode_storage
 label: Decode storage codes
 description: Writes a sample's storage location in full from the lab's code for it, such as "-80 °C freezer" for "-80".
 inputs:
-  sample: { type: Sample, schema: ">=1" }
+  sample: { type: Sample, schema_version: ">=1" }
 effects:
-  updates: [{ input: sample, fields: [storage] }]
+  updates: { sample: { fields: [storage] } }
 runs_on: { tier: container, environment: reference }
 command: [python, ./scripts/decode.py]
 deterministic: true

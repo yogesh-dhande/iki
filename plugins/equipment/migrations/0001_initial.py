@@ -113,6 +113,8 @@ class Migration(iki.Migration):
                 ('calibration', iki.UUIDField(db_column='calibration_id', null=True)),
                 ('calibration_revision', iki.BigIntegerField(null=True)),
                 ('measurement_at', iki.DateTimeField(null=True)),
+                ('covered', iki.BooleanField(null=True)),
+                ('not_covered_because', iki.TextField(null=True)),
             ],
             table='iki__equipment_instrumentuse__history',
         ),
@@ -187,6 +189,8 @@ class Migration(iki.Migration):
                 ('result_revision', iki.BigIntegerField(null=True)),
                 ('calibration_revision', iki.BigIntegerField(null=True)),
                 ('measurement_at', iki.DateTimeField(db_index=True)),
+                ('covered', iki.BooleanField(db_index=True, null=True)),
+                ('not_covered_because', iki.CharField(max_length=400, null=True)),
                 ('calibration', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__equipment.equipmentservice')),
                 ('instrument', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__equipment.instrument')),
                 ('result', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to=iki.ENTITY)),
@@ -287,6 +291,14 @@ class Migration(iki.Migration):
         iki.AddConstraint(
             model_name='instrumentuse',
             constraint=iki.CheckConstraint(condition=iki.Q(('calibration_revision__gte', 1)), name='iki__equipment_instrumentuse__calibration_revision__min'),
+        ),
+        iki.AddConstraint(
+            model_name='instrumentuse',
+            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('not_covered_because'), 1), name='iki__equipment_instrumentuse__not_covered_because__not_empty'),
+        ),
+        iki.AddConstraint(
+            model_name='instrumentuse',
+            constraint=iki.CheckConstraint(condition=iki.Q(('not_covered_because__regex', '[\\r\\n]'), negated=True), name='iki__equipment_instrumentuse__not_covered_because__one_line'),
         ),
         iki.AddIndex(
             model_name='calibrationimpact',

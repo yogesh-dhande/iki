@@ -24,7 +24,7 @@ from iki_server.files.models import File
 class Ext_acme_protein_Protein(models.Model):
     """The fields the acme/prediction plugin adds to Protein (acme/protein.Protein)."""
 
-    IKI_EXTENDS = 'acme/protein.Protein'
+    IKI_ADDS_TO = 'acme/protein.Protein'
 
     entity = models.OneToOneField(
         'acme__protein.Protein',
@@ -67,7 +67,7 @@ class Ext_acme_protein_Protein_History(models.Model):
 class Ext_acme_protein_Protein_Entry(models.Model):
     """The registry fields the acme/prediction plugin adds to Protein's entries (acme/protein.Protein, ADR 0115)."""
 
-    IKI_EXTENDS = 'acme/protein.Protein'
+    IKI_ADDS_TO = 'acme/protein.Protein'
     IKI_ENTRY = True
 
     entity = models.OneToOneField(
@@ -115,7 +115,7 @@ class Ext_acme_protein_Protein_Entry_History(models.Model):
 class Ext_acme_protein_ProteinStructure(models.Model):
     """The fields the acme/prediction plugin adds to Protein Structure (acme/protein.ProteinStructure)."""
 
-    IKI_EXTENDS = 'acme/protein.ProteinStructure'
+    IKI_ADDS_TO = 'acme/protein.ProteinStructure'
 
     entity = models.OneToOneField(
         'acme__protein.ProteinStructure',

@@ -14,8 +14,8 @@ description: >-
   alignment of the two in Iki, the target its reference, for the alignment
   viewer.
 inputs:
-  query: { type: Protein, schema: ">=1" }
-  target: { type: Protein, schema: ">=1" }
+  query: { type: Protein, schema_version: ">=1" }
+  target: { type: Protein, schema_version: ">=1" }
 params:
   mode:
     type: enum

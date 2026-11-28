@@ -233,8 +233,8 @@ def sample_amount(suffix: str, body: Any = None) -> Build:
         if suffix == "/amount/adjust":
             from iki_server.amounts.models import Amount
 
-            revision = Amount.objects.get(pk=found.pk).updated_at.isoformat()
-            return f"/entities/{found.pk}{suffix}", given, {"If-Balance-Revision": revision}
+            revision = Amount.objects.get(pk=found.pk).revision
+            return f"/entities/{found.pk}{suffix}", given, {"If-Match": f'"{revision}"'}
         return f"/entities/{found.pk}{suffix}", given or None
 
     return build
@@ -852,13 +852,17 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         found, started = _received(w)
         line = started.lines.get()
         path = suffix.format(request=found.pk, receipt=started.pk, line=line.pk)
+        # Each change names the revision it replaces (ADR 0289): the line's, or the receipt's.
         if body is not None and "reason" in body and "/lines/" in path:
-            return path, {**body, "line_revision": line.line_revision}
+            return path, body, {"If-Match": f'"{line.line_revision}"'}
+        if suffix.endswith("/put-away/placeable"):
+            box = {"box": str(_box(w).pk)}
+            return path, box, {"If-Match": f'"{started.plan_revision}"'}
         if body is not None and (
             suffix == "/receipts/{receipt}"
             or suffix.endswith(("/complete", "/cancel", "/put-away/preview"))
         ):
-            return path, {**body, "plan_revision": started.plan_revision}
+            return path, body, {"If-Match": f'"{started.plan_revision}"'}
         return path, body
 
     return build
@@ -872,14 +876,12 @@ def reconciliation(suffix: str = "", body: Any = None) -> Build:
         tube = _tube(w, into=box)
         started = reconciliations.start(w.users["editor"], box)
         line = started.lines.get(entity=tube)
-        payload = (
-            {**body, "plan_revision": started.plan_revision}
-            if suffix.endswith(("/complete", "/cancel", "/put-away/preview"))
-            else body
-        )
+        path = suffix.format(reconciliation=started.pk, line=line.pk)
+        if suffix.endswith(("/complete", "/cancel")):
+            return path, body, {"If-Match": f'"{started.plan_revision}"'}
         if suffix.endswith("/lines/{line}"):
-            payload = {**body, "line_revision": line.line_revision}
-        return suffix.format(reconciliation=started.pk, line=line.pk), payload
+            return path, body, {"If-Match": f'"{line.line_revision}"'}
+        return path, body
 
     return build
 
@@ -951,20 +953,31 @@ def lab_list(suffix: str = "", body: Any = None, *, at: str = "project") -> Buil
         scope = (
             f"project={w.project.pk}" if at == "project" else f"registry={Registry.default().pk}"
         )
-        headers = {"If-Match": '"1"'} if body is not None and suffix.endswith("/sec") else None
+        # A change to the option names its revision, as read (ADR 0289).
+        changes = ("/sec", "/sec/archive", "/sec/restore", "/sec/supersede")
+        headers = {"If-Match": '"1"'} if body is not None and suffix.endswith(changes) else None
         given = body(w) if callable(body) else body
         return f"/lists/{LAB_LIST}{suffix}?{scope}", given, headers
 
     return build
 
 
-def list_curator(w: World) -> tuple[Any, ...]:
-    from iki_server.org.models import Registry
+def registry_role(w: World) -> tuple[Any, ...]:
+    """The viewer's curation of the lab list, a registry role (ADR 0292)."""
+    from iki_server.org.models import Registry, RegistryRole
 
-    return (
-        f"/registries/{Registry.default().pk}/list-curators/{LAB_LIST}/{w.users['viewer'].pk}",
-        None,
+    grant = RegistryRole.objects.create(
+        registry=Registry.default(),
+        user=w.users["viewer"],
+        role=RegistryRole.Role.LIST_CURATOR,
+        list_type=LAB_LIST,
     )
+    return f"/registries/{Registry.default().pk}/roles/{grant.pk}", None
+
+
+def grant_registrar(w: World) -> tuple[Any, ...]:
+    path, _ = registry("/roles")(w)
+    return path, {"role": "registrar", "user": str(w.users["viewer"].pk)}
 
 
 def readers_of_entries(status: int, **overrides: int) -> dict[str, int]:
@@ -1042,10 +1055,10 @@ def sheet_edit(w: World) -> tuple[str, Any]:
     }
 
 
-def spreadsheet_mapping(w: World) -> tuple[str, Any]:
+def _saved_mapping(w: World) -> Any:
     from iki_server.spreadsheets.models import SavedMapping
 
-    saved = SavedMapping.objects.create(
+    return SavedMapping.objects.create(
         project=w.project,
         type="acme/protein.Sample",
         name="Plate reader",
@@ -1054,7 +1067,27 @@ def spreadsheet_mapping(w: World) -> tuple[str, Any]:
         created_by=w.users["editor"],
         updated_by=w.users["editor"],
     )
-    return f"/spreadsheet-mappings/{saved.pk}", None
+
+
+def spreadsheet_mapping(w: World) -> tuple[Any, ...]:
+    saved = _saved_mapping(w)
+    return f"/spreadsheet-mappings/{saved.pk}", None, {"If-Match": f'"{saved.revision}"'}
+
+
+def replaced_mapping(w: World) -> tuple[Any, ...]:
+    """The editor's saved mapping, replaced with the mapping of their import: only they
+    can name the import."""
+    saved = _saved_mapping(w)
+    path, *_ = spreadsheet_import()(w)
+    imported = path.rsplit("/", 1)[1]
+    from iki_server.spreadsheets.models import SpreadsheetImport
+
+    body = {
+        "name": "Plate reader",
+        "import": imported,
+        "import_revision": SpreadsheetImport.objects.get(pk=imported).revision,
+    }
+    return f"/spreadsheet-mappings/{saved.pk}", body, {"If-Match": f'"{saved.revision}"'}
 
 
 PDB = b"HEADER    TEST\nEND\n"
@@ -1469,6 +1502,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     (
         "POST",
+        "/receipts/{receipt_id}/put-away/placeable",
+        receipt("/receipts/{receipt}/put-away/placeable"),
+        readers(403),
+    ),
+    (
+        "POST",
         "/receipts/{receipt_id}/complete",
         receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
         readers(403),
@@ -1573,7 +1612,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         fixed("/signatures/certification", {"submitted_on": "2026-11-01", "reference": "QA-1"}),
         ORG_ADMIN_ONLY,
     ),
-    ("POST", "/users/{user_id}/signing/unlock", viewer("/signing/unlock"), row(403, org_admin=409)),
+    (
+        "POST",
+        "/users/{user_id}/signing/unlock",
+        viewer("/signing/unlock", {"reason": "Checked with them"}),
+        row(403, org_admin=409),
+    ),
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
@@ -2099,17 +2143,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         registry(body={"description": "The organization's."}),
         row(403, org_admin=200),
     ),
-    ("GET", "/registries/{registry_id}/registrars", registry("/registrars"), row(200)),
-    (
-        "PUT",
-        "/registries/{registry_id}/registrars/{user_id}",
-        lambda w: (registry(f"/registrars/{w.users['viewer'].pk}")(w)[0], None),
-        row(403, org_admin=201),
-    ),
+    # Its roles (ADR 0292): anyone who sees it sees who holds them; Org Admins grant them.
+    ("GET", "/registries/{registry_id}/roles", registry("/roles"), row(200)),
+    ("POST", "/registries/{registry_id}/roles", grant_registrar, row(403, org_admin=201)),
+    ("GET", "/registries/{registry_id}/roles/{role_id}", registry_role, row(200)),
     (
         "DELETE",
-        "/registries/{registry_id}/registrars/{user_id}",
-        lambda w: (registry(f"/registrars/{w.users['viewer'].pk}")(w)[0], None),
+        "/registries/{registry_id}/roles/{role_id}",
+        registry_role,
         row(403, org_admin=204),
     ),
     # --- Lab lists (ADR 0270): members read them; nobody here curates one ---
@@ -2145,7 +2186,13 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "PUT",
         "/lists/{name}/order",
         lab_list(
-            "/order", {"codes": ["sec", "protein_a", "dialysis"], "reason": "x"}, at="registry"
+            "/order",
+            {
+                "codes": ["sec", "protein_a", "dialysis"],
+                "expected_revisions": {"sec": 1, "protein_a": 1, "dialysis": 1},
+                "reason": "x",
+            },
+            at="registry",
         ),
         row(403),
     ),
@@ -2167,19 +2214,6 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         # It wasn't superseded, so there's nowhere to move its records.
         editors(409),
     ),
-    ("GET", "/registries/{registry_id}/list-curators", registry("/list-curators"), row(200)),
-    (
-        "PUT",
-        "/registries/{registry_id}/list-curators/{name}/{user_id}",
-        list_curator,
-        row(403, org_admin=201),
-    ),
-    (
-        "DELETE",
-        "/registries/{registry_id}/list-curators/{name}/{user_id}",
-        list_curator,
-        row(403, org_admin=204),
-    ),
     # Only its registrars list a registry's entries, and nobody here is one.
     ("GET", "/registries/{registry_id}/entries", registry("/entries"), row(403)),
     ("GET", "/entries/{ref}", entry(), readers_of_entries(200)),
@@ -2192,7 +2226,11 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/entries/{ref}/supersede",
-        entry("/supersede", body=lambda w, e: {"replacement": e.hrid, "reason": "Mistyped"}),
+        entry(
+            "/supersede",
+            body=lambda w, e: {"replacement": e.hrid, "reason": "Mistyped"},
+            if_match=True,
+        ),
         readers_of_entries(403),
     ),
     ("GET", "/entries/{ref}/revisions", entry("/revisions"), readers_of_entries(200)),
@@ -2212,7 +2250,7 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     (
         "POST",
         "/entities/{ref}/move",
-        entity("/move", {"reason": "Superseded"}),
+        entity("/move", {"reason": "Superseded"}, if_match=True),
         # Its entry wasn't superseded, so there's nowhere to move it.
         editors(409),
     ),
@@ -2257,7 +2295,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         spreadsheet_import(body={"header_row": 1}, if_match=True),
         row(404, editor=200),
     ),
-    ("DELETE", "/spreadsheet-imports/{import_id}", spreadsheet_import(), row(404, editor=204)),
+    (
+        "DELETE",
+        "/spreadsheet-imports/{import_id}",
+        spreadsheet_import(if_match=True),
+        row(404, editor=204),
+    ),
     (
         "POST",
         "/spreadsheet-imports/{import_id}/preview",
@@ -2287,6 +2330,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         "/projects/{project_id}/spreadsheet-mappings",
         project("/spreadsheet-mappings"),
         visible(200, org_admin=403),
+    ),
+    (
+        "PUT",
+        "/spreadsheet-mappings/{mapping_id}",
+        replaced_mapping,
+        {**editors(404), "editor": 200},
     ),
     ("DELETE", "/spreadsheet-mappings/{mapping_id}", spreadsheet_mapping, editors(204)),
     # A type's records edited as a sheet (ADR 0228): an Editor's, as each record's edit is.

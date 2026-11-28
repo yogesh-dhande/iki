@@ -4,7 +4,7 @@ kind: EntityType
 name: CompoundBatch
 label: Compound batch
 label_plural: Compound batches
-schema_version: 1
+schema_version: 2
 description: >-
   A batch (a lot) of a compound: what was made or bought at one time, with its salt
   form, purity and amount, and where it came from. The compound is its parent
@@ -119,10 +119,11 @@ fields:
     min: 0
     description: How much of it there was when it was registered.
   supplier:
-    type: string
-    max_length: 200
-    indexed: true
-    description: Who made or sold it, such as Sigma-Aldrich, or the lab that made it.
+    type: ref
+    to: iki/inventory.Supplier
+    description: >-
+      Who made or sold it, from the registry's suppliers, such as Sigma-Aldrich, or the lab
+      that made it.
   catalogue_number:
     type: string
     max_length: 100

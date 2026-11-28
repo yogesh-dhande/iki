@@ -9,6 +9,7 @@ class Migration(iki.Migration):
     initial = True
 
     dependencies = [
+        ('iki__inventory', '0001_initial'),
         ('iki_anchors', '0001_iki_0_1'),
     ]
 
@@ -82,7 +83,7 @@ class Migration(iki.Migration):
                 ('formula_weight', iki.QuantityField(null=True, unit='g/mol')),
                 ('purity', iki.QuantityField(null=True, unit='%')),
                 ('amount', iki.QuantityField(null=True, unit='mg')),
-                ('supplier', iki.TextField(null=True)),
+                ('supplier', iki.UUIDField(db_column='supplier_id', null=True)),
                 ('catalogue_number', iki.TextField(null=True)),
                 ('supplier_lot', iki.TextField(null=True)),
                 ('received', iki.DateField(null=True)),
@@ -240,16 +241,15 @@ class Migration(iki.Migration):
                 ('formula_weight', iki.QuantityField(db_index=True, null=True, unit='g/mol')),
                 ('purity', iki.QuantityField(db_index=True, null=True, unit='%')),
                 ('amount', iki.QuantityField(null=True, unit='mg')),
-                ('supplier', iki.CharField(db_index=True, max_length=200, null=True)),
                 ('catalogue_number', iki.CharField(db_index=True, max_length=100, null=True)),
                 ('supplier_lot', iki.CharField(db_index=True, max_length=100, null=True)),
                 ('received', iki.DateField(null=True)),
                 ('compound', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__small_molecule.compound_entry')),
+                ('supplier', iki.ForeignKey(null=True, on_delete=iki.PROTECT, related_name='+', to='iki__inventory.supplier_entry')),
             ],
             table='iki__small_molecule_compoundbatch',
             indexes=[
                 iki.GinIndex(fields=['name'], name='name_trgm_b33d2b076435dad6f5df', opclasses=['gin_trgm_ops']),
-                iki.GinIndex(fields=['supplier'], name='supplier_trgm_cd12b462d2a517c3', opclasses=['gin_trgm_ops']),
                 iki.GinIndex(fields=['catalogue_number'], name='catalogue_trgm_3d0c34b434a6dbe', opclasses=['gin_trgm_ops']),
                 iki.GinIndex(fields=['supplier_lot'], name='supplier_l_trgm_982b69e55c3a92', opclasses=['gin_trgm_ops']),
             ],
@@ -273,8 +273,6 @@ class Migration(iki.Migration):
                 iki.CheckConstraint(condition=iki.Q(('purity__lte', 100)), name='iki__small_molecule_compoundbatch__purity__max'),
                 iki.CheckConstraint(condition=iki.Q(('amount__gt', float('-inf')), ('amount__lt', float('inf'))), name='iki__small_molecule_compoundbatch__amount__finite'),
                 iki.CheckConstraint(condition=iki.Q(('amount__gte', 0)), name='iki__small_molecule_compoundbatch__amount__min'),
-                iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('supplier'), 1), name='iki__small_molecule_compoundbatch__supplier__not_empty'),
-                iki.CheckConstraint(condition=iki.Q(('supplier__regex', '[\\r\\n]'), negated=True), name='iki__small_molecule_compoundbatch__supplier__one_line'),
                 iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('catalogue_number'), 1), name='iki__small_molecule_compoundbatch__catalogue_number__not_empty'),
                 iki.CheckConstraint(condition=iki.Q(('catalogue_number__regex', '[\\r\\n]'), negated=True), name='iki__small_molecule_compoundbatch__catalogue_number__one_line'),
                 iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('supplier_lot'), 1), name='iki__small_molecule_compoundbatch__supplier_lot__not_empty'),

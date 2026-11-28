@@ -14,7 +14,7 @@
 # numbering `liability_screen` names (ADR 0257).
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: iki/protein.Protein
+adds_to: iki/protein.Protein
 fields:
   chain_type:
     type: enum

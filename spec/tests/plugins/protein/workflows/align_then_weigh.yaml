@@ -2,8 +2,8 @@ apiVersion: iki/v1
 kind: Workflow
 name: align_then_weigh
 inputs:
-  query: { type: Protein, schema: ">=1" }
-  target: { type: Protein, schema: ">=1" }
+  query: { type: Protein, schema_version: ">=1" }
+  target: { type: Protein, schema_version: ">=1" }
 params:
   min_score: { type: float, default: 10 }
 steps:

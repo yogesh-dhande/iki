@@ -169,7 +169,7 @@ def test_a_type_says_its_records_are_requests_or_results(lab: Lab) -> None:
         "service_fields": ["status", "priority", "scheduled_on", "technician", "core_notes"],
         "sends": ["samples", "protein", "tubes"],
         "receives": "tubes",
-        "receives_by": [ANALYST],
+        "received_by": [ANALYST],
     }
     assert asked["result"] is None
     found = api.get(f"/entity-types/{RESULT}").json()

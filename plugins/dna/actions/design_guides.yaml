@@ -9,7 +9,7 @@ description: >-
   its GC content, what is known to make a guide work less well, and everywhere in the
   sequences the design names that the same guide could also cut.
 inputs:
-  design: { type: GuideDesign, schema: ">=1", include: [target, search_in] }
+  design: { type: GuideDesign, schema_version: ">=1", include: [target, search_in] }
 params:
   gc_min:
     type: float
@@ -41,7 +41,7 @@ params:
       all of them is kept whatever this is.
 effects:
   updates:
-    - input: design
+    design:
       fields: [guides_found, guides, searched, designed_with]
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }

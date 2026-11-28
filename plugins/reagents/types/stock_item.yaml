@@ -2,14 +2,14 @@ apiVersion: iki/v1
 kind: EntityType
 name: StockItem
 label: Stock item
-schema_version: 3
+schema_version: 4
 hrid: { prefix: SCI }
 description: A supplier catalogue pack of a reagent or consumable. Choose a new catalogue record when its unit or pack size changes.
 stock_catalogue:
   name: name
   unit: stock_unit
   threshold: low_stock_at
-  notify: [stock_manager]
+  notify: { roles: [stock_manager] }
   lots: { type: StockLot, item: item, number: lot_number, expiry: expires_on }
   orders:
     {
@@ -21,7 +21,12 @@ stock_catalogue:
     }
 fields:
   name: { type: string, required: true, max_length: 200, indexed: true }
-  supplier: { type: string, required: true, immutable: true, max_length: 200, pattern: '.*\S.*' }
+  supplier:
+    type: ref
+    to: iki/inventory.Supplier
+    required: true
+    immutable: true
+    description: Who sells this pack, from the registry's suppliers. Its lots are bought from them.
   catalogue_number:
     {
       type: string,

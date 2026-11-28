@@ -44,7 +44,15 @@ from typing import Any
 
 from iki_spec import naming
 from iki_spec.conditions import WORDS_SEARCHED
-from iki_spec.model import FORMATS, EntityType, Extension, Field, Plugin, split_entry
+from iki_spec.model import (
+    FORMATS,
+    EntityType,
+    Extension,
+    Field,
+    Plugin,
+    split_entry,
+    stored_in_list_table,
+)
 
 __all__ = ["render_models"]
 
@@ -99,7 +107,7 @@ def render_models(plugin: Plugin, types: Mapping[str, EntityType]) -> str:
             out.extend(_entry(entity_type, plugin, every))
         elif entity_type.extends and identity_owner(entity_type.extends, every) is not None:
             out.extend(_subtype_entry(entity_type, plugin, every))
-    for extension in sorted(plugin.extensions, key=lambda e: e.extends_type):
+    for extension in sorted(plugin.extensions, key=lambda e: e.adds_to):
         out.extend(_extension(extension, every))
     return "".join(out).rstrip() + "\n"
 
@@ -286,22 +294,22 @@ def _entry_name(qualified: str) -> str:
 
 
 def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
-    target = types.get(e.extends_type)
-    label = target.label if target else e.extends_type
+    target = types.get(e.adds_to)
+    label = target.label if target else e.adds_to
     description = f" {e.description}" if e.description else ""
     model = _Model(
-        name=naming.extension_model(e.extends_type),
+        name=naming.extension_model(e.adds_to),
         base="models.Model",
-        doc=f"The fields the {e.plugin} plugin adds to {label} ({e.extends_type}).{description}",
+        doc=f"The fields the {e.plugin} plugin adds to {label} ({e.adds_to}).{description}",
         table=e.table,
-        attributes=[f"IKI_EXTENDS = {e.extends_type!r}"],
+        attributes=[f"IKI_ADDS_TO = {e.adds_to!r}"],
     )
     model.fields.append(
         (
             "entity",
             _call(
                 "models.OneToOneField",
-                naming.model_label(e.extends_type),
+                naming.model_label(e.adds_to),
                 _raw("models.PROTECT"),
                 primary_key=True,
                 db_column="entity_id",
@@ -310,19 +318,17 @@ def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
         )
     )
     record, entry = split_entry(e.fields)
-    owner = identity_owner(e.extends_type, types)
+    owner = identity_owner(e.adds_to, types)
     # Registry fields alone need no table of the records'.
-    out = (
-        _with_fields(model, e.extends_type, record, e.plugin, types) if record or not entry else []
-    )
+    out = _with_fields(model, e.adds_to, record, e.plugin, types) if record or not entry else []
     if entry and owner is not None:
         entries = _Model(
             name=naming.entry_model(model.name),
             base="models.Model",
             doc=f"The registry fields the {e.plugin} plugin adds to {label}'s entries "
-            f"({e.extends_type}, ADR 0115).{description}",
+            f"({e.adds_to}, ADR 0115).{description}",
             table=naming.entry_table(e.table),
-            attributes=[f"IKI_EXTENDS = {e.extends_type!r}", "IKI_ENTRY = True"],
+            attributes=[f"IKI_ADDS_TO = {e.adds_to!r}", "IKI_ENTRY = True"],
         )
         entries.fields.append(
             (
@@ -337,7 +343,7 @@ def _extension(e: Extension, types: Mapping[str, EntityType]) -> list[str]:
                 ),
             )
         )
-        out += _with_fields(entries, e.extends_type, entry, e.plugin, types)
+        out += _with_fields(entries, e.adds_to, entry, e.plugin, types)
     return out
 
 
@@ -368,7 +374,7 @@ def _with_fields(
     for f in fields.values():
         if f.removed:
             continue
-        if _is_list_table(f):
+        if stored_in_list_table(f):
             lists.append(_list_model(model, owner, f, plugin, types))
             continue
         model.fields.append(
@@ -436,14 +442,6 @@ def _list_model(
 
 
 # --- Columns -----------------------------------------------------------------------------------
-
-
-def _is_list_table(f: Field) -> bool:
-    return f.type == "list" and f.items is not None and f.items.type in LIST_TABLES
-
-
-#: Lists of these get a table of their own.
-LIST_TABLES = ("ref", "file", "person", "row")
 
 
 def _column(

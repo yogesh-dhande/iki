@@ -4,7 +4,7 @@ name: capture_results
 label: Capture results for review
 description: Pin the selected result revisions and the lab's review flow on the experiment. Leave results empty when the evidence is a dated observation or attachment.
 inputs:
-  experiment: { type: Experiment, schema: ">=1" }
+  experiment: { type: Experiment, schema_version: ">=1" }
   results:
     type: iki/core.Entity
     cardinality: many
@@ -12,7 +12,7 @@ inputs:
     max: 1000
     description: The records to witness, including individual well measurements or fitted curves.
 effects:
-  updates: [{ input: experiment, fields: [result_pins, review_flow, capture_id] }]
+  updates: { experiment: { fields: [result_pins, review_flow, capture_id] } }
 runs_on: { tier: backend, environment: experiment-tools }
 command: [python, ./scripts/capture.py]
 timeout: 2m

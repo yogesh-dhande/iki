@@ -11,7 +11,7 @@ A type's ``notifications`` say, each by name, when its records tell someone and 
   results was released (``released: true``) (ADR 0142);
 - **where**: only for records these conditions find, as the search API takes them, on the
   type's own fields, compared with values or ``{{ now }}`` (dates and times);
-- **tell**: the people its fields name, holders of lab roles in its project, whoever made
+- **notify**: the people its fields name, holders of lab roles in its project, whoever made
   it, whoever watches it, and whoever made the change, who isn't told otherwise;
 - **message**: its ``title`` and ``body`` in Iki, written as a display title is, over the
   record's fields. Emails never carry them, only what it is and a link (ADR 0129).
@@ -127,7 +127,7 @@ class _Notification:
 
     def run(self) -> None:
         changed = self.when()
-        self.tell()
+        self.notify()
         if self.n.where is not None:
             self.where(self.n.where)
         for part in ("title", "body"):
@@ -208,7 +208,8 @@ class _Notification:
         n = self.n
         key = "sent" if n.sent else "released"
         if not any(
-            t.request is not None for t in [self.entity_type, *self.s.ancestors(self.entity_type)]
+            t.service.request is not None
+            for t in [self.entity_type, *self.s.ancestors(self.entity_type)]
         ):
             self.add(
                 "notification-when",
@@ -222,20 +223,20 @@ class _Notification:
         others = [
             k
             for k, given in (
-                ("fields", n.tell_fields),
-                ("creator", n.tell_creator),
-                ("watchers", n.tell_watchers),
-                ("actor", n.tell_actor),
+                ("fields", n.notify_fields),
+                ("creator", n.notify_creator),
+                ("watchers", n.notify_watchers),
+                ("actor", n.notify_actor),
             )
             if given
         ]
-        if others or not n.tell_roles:
+        if others or not n.notify_roles:
             self.add(
                 "notification-recipients",
                 "A request sent tells its service, by the lab roles its people hold there: "
                 "name them in `roles`"
                 + (f", not {', '.join(f'`{k}`' for k in others)}." if others else "."),
-                ("tell",),
+                ("notify",),
                 hint="The project asking knows it sent it: its people hear of it when its "
                 "results are released (`released: true`).",
             )
@@ -318,16 +319,22 @@ class _Notification:
 
     # Tell -----------------------------------------------------------------------------------
 
-    def tell(self) -> None:
+    def notify(self) -> None:
         n = self.n
-        path: Path = ("tell",)
-        if not (n.tell_fields or n.tell_roles or n.tell_creator or n.tell_watchers or n.tell_actor):
+        path: Path = ("notify",)
+        if not (
+            n.notify_fields
+            or n.notify_roles
+            or n.notify_creator
+            or n.notify_watchers
+            or n.notify_actor
+        ):
             self.add(
                 "notification-recipients",
                 "It tells nobody: name `fields`, `roles`, `creator`, `watchers` or `actor`.",
                 path,
             )
-        for index, name in enumerate(n.tell_fields):
+        for index, name in enumerate(n.notify_fields):
             at: Path = (*path, "fields", index)
             f = self.own_field(name, at)
             if f is not None and not names_people(f):
@@ -343,7 +350,7 @@ class _Notification:
                         else f"Fields naming people: {', '.join(f'`{p}`' for p in people)}."
                     ),
                 )
-        for index, role in enumerate(n.tell_roles):
+        for index, role in enumerate(n.notify_roles):
             self.s.lab_role(role, self.source, (*self.at, *path, "roles", index))
 
     def repeats_ready(self, changed: Field) -> None:
@@ -352,7 +359,7 @@ class _Notification:
         n = self.n
         if n.ref is not None or changed.type != "state" or not n.to_values:
             return
-        for name in n.tell_fields:
+        for name in n.notify_fields:
             f = self.every.get(name)
             if (
                 f is not None
@@ -364,7 +371,7 @@ class _Notification:
                     "notification-repeats-ready",
                     f"`{name}` is assigned the record in those states, so whoever it names is "
                     "told it's ready for them already.",
-                    ("tell", "fields", n.tell_fields.index(name)),
+                    ("notify", "fields", n.notify_fields.index(name)),
                     severity=Severity.WARNING,
                     hint="Leave it out, or tell them something else.",
                 )

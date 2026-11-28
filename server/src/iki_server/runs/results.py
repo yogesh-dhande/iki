@@ -233,7 +233,9 @@ def checked(run: ActionRun, document: Mapping[str, Any]) -> Checked:
     ):
         check.error(problem.pointer, problem.detail)
     updates = _updates(check, document.get("updates") or {})
-    creates = _creates(check, document.get("creates") or [])
+    creates = _creates(
+        check, [outputs.qualified(check.action, c) for c in document.get("creates") or []]
+    )
     creates_file = _creates_file(check, document.get("creates_file"))
     _messages(check, document.get("messages") or [])
     if check.errors:
@@ -379,6 +381,8 @@ class _Create:
     #: Physical inventory is recorded and placed only when this fresh create succeeds.
     receipt: Mapping[str, Any] | None = None
     destination: UUID | None = None
+    #: A match is kept as it is, rather than updated (``on_match: keep``).
+    keep: bool = False
 
 
 def _origin(check: Check, at: tuple[object, ...], given: Mapping[str, Any]) -> dict[str, Any]:
@@ -470,6 +474,7 @@ def check_line(
     point at ``#/creates_file/<line>``. Its values are checked as it's written. ``keys``:
     the keys of the output's ``creates``, which a line may refer to (ADR 0140)."""
     at = ("creates_file", line)
+    item = outputs.qualified(check.action, item)
     found = outputs.creates_line(check.action, item, at, keys, INSTALLED, check.error)
     if found is None:
         return None
@@ -521,6 +526,7 @@ def _create(
         fills,
         item.get("receipt"),
         destination,
+        keep=effect.on_match == "keep",
     )
 
 
@@ -597,7 +603,7 @@ def _current_calculation_inputs(check: Check) -> set[UUID]:
         for t in triggers.triggers().values()
         if (t.recheck or t.watch_included)
         and t.plugin == check.action.plugin
-        and t.run == check.action.name
+        and t.action == check.action.name
     }
     if not names:
         return set()
@@ -771,11 +777,12 @@ def _external_record(
         if target.entry_id is not None and shape(create.type).part_of(field).entry
         else target.pk
     )
-    other = (
+    held = (
         UniqueValue.objects.filter(entity_id=holder, key=key[0])
         .values_list("value", flat=True)
         .first()
     )
+    other = unique.text(held) if held is not None else None
     if other is None:
         return target
     owner = registry.identity_owner(registry.types()[create.type])
@@ -869,9 +876,20 @@ def _write_creates(
         if match is not None:
             if create.receipt is not None:
                 raise Rejected("conflict", "A receipt cannot match an existing stock record.")
-            saved = update_match(check, create.pointer, create.type, match, values)
-            if saved is None:
-                continue
+            if create.keep:
+                # Whoever made it first made it: it stands as it is (``on_match: keep``).
+                if match.type not in subtypes(create.type):
+                    check.error(
+                        create.pointer + "/type",
+                        f"It matches {match.hrid}, a {match.type}, which isn't a {create.type}.",
+                    )
+                    continue
+                saved = entities.Saved(match)
+            else:
+                updated = update_match(check, create.pointer, create.type, match, values)
+                if updated is None:
+                    continue
+                saved = updated
         else:
             receipt = create.receipt
             try:

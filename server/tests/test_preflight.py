@@ -8,7 +8,14 @@ from org_world import build_world
 
 from iki_server.entities.models import Entity
 from iki_server.plugins.preflight_types import Report
-from iki_spec.model import EntityType, Extension, Field, Plugin, Rule
+from iki_spec.model import EntityType, Extension, Field, Plugin, Rule, unique_rules
+
+
+def uniquely(t: EntityType, name: str) -> EntityType:
+    """``t`` with its field ``name`` marked unique, and the rule that makes it (ADR 0082)."""
+    f = replace(t.fields[name], unique=True)
+    made = unique_rules({name: f}, t.plugin, identity=t.identity)
+    return replace(t, fields={**t.fields, name: f}, rules={**t.rules, **made})
 
 
 def no_sample(*args: object, **kwargs: object) -> None:
@@ -32,7 +39,7 @@ def test_parent_unique_checks_records_of_sibling_types(monkeypatch: pytest.Monke
         version="2.0",
         types={
             **old.types,
-            parent.qualified_name: replace(parent, fields={"batch": replace(batch, unique=True)}),
+            parent.qualified_name: uniquely(parent, "batch"),
         },
     )
     project = build_world().project

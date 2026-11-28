@@ -19,6 +19,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst }
   qa: { label: QA }
@@ -103,7 +104,7 @@ def test_rules_and_guards_are_checked_and_say_what_they_read(tmp_path: Path) -> 
     fields: [result]
   one_per_well:
     unique: [plate, well]
-    while: { stored: [true] }
+    while: { field: stored, states: [true] }
     message: "{{ record.well }} is taken."
   one_at_a_time:
     no_overlap: { from: starts_at, to: ends_at, per: [plate] }
@@ -189,18 +190,19 @@ fields:
   plate: { type: string, max_length: 20 }
   result: { type: enum, values: [pass, fail] }
   source: { type: ref, to: Assay }
-draw_guards:
-  needs_a_result:
-    when: operation == "draw" && purpose == "routine"
-    check: record.result == "pass"
-    message: "Plate {{ record.plate }} hasn't passed."
+draws:
+  guards:
+    needs_a_result:
+      when: operation == "draw" && purpose == "routine"
+      check: record.result == "pass"
+      message: "Plate {{ record.plate }} hasn't passed."
 """
     )
     result = make(tmp_path, body, ROLES)
     assert result.problems == [], [(p.code, p.message) for p in result.problems]
     assert result.plugin is not None
     built = plugin_from_dict(plugin_to_dict(result.plugin))
-    guard = built.types["acme/lab.Assay"].draw_guards["needs_a_result"]
+    guard = built.types["acme/lab.Assay"].draws.guards["needs_a_result"]
     assert guard.reads == ("plate", "result")
     bad = make(tmp_path, body.replace("record.result", "record.reslt"), ROLES)
     assert "reslt" in only(bad, "invalid-expression")
@@ -224,11 +226,13 @@ draw_guards:
         ("  x:\n    no_overlap: { from: starts_at, to: plate }\n    message: No.\n", "rule-field"),
         # `while` is an enum, state or bool field's, and one of its values.
         (
-            "  x:\n    unique: [plate, well]\n    while: { plate: [a] }\n    message: No.\n",
+            "  x:\n    unique: [plate, well]\n"
+            "    while: { field: plate, states: [a] }\n    message: No.\n",
             "rule-field",
         ),
         (
-            "  x:\n    unique: [plate, well]\n    while: { stored: [maybe] }\n    message: No.\n",
+            "  x:\n    unique: [plate, well]\n"
+            "    while: { field: stored, states: [maybe] }\n    message: No.\n",
             "rule-while",
         ),
         (
@@ -239,6 +243,103 @@ draw_guards:
 )
 def test_rules_that_dont_fit_their_type(tmp_path: Path, body: str, code: str) -> None:
     assert codes(make(tmp_path, rules(body), ROLES)) == [code]
+
+
+COMPOUND = """\
+apiVersion: iki/v1
+kind: EntityType
+name: Compound
+schema_version: 1
+hrid: { prefix: CPD }
+identity: [smiles]
+fields:
+  smiles: { type: string, max_length: 200, required: true, immutable: true }
+  supplier: { type: string, max_length: 40, registry: fact, pattern: "^[A-Za-z ]+$" }
+  catalogue_number: { type: string, max_length: 40, registry: fact, pattern: "^[A-Z0-9-]+$" }
+  chembl_id:
+    type: string
+    label: ChEMBL ID
+    max_length: 20
+    registry: fact
+    pattern: "^CHEMBL[1-9][0-9]*$"
+    unique: true
+  batch_note: { type: string, max_length: 40 }
+rules:
+"""
+
+
+def test_a_unique_rule_holds_within_a_registry_of_its_entries_fields(tmp_path: Path) -> None:
+    body = (
+        COMPOUND + "  one_per_catalogue_number:\n    unique: [supplier, catalogue_number]\n"
+        "    within: registry\n    message: Another compound has this catalogue number.\n"
+    )
+    result = make(tmp_path, body, ROLES)
+    assert result.problems == [], [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    built = plugin_from_dict(plugin_to_dict(result.plugin))
+    compound = built.types["acme/lab.Compound"]
+    assert compound.rules["one_per_catalogue_number"].within == "registry"
+    # A unique fact is a one-field rule within the registry.
+    chembl = compound.rules["chembl_id"]
+    assert (chembl.within, chembl.from_field, chembl.unique) == ("registry", True, ("chembl_id",))
+    assert chembl.message == "Each entry in a registry has its own ChEMBL ID."
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        # Facts are the entry's: a project's rule can't name them, nor its identity.
+        ("unique: [supplier, catalogue_number]", "rule-field"),
+        ("unique: [smiles, batch_note]", "rule-field"),
+        # A registry's rule is of its entries' fields.
+        ("unique: [supplier, batch_note]\n    within: registry", "rule-within-registry"),
+        # It's for unique rules.
+        ("check: record.batch_note != ''\n    within: registry", "rule-kind"),
+    ],
+)
+def test_where_a_unique_rule_holds(tmp_path: Path, body: str, code: str) -> None:
+    rule = f"  x:\n    {body}\n    message: No.\n"
+    # Each field it names that doesn't fit is reported.
+    assert set(codes(make(tmp_path, COMPOUND + rule, ROLES))) == {code}
+
+
+def test_a_type_without_entries_has_no_registry_to_hold_a_rule_in(tmp_path: Path) -> None:
+    body = "  x:\n    unique: [plate, well]\n    within: registry\n    message: No.\n"
+    message = only(make(tmp_path, rules(body), ROLES), "rule-within-registry")
+    assert "has no registry entries" in message
+
+
+def test_a_rule_cant_take_a_unique_fields_name(tmp_path: Path) -> None:
+    body = (
+        TYPE
+        + FIELDS.replace("max_length: 20 }", "max_length: 20, unique: true }")
+        + "rules:\n  plate:\n    unique: [plate, well]\n    message: No.\n"
+    )
+    assert "is a unique field" in only(make(tmp_path, body, ROLES), "rule-name-taken")
+
+
+def test_a_rule_and_a_guard_on_the_same_check_are_told_they_read_empty_values_oppositely(
+    tmp_path: Path,
+) -> None:
+    """A rule passes when a value it reads is empty and a guard refuses (ADRs 0127, 0128),
+    so the same expression in both is worth a second look: a warning, as both may be meant.
+    Spacing doesn't hide it, and a check only one of them has isn't flagged."""
+    # The guard `passed` checks the same result, spaced differently.
+    guard = FIELDS.replace(
+        'check: record.result == "pass" && "qa" in actor.roles', 'check: record.result == "pass"'
+    )
+    body = TYPE + guard + 'rules:\n  passed_at_save:\n    check: record.result  ==  "pass"\n'
+    body += "    message: It passed.\n"
+    result = make(tmp_path, body, ROLES)
+    assert result.plugin is not None
+    message = only(result, "same-condition-rule-and-guard")
+    assert "`passed_at_save`" in message and "`passed` on status's released state" in message
+    warning = result.problems[0]
+    assert not warning.is_error
+    assert warning.path == ("fields", "status", "states", "released", "guards", "passed", "check")
+    # A rule of its own, and the guards alone, say nothing.
+    other = body.replace('check: record.result  ==  "pass"', "check: record.purity >= 95.0")
+    assert make(tmp_path, other, ROLES).problems == []
 
 
 def test_a_hold_names_lab_roles(tmp_path: Path) -> None:

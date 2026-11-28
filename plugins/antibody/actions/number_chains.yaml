@@ -17,7 +17,7 @@ description: >-
   cleared, since its numbers and regions were that numbering's: screen it
   again to find them on this one.
 inputs:
-  protein: { type: iki/protein.Protein, schema: ">=2", label: Chain }
+  protein: { type: iki/protein.Protein, schema_version: ">=2", label: Chain }
 params:
   scheme:
     type: enum
@@ -37,7 +37,7 @@ params:
       which defines none.
 effects:
   updates:
-    - input: protein
+    protein:
       fields:
         - chain_type
         - species

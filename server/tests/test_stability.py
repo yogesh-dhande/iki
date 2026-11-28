@@ -172,7 +172,7 @@ def exercise_stability() -> None:
             item,
             amounts.Given.of({"value": 100, "unit": "uL"}),
             reason="Fixture",
-            expected_revision=amounts.UNRECORDED_REVISION,
+            expected_revision=None,
         )
 
     tool = PREFIX + "stability-tools"
@@ -392,7 +392,7 @@ def exercise_stability() -> None:
         solution,
         amounts.Given.of({"value": 100, "unit": "uL"}),
         reason="Fixture",
-        expected_revision=amounts.UNRECORDED_REVISION,
+        expected_revision=None,
     )
     storage.move(editor, [storage.Wanted(solution, container, "A3")], reason="Place it")
     accelerated = {"code": "accelerated", "label": "Accelerated", "temperature": 40}

@@ -3,9 +3,10 @@ import { act, fireEvent, screen, waitFor, within } from "@testing-library/react"
 import type { UserEvent } from "@testing-library/user-event";
 import { expect, it } from "vitest";
 
+import { queryClient } from "./api";
 import { PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import type { ObservationEvent, Receipt, ReceiptLine } from "./storage";
-import { answer, calls, ME, page, problem } from "./test-server";
+import { answer, calls, made, ME, page, problem, type Sent } from "./test-server";
 
 const id = "00000000-0000-7000-8000-0000000000a1";
 const api = `/api/v1/receipts/${id}`;
@@ -23,7 +24,7 @@ function tube(number: number, changes: Partial<ReceiptLine> = {}): ReceiptLine {
   const serial = String(number).padStart(6, "0");
   return {
     id: `line-${serial}`,
-    line_revision: 1,
+    revision: 1,
     entity: `tube-${serial}`,
     ref: {
       hrid: `TUB-${serial}`,
@@ -47,7 +48,7 @@ function tube(number: number, changes: Partial<ReceiptLine> = {}): ReceiptLine {
 function receipt(revision: number, lines: ReceiptLine[], changes: Partial<Receipt> = {}): Receipt {
   return {
     id,
-    plan_revision: revision,
+    revision: revision,
     request: {
       id: "req",
       hrid: ask,
@@ -120,6 +121,12 @@ async function openReceipt(open: Receipt, types?: Schemas["EntityTypeOut"][]) {
       })),
     };
   });
+  // Every accepted tube can go in the box, unless a test says otherwise.
+  answer(`POST ${api}/put-away/placeable`, () =>
+    open.lines
+      .filter((l) => l.entity && (l.outcome === "matched" || l.outcome === "damaged"))
+      .map((l) => ({ line: l.id, problem: null })),
+  );
   const rendered = await renderApp(`/storage/receive/${ask}/`);
   await screen.findByRole("list", { name: "Checklist" });
   return rendered;
@@ -239,7 +246,7 @@ it("says plainly when a tube was already checked or its extra was removed, and r
   ).toBeVisible();
   answer(
     `POST ${api}/lines/${removed.id}/restore`,
-    receipt(5, [checked, { ...removed, line_revision: 2 }]),
+    receipt(5, [checked, { ...removed, revision: 2 }]),
   );
   // Beside what was heard, as well as in the list of removed extras.
   const [restore] = screen.getAllByRole("button", { name: "Restore UNLABELLED-7" });
@@ -247,8 +254,8 @@ it("says plainly when a tube was already checked or its extra was removed, and r
   await user.click(restore);
   await why(user, "It was in the second bag", "Restore it");
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(calls("POST", `${api}/lines/${removed.id}/restore`).map((c) => c.body)).toEqual([
-    { line_revision: 1, reason: "It was in the second bag" },
+  expect(calls("POST", `${api}/lines/${removed.id}/restore`).map(made)).toEqual([
+    { "If-Match": '"1"', reason: "It was in the second bag" },
   ]);
   expect(screen.queryByRole("list", { name: "Removed extras" })).not.toBeInTheDocument();
 });
@@ -297,7 +304,7 @@ it("asks why before changing a recorded outcome, and keeps the condition note se
   answer(`PATCH ${api}/lines/${first.id}`, {
     found: "recorded",
     line: first.id,
-    receipt: receipt(3, [{ ...first, outcome: "damaged", note: "Cap cracked", line_revision: 2 }]),
+    receipt: receipt(3, [{ ...first, outcome: "damaged", note: "Cap cracked", revision: 2 }]),
   });
   await user.type(
     dialog.getByRole("textbox", { name: "Why are you changing this?" }),
@@ -305,11 +312,11 @@ it("asks why before changing a recorded outcome, and keeps the condition note se
   );
   await user.click(confirm);
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(calls("PATCH").map((c) => c.body)).toEqual([
+  expect(calls("PATCH").map(made)).toEqual([
     {
       outcome: "damaged",
       note: "Cap cracked",
-      line_revision: 1,
+      "If-Match": '"1"',
       reason: "Looked again under the lamp",
     },
   ]);
@@ -326,7 +333,7 @@ it("clears an outcome only with a reason", async () => {
   answer(`PATCH ${api}/lines/${first.id}`, {
     found: "recorded",
     line: first.id,
-    receipt: receipt(3, [{ ...first, outcome: null, line_revision: 2 }]),
+    receipt: receipt(3, [{ ...first, outcome: null, revision: 2 }]),
   });
   await user.type(
     dialog.getByRole("textbox", { name: "Why are you changing this?" }),
@@ -334,39 +341,47 @@ it("clears an outcome only with a reason", async () => {
   );
   await user.click(dialog.getByRole("button", { name: "Clear it" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(calls("PATCH").map((c) => c.body)).toEqual([
+  expect(calls("PATCH").map(made)).toEqual([
     // The saved note isn't sent: left out, it stays.
-    { outcome: null, line_revision: 1, reason: "Wrong tube" },
+    { outcome: null, "If-Match": '"1"', reason: "Wrong tube" },
   ]);
 });
 
 it("shows who changed a line first, keeps the reason, and sends again only when asked", async () => {
   const first = tube(1, { outcome: "matched", checked_by: ME });
   const { user } = await openReceipt(receipt(2, [first]));
-  // The server names the line that changed, at its version now.
-  answer(
-    `PATCH ${api}/lines/${first.id}`,
-    problem(409, "conflict", "This receipt line changed.", undefined, {
-      affected_lines: [{ line_id: first.id, line_revision: 2 }],
-    }),
-  );
   const theirs = {
     ...first,
     outcome: "rejected" as const,
     note: "Thawed",
-    line_revision: 2,
+    revision: 2,
     checked_by: ADA,
     checked_at: "2026-01-12T09:30:00Z",
   };
-  answer(`GET ${api}`, receipt(3, [theirs]));
+  // Refused as stale, naming the line that changed: the page reads the receipt again.
+  answer(`PATCH ${api}/lines/${first.id}`, () => {
+    answer(`GET /api/v1/entities/${ask}/receipts`, {
+      receipts: [receipt(3, [theirs])],
+      expected: 1,
+      can_receive: true,
+      why_not: null,
+    });
+    return problem(412, "stale", "This receipt line changed.", undefined, {
+      affected_lines: [{ line_id: first.id, revision: 2 }],
+    });
+  });
   await user.click(line("TUB-000001").getByRole("button", { name: "Missing" }));
   const dialog = await why(user, "Not in the box after all", "Save the change");
   const alert = await dialog.findByText(/^TUB-000001 changed while you were looking at it/);
+  // Said once: the refusal's own detail isn't shown beside what changed.
+  expect(dialog.getAllByRole("alert")).toHaveLength(1);
   expect(alert.closest("[role=alert]")).toHaveTextContent(
     "TUB-000001: Now rejected · note “Thawed”, checked by Ada Lovelace, 12 Jan 2026, 09:30 UTC.",
   );
   expect(calls("GET", `${api}/history`)).toHaveLength(0);
   expect(dialog.getByText("Rejected")).toBeVisible();
+  // Said once, in the note: not again as the refusal's own words.
+  expect(dialog.queryByText("This receipt line changed.")).toBeNull();
   expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(
     "Not in the box after all",
   );
@@ -374,13 +389,63 @@ it("shows who changed a line first, keeps the reason, and sends again only when 
   answer(`PATCH ${api}/lines/${first.id}`, {
     found: "recorded",
     line: first.id,
-    receipt: receipt(4, [{ ...theirs, outcome: "missing", line_revision: 3 }]),
+    receipt: receipt(4, [{ ...theirs, outcome: "missing", revision: 3 }]),
   });
   await user.click(dialog.getByRole("button", { name: "Save the change" }));
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(calls("PATCH").map((c) => c.body)).toEqual([
-    { outcome: "missing", line_revision: 1, reason: "Not in the box after all" },
-    { outcome: "missing", line_revision: 2, reason: "Not in the box after all" },
+  expect(calls("PATCH").map(made)).toEqual([
+    { outcome: "missing", "If-Match": '"1"', reason: "Not in the box after all" },
+    { outcome: "missing", "If-Match": '"2"', reason: "Not in the box after all" },
+  ]);
+});
+
+it("sends nothing from a line a refetch changed while its reason was asked, and says so", async () => {
+  const first = tube(1, { outcome: "matched", checked_by: ME });
+  const { user } = await openReceipt(receipt(2, [first]));
+  await user.click(line("TUB-000001").getByRole("button", { name: "Missing" }));
+  const dialog = within(await screen.findByRole("dialog"));
+  expect(dialog.getByText("Matched")).toBeVisible();
+  await user.type(
+    dialog.getByRole("textbox", { name: "Why are you changing this?" }),
+    "Not in the box after all",
+  );
+  // Ada rejected it meanwhile, and the page read it in the background.
+  const theirs = {
+    ...first,
+    outcome: "rejected" as const,
+    note: "Thawed",
+    revision: 2,
+    checked_by: ADA,
+    checked_at: "2026-01-12T09:30:00Z",
+  };
+  answer(`GET /api/v1/entities/${ask}/receipts`, {
+    receipts: [receipt(3, [theirs])],
+    expected: 1,
+    can_receive: true,
+    why_not: null,
+  });
+  await act(async () => {
+    await queryClient.refetchQueries();
+  });
+  // The dialog still shows what was asked about: nothing is sent from what it didn't show.
+  expect(dialog.getByText("Matched")).toBeVisible();
+  await user.click(dialog.getByRole("button", { name: "Save the change" }));
+  const alert = await dialog.findByText(/^TUB-000001 changed while you were looking at it/);
+  expect(alert.closest("[role=alert]")).toHaveTextContent("TUB-000001: Now rejected");
+  expect(dialog.getByText("Rejected")).toBeVisible();
+  expect(calls("PATCH")).toEqual([]);
+  expect(dialog.getByRole("textbox", { name: "Why are you changing this?" })).toHaveValue(
+    "Not in the box after all",
+  );
+  answer(`PATCH ${api}/lines/${first.id}`, {
+    found: "recorded",
+    line: first.id,
+    receipt: receipt(4, [{ ...theirs, outcome: "missing", revision: 3 }]),
+  });
+  await user.click(dialog.getByRole("button", { name: "Save the change" }));
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  expect(calls("PATCH").map(made)).toEqual([
+    { outcome: "missing", "If-Match": '"2"', reason: "Not in the box after all" },
   ]);
 });
 
@@ -396,7 +461,7 @@ it("saves a first note on a checked line in one step, and asks why only to chang
   answer(`PATCH ${api}/lines/${first.id}`, {
     found: "recorded",
     line: first.id,
-    receipt: receipt(3, [{ ...first, note: "Label smudged", line_revision: 2 }]),
+    receipt: receipt(3, [{ ...first, note: "Label smudged", revision: 2 }]),
   });
   await user.click(line("TUB-000001").getByRole("button", { name: "Save note" }));
   await waitFor(() => {
@@ -409,13 +474,13 @@ it("saves a first note on a checked line in one step, and asks why only to chang
   answer(`PATCH ${api}/lines/${first.id}`, {
     found: "recorded",
     line: first.id,
-    receipt: receipt(4, [{ ...first, line_revision: 3 }]),
+    receipt: receipt(4, [{ ...first, revision: 3 }]),
   });
   await why(user, "It was the next tube’s", "Save the change");
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  expect(calls("PATCH").map((c) => c.body)).toEqual([
-    { outcome: "matched", note: "Label smudged", line_revision: 1 },
-    { outcome: "matched", note: null, line_revision: 2, reason: "It was the next tube’s" },
+  expect(calls("PATCH").map(made)).toEqual([
+    { outcome: "matched", note: "Label smudged", "If-Match": '"1"' },
+    { outcome: "matched", note: null, "If-Match": '"2"', reason: "It was the next tube’s" },
   ]);
 });
 
@@ -476,9 +541,9 @@ it("asks why only when handover text that was recorded changes", async () => {
   await waitFor(() => {
     expect(calls("PATCH", api)).toHaveLength(2);
   });
-  expect(calls("PATCH", api).map((c) => c.body)).toEqual([
-    { plan_revision: 1, handed_over_by: "Courier, waybill 1Z9" },
-    { plan_revision: 2, handed_over_by: "Courier, waybill 1Z8", reason: "Misread the waybill" },
+  expect(calls("PATCH", api).map(made)).toEqual([
+    { "If-Match": '"1"', handed_over_by: "Courier, waybill 1Z9" },
+    { "If-Match": '"2"', handed_over_by: "Courier, waybill 1Z8", reason: "Misread the waybill" },
   ]);
 });
 
@@ -493,15 +558,15 @@ it("removes an extra and cancels a receipt only with a reason", async () => {
   const { user } = await openReceipt(receipt(2, [tube(1), extra]));
   answer(
     `DELETE ${api}/lines/${extra.id}`,
-    receipt(3, [tube(1)], { removed_lines: [{ ...extra, line_revision: 2 }] }),
+    receipt(3, [tube(1)], { removed_lines: [{ ...extra, revision: 2 }] }),
   );
   await user.click(line("UNLABELLED-5").getByRole("button", { name: "Remove" }));
   await why(user, "Belongs to another request", "Remove it");
   expect(await screen.findByRole("list", { name: "Removed extras" })).toHaveTextContent(
     "UNLABELLED-5",
   );
-  expect(calls("DELETE").map((c) => c.body)).toEqual([
-    { line_revision: 1, reason: "Belongs to another request" },
+  expect(calls("DELETE").map(made)).toEqual([
+    { "If-Match": '"1"', reason: "Belongs to another request" },
   ]);
   await user.click(screen.getByRole("button", { name: "Cancel this receipt" }));
   const dialog = within(await screen.findByRole("dialog", { name: "Cancel this receipt?" }));
@@ -516,8 +581,8 @@ it("removes an extra and cancels a receipt only with a reason", async () => {
   await waitFor(() => {
     expect(calls("POST", `${api}/cancel`)).toHaveLength(1);
   });
-  expect(calls("POST", `${api}/cancel`)[0]?.body).toEqual({
-    plan_revision: 3,
+  expect(calls("POST", `${api}/cancel`).map(made)[0]).toEqual({
+    "If-Match": '"3"',
     reason: "Sent to the wrong core",
   });
 });
@@ -810,8 +875,8 @@ it("sends each received tube’s decision as shown: the box’s Iki code and wel
   await waitFor(() => {
     expect(calls("POST", `${api}/complete`)).toHaveLength(1);
   });
-  expect(calls("POST", `${api}/complete`)[0]?.body).toEqual({
-    plan_revision: 5,
+  expect(calls("POST", `${api}/complete`).map(made)[0]).toEqual({
+    "If-Match": '"5"',
     missing_rest: false,
     put_away: [{ line: "line-000001", to: BOX_CODE, position: "A4" }],
     keep_in_custody: ["line-000002"],
@@ -863,8 +928,8 @@ it("never completes while the box is being found, and leaves the decision open w
   await waitFor(() => {
     expect(calls("POST", `${api}/complete`)).toHaveLength(1);
   });
-  expect(calls("POST", `${api}/complete`)[0]?.body).toEqual({
-    plan_revision: 5,
+  expect(calls("POST", `${api}/complete`).map(made)[0]).toEqual({
+    "If-Match": '"5"',
     missing_rest: false,
     put_away: [],
     keep_in_custody: ["line-000001", "line-000002"],
@@ -1012,8 +1077,8 @@ it("reloads a receipt that changed since it was reviewed, and waits to be comple
   await user.selectOptions(where("TUB-000002"), "Keep in my custody");
   answer(
     `POST ${api}/complete`,
-    problem(409, "conflict", "This receipt changed.", undefined, {
-      affected_lines: [{ line_id: "line-000002", line_revision: 2 }],
+    problem(412, "stale", "This receipt changed.", undefined, {
+      affected_lines: [{ line_id: "line-000002", revision: 2 }],
     }),
   );
   const fresh = receipt(6, [
@@ -1023,7 +1088,7 @@ it("reloads a receipt that changed since it was reviewed, and waits to be comple
       note: "Cap cracked through",
       checked_by: ADA,
       checked_at: "2026-01-12T09:30:00Z",
-      line_revision: 2,
+      revision: 2,
     }),
     tube(3, { outcome: "rejected", note: "Thawed", checked_by: ME }),
   ]);
@@ -1039,13 +1104,13 @@ it("reloads a receipt that changed since it was reviewed, and waits to be comple
   // The plan as it is now: TUB-000002 isn't received, so it has no decision to send.
   expect(putaway().queryByRole("combobox", { name: "Where TUB-000002 goes" })).toBeNull();
   expect(calls("POST", `${api}/complete`)).toHaveLength(1);
-  answer(`POST ${api}/complete`, { ...fresh, plan_revision: 7, status: "completed" });
+  answer(`POST ${api}/complete`, { ...fresh, revision: 7, status: "completed" });
   await user.click(completeButton());
   await waitFor(() => {
     expect(calls("POST", `${api}/complete`)).toHaveLength(2);
   });
-  expect(calls("POST", `${api}/complete`)[1]?.body).toEqual({
-    plan_revision: 6,
+  expect(calls("POST", `${api}/complete`).map(made)[1]).toEqual({
+    "If-Match": '"6"',
     missing_rest: false,
     put_away: [],
     keep_in_custody: ["line-000001"],
@@ -1100,19 +1165,23 @@ it("lists what was received without a location on the Storage page", async () =>
   withTypes();
   answer("GET /api/v1/storage/places", []);
   answer("GET /api/v1/storage/checked-out", []);
-  answer("GET /api/v1/storage/awaiting-put-away", [
-    {
-      id: "tube-000002",
-      hrid: "TUB-000002",
-      title: "Lysate 2",
-      type: "acme/lims.Tube",
-      archived: false,
-      purged: false,
-      custodian: ADA,
-      custody_since: "2026-01-12T10:00:00Z",
-    },
-  ]);
-  await renderApp("/storage/");
+  const held = (n: number) => ({
+    id: `tube-00000${String(n)}`,
+    hrid: `TUB-00000${String(n)}`,
+    title: `Lysate ${String(n)}`,
+    type: "acme/lims.Tube",
+    archived: false,
+    purged: false,
+    custodian: ADA,
+    custody_since: `2026-01-1${String(n)}T10:00:00Z`,
+  });
+  // A long backlog comes a page at a time, longest held first.
+  answer("GET /api/v1/storage/awaiting-put-away", (call: Sent) =>
+    call.query.get("cursor") === "after-2"
+      ? { items: [held(3)], next_cursor: null }
+      : { items: [held(2)], next_cursor: "after-2" },
+  );
+  const { user } = await renderApp("/storage/");
   const section = within(await screen.findByRole("region", { name: "Received, not yet put away" }));
   const row = await section.findByRole("row", { name: /^TUB-000002/ });
   expect(row).toHaveTextContent("TUB-000002Lysate 2Ada Lovelace12 Jan 2026");
@@ -1120,6 +1189,16 @@ it("lists what was received without a location on the Storage page", async () =>
     "href",
     "/entities/TUB-000002/",
   );
+  expect(section.queryByRole("row", { name: /^TUB-000003/ })).not.toBeInTheDocument();
+  await user.click(section.getByRole("button", { name: "Show more waiting" }));
+  expect(await section.findByRole("row", { name: /^TUB-000003/ })).toHaveTextContent(
+    "TUB-000003Lysate 3Ada Lovelace13 Jan 2026",
+  );
+  expect(section.getAllByRole("row")).toHaveLength(3);
+  expect(section.queryByRole("button", { name: "Show more waiting" })).not.toBeInTheDocument();
+  expect(
+    calls("GET", "/api/v1/storage/awaiting-put-away").map((c) => c.query.get("cursor")),
+  ).toEqual([null, "after-2"]);
 });
 
 it("waits while the Box field names another box than the one whose wells are shown", async () => {
@@ -1342,6 +1421,51 @@ it("offers no well for an archived tube, or one the box doesn’t hold, and says
   );
 });
 
+it("offers no well for a tube whose project the box’s project can’t read, as the server says, before completing", async () => {
+  // Someone who edits two projects receives a tube linked only to the first, then scans a box
+  // in the second: completing would refuse it there, so no well is offered for it.
+  const shown = received();
+  const { user } = await openReceipt(shown);
+  const refusal =
+    "TUB-000002 isn't in BOX-000135's project, so it can't be kept there: whoever reads the box reads what's in it.";
+  answer(`POST ${api}/put-away/placeable`, [
+    { line: "line-000001", problem: null },
+    { line: "line-000002", problem: refusal },
+  ]);
+  answer("POST /api/v1/storage/scan/resolve", ONE_BOX);
+  answer(`GET /api/v1/storage/containers/${BOX_ID}`, incoming());
+  await showBox(user);
+  await screen.findByRole("table", { name: "BOX-000135 Incoming · 3 free" });
+  const asked = calls("POST", `${api}/put-away/placeable`).at(-1);
+  expect(asked?.body).toEqual({ box: BOX_ID });
+  expect(asked?.headers.get("If-Match")).toBe(`"${String(shown.revision)}"`);
+  expect(where("TUB-000001")).toHaveValue("A2");
+  expect(where("TUB-000002")).toHaveValue("");
+  expect(where("TUB-000002")).toHaveAccessibleDescription(
+    `${refusal} Choose another box, or keep it in your custody.`,
+  );
+  expect(
+    within(where("TUB-000002"))
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["Not decided", "Keep in my custody"]);
+  expect(completeButton()).toHaveAccessibleDescription(
+    "Decide for TUB-000002: put it away in a free position, or keep it in your custody.",
+  );
+  await user.selectOptions(where("TUB-000002"), "Keep in my custody");
+  answer(`POST ${api}/complete`, { ...received(6), status: "completed" });
+  await user.click(completeButton());
+  await waitFor(() => {
+    expect(calls("POST", `${api}/complete`)).toHaveLength(1);
+  });
+  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({
+    // Its well was the next free one, reviewed with the server before completing.
+    put_away: [{ line: "line-000001", position: null }],
+    plan: "a".repeat(64),
+    keep_in_custody: ["line-000002"],
+  });
+});
+
 it("waits for each write on its way before completing, and says which", async () => {
   const first = tube(1, { outcome: "matched", checked_by: ME });
   const second = tube(2);
@@ -1356,7 +1480,7 @@ it("waits for each write on its way before completing, and says which", async ()
   await user.selectOptions(where("TUB-000001"), "Keep in my custody");
   expect(completeButton()).not.toHaveAttribute("aria-disabled");
   // A scan on its way.
-  const matched = { ...second, outcome: "matched" as const, checked_by: ME, line_revision: 2 };
+  const matched = { ...second, outcome: "matched" as const, checked_by: ME, revision: 2 };
   const scan = holding({
     found: "matched",
     line: second.id,
@@ -1374,7 +1498,7 @@ it("waits for each write on its way before completing, and says which", async ()
   await screen.findByText("TUB-000002: matched.");
   await user.selectOptions(where("TUB-000002"), "Keep in my custody");
   // A note, and the handover, on their way together.
-  const noted = receipt(7, [first, { ...matched, note: "Label smudged", line_revision: 3 }, extra]);
+  const noted = receipt(7, [first, { ...matched, note: "Label smudged", revision: 3 }, extra]);
   const note = holding({ found: "recorded", line: second.id, receipt: noted });
   answer(`PATCH ${api}/lines/${second.id}`, note.answer);
   await user.type(line("TUB-000002").getByRole("textbox", { name: /^Note on/ }), "Label smudged");
@@ -1382,7 +1506,7 @@ it("waits for each write on its way before completing, and says which", async ()
   expect(completeButton()).toHaveAccessibleDescription(
     "Waiting for the note on TUB-000002 to be saved.",
   );
-  const handed = holding({ ...noted, plan_revision: 8, handed_over_by: "Courier 104" });
+  const handed = holding({ ...noted, revision: 8, handed_over_by: "Courier 104" });
   answer(`PATCH ${api}`, handed.answer);
   await user.type(screen.getByRole("textbox", { name: "Handed over by" }), "Courier 104");
   await user.click(screen.getByRole("button", { name: "Save" }));
@@ -1392,9 +1516,9 @@ it("waits for each write on its way before completing, and says which", async ()
   await handed.release();
   await screen.findByText("Saved.");
   // An extra's removal, with its reason.
-  const removed = receipt(9, [first, { ...matched, note: "Label smudged", line_revision: 3 }], {
+  const removed = receipt(9, [first, { ...matched, note: "Label smudged", revision: 3 }], {
     handed_over_by: "Courier 104",
-    removed_lines: [{ ...extra, line_revision: 2 }],
+    removed_lines: [{ ...extra, revision: 2 }],
   });
   const removal = holding(removed);
   answer(`DELETE ${api}/lines/${extra.id}`, removal.answer);
@@ -1408,14 +1532,14 @@ it("waits for each write on its way before completing, and says which", async ()
   await screen.findByRole("list", { name: "Removed extras" });
   // Read again first, then sent with the revision that includes every write.
   answer(`GET ${api}`, removed);
-  answer(`POST ${api}/complete`, { ...removed, plan_revision: 10, status: "completed" });
+  answer(`POST ${api}/complete`, { ...removed, revision: 10, status: "completed" });
   expect(completeButton()).toHaveAccessibleDescription("Ready: 2 kept in your custody.");
   await user.click(completeButton());
   await waitFor(() => {
     expect(calls("POST", `${api}/complete`)).toHaveLength(1);
   });
-  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({
-    plan_revision: 9,
+  expect(calls("POST", `${api}/complete`).map(made)[0]).toMatchObject({
+    "If-Match": '"9"',
     keep_in_custody: ["line-000001", "line-000002"],
   });
 });
@@ -1426,11 +1550,11 @@ it("reads the receipt again before completing, and sends nothing if it changed s
   await user.selectOptions(where("TUB-000002"), "Keep in my custody");
   const fresh = receipt(6, [
     tube(1, { outcome: "matched", checked_by: ME }),
-    tube(2, { outcome: "damaged", note: "Cap cracked through", checked_by: ADA, line_revision: 2 }),
+    tube(2, { outcome: "damaged", note: "Cap cracked through", checked_by: ADA, revision: 2 }),
     tube(3, { outcome: "rejected", note: "Thawed", checked_by: ME }),
   ]);
   answer(`GET ${api}`, fresh);
-  answer(`POST ${api}/complete`, { ...fresh, plan_revision: 7, status: "completed" });
+  answer(`POST ${api}/complete`, { ...fresh, revision: 7, status: "completed" });
   await user.click(completeButton());
   const stale = await screen.findByText(/^The checklist changed while you were looking at it/);
   expect(stale.closest(".complete-feedback")).toHaveFocus();
@@ -1443,7 +1567,7 @@ it("reads the receipt again before completing, and sends nothing if it changed s
   await waitFor(() => {
     expect(calls("POST", `${api}/complete`)).toHaveLength(1);
   });
-  expect(calls("POST", `${api}/complete`)[0]?.body).toMatchObject({ plan_revision: 6 });
+  expect(calls("POST", `${api}/complete`).map(made)[0]).toMatchObject({ "If-Match": '"6"' });
 });
 
 it("keeps each line's note editor and Clear's place from the start, so nothing moves as it's checked", async () => {

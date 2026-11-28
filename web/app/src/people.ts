@@ -3,7 +3,7 @@
  * and each person's work: what's assigned to them, and what's open to their lab roles.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas, ifMatch } from "@ikisci/sdk";
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { iki } from "./api";
@@ -127,6 +127,18 @@ export interface WorkFilter {
   sort?: "due" | "updated" | undefined;
 }
 
+/** My work's address, `?open=true&project=…&type=…&state=…&sort=updated`: its filter. */
+export function validateWorkSearch(search: Record<string, unknown>): WorkFilter {
+  const out: WorkFilter = {};
+  if (search["open"] === true || search["open"] === "true") out.open = true;
+  for (const key of ["project", "type", "state"] as const) {
+    const value = search[key];
+    if (typeof value === "string" && value && value.length <= 200) out[key] = value;
+  }
+  if (search["sort"] === "updated") out.sort = "updated";
+  return out;
+}
+
 /** A page of your work at a time: what's assigned to you, or open to your lab roles. */
 export function workQuery(filter: WorkFilter) {
   return infiniteQueryOptions({
@@ -164,7 +176,7 @@ export function dueText(due: string): { text: string; late: boolean } {
 export async function take(entity: Pick<Entity, "id" | "revision">, field: string) {
   return unwrap(
     await iki.POST("/api/v1/entities/{ref}/take", {
-      params: { path: { ref: entity.id }, header: { "If-Match": `"${String(entity.revision)}"` } },
+      params: { path: { ref: entity.id }, header: ifMatch(entity.revision) },
       body: { field, reason: "" },
     }),
   );

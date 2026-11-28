@@ -4,7 +4,7 @@
   "title": "Iki trigger (iki/v1)",
   "description": "Runs one of the plugin's actions by itself: when an entity of a type is created or changed, when a request arrives at a service, or on a schedule. It runs in a project only after one of the project's Admins turns it on there.",
   "type": "object",
-  "required": ["apiVersion", "kind", "name", "on", "run"],
+  "required": ["apiVersion", "kind", "name", "on", "action"],
   "properties": {
     "apiVersion": {
       "description": "The spec version this manifest follows.",
@@ -75,9 +75,9 @@
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       }
     },
-    "run": {
-      "description": "The name of the plugin's action it runs: on the entity, or, on a schedule, on nothing.",
-      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    "action": {
+      "description": "The action it runs: on the entity, or, on a schedule, on nothing. A bare name is the plugin's own; `namespace/plugin.action` is a dependency's.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/actionRef"
     },
     "input": {
       "description": "The action's input that takes the entity. It can be left out when only one input takes the trigger's type.",
@@ -132,14 +132,14 @@
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
     "watch_included": {
-      "description": "Pinned input references and the fields whose change schedules a fresh run on the dependent record.",
+      "description": "What a calculation reads through the references its input includes: each reference whose entities can change, with the fields of them it reads. A change to one schedules a fresh run on each record that refers to it, and flags the record until it has run.",
       "type": "object",
       "minProperties": 1,
       "propertyNames": {
         "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
       },
       "additionalProperties": {
-        "description": "The fields of the record this reference names whose change schedules a fresh run for each record that refers to it, such as an oligonucleotide's `molecular_weight` for its lots.",
+        "description": "The fields of the record this reference names that the calculation reads, such as an oligonucleotide's `molecular_weight` for its lots. A fixed one, required and immutable, never changes, and naming it says only that the calculation reads it.",
         "type": "array",
         "minItems": 1,
         "uniqueItems": true,
@@ -147,7 +147,15 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         }
       }
+    },
+    "annotations": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  }
 }

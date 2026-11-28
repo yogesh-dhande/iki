@@ -9,7 +9,8 @@ hrid: { prefix: SMP }
 description: >-
   A sample the analyst completes without a signed review, such as a discovery aliquot
   drawn as an assay's input.
-draw_target: { from: source, state: { field: status, is: pending } }
+draws:
+  target: { from: source, state: { field: status, states: [pending] } }
 fields:
   analyst:
     type: person

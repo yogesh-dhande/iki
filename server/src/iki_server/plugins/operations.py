@@ -1016,7 +1016,7 @@ class AddField(_Django, migrations.AddField):
                     WHERE t.tgrelid = %s::regclass AND a.attname = %s
                       AND a.attnum = ANY(t.tgattr) AND NOT t.tgisinternal
                       AND (starts_with(t.tgname, 'iki_rule__')
-                           OR starts_with(t.tgname, 'iki_unique__'))
+                           OR starts_with(t.tgname, 'iki_vendor_barcode__'))
                     ORDER BY t.tgname
                 LOOP
                     EXECUTE format('DROP TRIGGER %%I ON %%s', guard.tgname, guard.relation);

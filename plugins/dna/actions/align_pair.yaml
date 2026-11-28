@@ -15,10 +15,10 @@ description: >-
   so. The FASTA is also an alignment of the two in Iki, the target its
   reference, for the alignment viewer.
 inputs:
-  query: { type: DNASequence, schema: ">=1" }
+  query: { type: DNASequence, schema_version: ">=1" }
   target:
     type: DNASequence
-    schema: ">=1"
+    schema_version: ">=1"
     description: The sequence the query is compared with, such as the plasmid as designed.
 params:
   mode:

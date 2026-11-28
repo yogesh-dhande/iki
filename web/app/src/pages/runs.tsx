@@ -37,23 +37,23 @@ import {
   actionsQuery,
   artifactDownloadUrl,
   artifactsQuery,
-  ATTEMPT_STATE,
   attemptsQuery,
   finished,
   LOG_KEPT_BYTES,
   logDownloadUrl,
   moreEffectsQuery,
+  pluginOf,
   projectRunsQuery,
   readLog,
   RUNS,
   runQuery,
   STATUS,
-  tone,
   useRunUpdates,
   type Artifact,
   type Attempt,
   type Run,
   type RunStatus,
+  VIA,
 } from "../runs";
 import {
   Badge,
@@ -70,17 +70,9 @@ import {
   useNow,
 } from "../ui";
 import { ToolbarSelect } from "./entity-filters";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 import { ParkedNote, RunOutsideApis } from "./run-outside-apis";
-
-export const VIA: Record<string, string> = {
-  web: "in the web app",
-  api: "through the API",
-  mcp: "by an AI assistant (MCP)",
-  cli: "from the command line",
-  trigger: "by a trigger",
-  system: "by Iki",
-};
+import { StatusBadge } from "./run-text";
 
 const EFFECT: Record<Run["effects"][number]["kind"], string> = {
   created: "Created",
@@ -154,12 +146,6 @@ function RunEffects({ run }: { run: Run }) {
       ) : null}
     </>
   );
-}
-
-export function StatusBadge({ status }: { status: RunStatus | Attempt["state"] }) {
-  const label =
-    status in STATUS ? STATUS[status as RunStatus] : ATTEMPT_STATE[status as Attempt["state"]];
-  return <span className={`badge badge-${tone(status)}`}>{label}</span>;
 }
 
 // --- A project's runs ------------------------------------------------------------------
@@ -993,13 +979,22 @@ function ImportedRows({ imported }: { imported: NonNullable<Run["imported"]> }) 
   );
 }
 
+/** “ (a trigger of the acme/lab plugin)”, when what started a run is another plugin's than
+ * its action (ADR 0298); nothing when it's the same one's. */
+function ofPlugin(run: Run, qualified: string, kind: "trigger" | "workflow"): string {
+  const plugin = pluginOf(qualified);
+  return plugin && plugin !== pluginOf(run.action) ? ` (a ${kind} of the ${plugin} plugin)` : "";
+}
+
 function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trigger"]> }) {
+  const of = ofPlugin(run, trigger.name, "trigger");
   if (trigger.event === "schedule") {
     return (
       <>
         <dt>Trigger</dt>
         <dd>
-          {trigger.label}, on its schedule, for{" "}
+          {trigger.label}
+          {of}, on its schedule, for{" "}
           <RelativeTime value={trigger.scheduled_for ?? run.created_at} />
           {trigger.since ? (
             <>
@@ -1019,7 +1014,8 @@ function TriggerRow({ run, trigger }: { run: Run; trigger: NonNullable<Run["trig
     <>
       <dt>Trigger</dt>
       <dd>
-        {trigger.label}, when{" "}
+        {trigger.label}
+        {of}, when{" "}
         {trigger.entity ? (
           <Link to="/entities/$ref/" params={{ ref: fired?.hrid ?? trigger.entity }}>
             {fired?.hrid ?? "its entity"}
@@ -1888,6 +1884,7 @@ export function RunPage() {
                 <Link to="/workflow-runs/$ref/" params={{ ref: run.workflow.hrid }}>
                   {run.workflow.hrid}
                 </Link>
+                {ofPlugin(run, run.workflow.name, "workflow")}
               </dd>
             </>
           ) : null}

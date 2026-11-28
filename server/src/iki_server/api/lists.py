@@ -9,27 +9,28 @@
   (``PATCH``, with a reason), reorder the list (``PUT …/order``), archive and
   restore options, and supersede a wrong code with the right one. A project's
   Editor moves its records from a superseded option to its replacement.
-- ``/registries/{id}/list-curators``: who curates each list. Org Admins appoint
-  them, a list at a time.
+- Who curates each list is a registry role (``/registries/{id}/roles``, ADR 0292):
+  Org Admins grant it, a list at a time.
 """
 
-from datetime import datetime
-from typing import Any
+from typing import Annotated, Any
 from uuid import UUID
 
 from django.http import HttpRequest, HttpResponse
-from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
+from ninja import Field, Query, Router, Schema, Status
 
 from iki_server.accounts.models import User
+from iki_server.api import preconditions
 from iki_server.api import registries as registries_api
-from iki_server.api.common import caller, person, require
-from iki_server.api.entities import _etag, _expected, _invalid
+from iki_server.api.common import caller, require
+from iki_server.api.entities import _invalid
+from iki_server.api.preconditions import IfMatch
 from iki_server.api.problems import Problem
-from iki_server.api.schemas import RegistryRef, UserOut
+from iki_server.api.schemas import RegistryRef
 from iki_server.entities import access, entries, lists, registry, services
 from iki_server.entities.values import Invalid, shape
-from iki_server.org import permissions, registries
-from iki_server.org.models import ListCurator, Project, Registry
+from iki_server.org import permissions
+from iki_server.org.models import Project, Registry
 from iki_server.org.permissions import Action
 from iki_spec.model import LIST_CODE, LIST_DESCRIPTION, LIST_LABEL, EntityType
 
@@ -66,7 +67,7 @@ def _registry(user: User, scope: Scope) -> Registry:
             422,
             "Say whose lists: a project's, or a registry's.",
             code="validation_failed",
-            errors=[{"pointer": "#/project", "detail": "Give `project` or `registry`."}],
+            errors=[{"parameter": "project", "detail": "Give `project` or `registry`."}],
         )
     # Whoever sees the registry reads its lists: what its projects' records pick from, which
     # says nothing of any project's work.
@@ -75,7 +76,7 @@ def _registry(user: User, scope: Scope) -> Registry:
 
 def _list(type_name: str) -> EntityType:
     found = registry.types().get(type_name)
-    if found is None or not found.is_list:
+    if found is None or not found.is_lab_list:
         raise Problem(404, f"There’s no lab list {type_name}.")
     return found
 
@@ -88,7 +89,7 @@ class ListCan(Schema):
 
 
 class ListOut(Schema):
-    type: str = Field(description="The list's type, such as iki/lots.LotMethod.")
+    type: str = Field(description="The list's type, such as iki/lots.PurityMethod.")
     plugin: str
     label: str
     label_plural: str
@@ -123,7 +124,7 @@ def list_lists(request: HttpRequest, scope: Query[Scope]) -> list[Any]:
     me = caller(request)
     found = _registry(me, scope)
     counts = lists.counted(found.pk)
-    every = sorted(lists.types().values(), key=lambda t: (t.label_plural.casefold(), t.name))
+    every = sorted(registry.lab_lists().values(), key=lambda t: (t.label_plural.casefold(), t.name))
     return [_list_out(me, found, t, counts) for t in every]
 
 
@@ -144,7 +145,10 @@ class OptionReplacementOut(Schema):
 
 class OptionOut(Schema):
     id: UUID = Field(description="What a record's reference to it holds.")
-    hrid: str
+    hrid: str = Field(
+        description="Its page's address, such as OPTION-000123, from the one sequence every "
+        "list's options share (ADR 0295). It's shown by its label and named by its code."
+    )
     code: str = Field(
         description="Its identity in the list, which never changes: what exports give for it."
     )
@@ -236,7 +240,10 @@ def _option(found: Registry, name: str, code: str) -> lists.Option:
 
 
 @router.get(
-    "/lists/{qualified:name}/options/{code}", response=OptionOut, summary="One of a list's options"
+    "/lists/{qualified:name}/options/{code}",
+    response=OptionOut,
+    summary="One of a list's options",
+    openapi_extra=preconditions.reads(),
 )
 def get_option(
     request: HttpRequest, name: str, code: str, scope: Query[Scope], response: HttpResponse
@@ -245,7 +252,7 @@ def get_option(
     entity_type = _list(name)
     found = _registry(me, scope)
     option = _option(found, name, code)
-    response["ETag"] = _etag(option.entry)
+    preconditions.tagged(response, option.entry.revision)
     return _options_out(me, found, entity_type, [option])[0]
 
 
@@ -317,6 +324,7 @@ class OptionPatch(Schema):
     "/lists/{qualified:name}/options/{code}",
     response=OptionOut,
     summary="Change a lab list's option",
+    openapi_extra=preconditions.changes(),
 )
 def patch_option(
     request: HttpRequest,
@@ -325,7 +333,7 @@ def patch_option(
     scope: Query[Scope],
     payload: OptionPatch,
     response: HttpResponse,
-    if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
+    if_match: IfMatch = None,
 ) -> Any:  # noqa: ANN401
     """Its label, description or other values, with a reason. Records naming it show what
     it's called now; their history says what it was called when. Its code never changes:
@@ -335,7 +343,7 @@ def patch_option(
     found = _registry(me, scope)
     _curating(me, found, name)
     option = _option(found, name, code)
-    expected = _expected(if_match)
+    expected = preconditions.expected(if_match)
     values = dict(payload.values)
     if payload.label is not None:
         values[LIST_LABEL] = payload.label
@@ -344,16 +352,11 @@ def patch_option(
     try:
         lists.change(me, option.entry, values, reason=payload.reason, expected_revision=expected)
     except services.Stale as stale:
-        raise Problem(
-            412,
-            f"It changed since you read it: it’s at revision {stale.current} now.",
-            code="stale",
-            headers={"ETag": f'"{stale.current}"'},
-        ) from None
+        raise _option_stale(stale) from None
     except Invalid as error:
         raise _invalid(error) from None
     fresh = _option(found, name, code)
-    response["ETag"] = _etag(fresh.entry)
+    preconditions.tagged(response, fresh.entry.revision)
     return _options_out(me, found, entity_type, [fresh])[0]
 
 
@@ -367,40 +370,76 @@ class Reason(Schema):
     "/lists/{qualified:name}/options/{code}/archive",
     response=OptionOut,
     summary="Archive a lab list's option",
+    openapi_extra=preconditions.changes(),
 )
 def archive_option(
-    request: HttpRequest, name: str, code: str, scope: Query[Scope], payload: Reason
+    request: HttpRequest,
+    name: str,
+    code: str,
+    scope: Query[Scope],
+    payload: Reason,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> Any:  # noqa: ANN401
     """No dropdown offers it from now on. The records that name it keep it, and it's still
-    in their search, filters, exports and the API."""
-    return _archive(request, name, code, scope, payload, archived=True)
+    in their search, filters, exports and the API. Send the ETag you read as If-Match."""
+    return _archive(request, name, code, scope, payload, response, if_match, archived=True)
 
 
 @router.post(
     "/lists/{qualified:name}/options/{code}/restore",
     response=OptionOut,
     summary="Restore a lab list's archived option",
+    openapi_extra=preconditions.changes(),
 )
 def restore_option(
-    request: HttpRequest, name: str, code: str, scope: Query[Scope], payload: Reason
+    request: HttpRequest,
+    name: str,
+    code: str,
+    scope: Query[Scope],
+    payload: Reason,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> Any:  # noqa: ANN401
-    """Dropdowns offer it again, in its place in the list."""
-    return _archive(request, name, code, scope, payload, archived=False)
+    """Dropdowns offer it again, in its place in the list. Send the ETag you read as
+    If-Match."""
+    return _archive(request, name, code, scope, payload, response, if_match, archived=False)
+
+
+def _option_stale(stale: services.Stale) -> Problem:
+    return preconditions.stale(
+        stale.current, f"It changed since you read it: it’s at revision {stale.current} now."
+    )
 
 
 def _archive(
-    request: HttpRequest, name: str, code: str, scope: Scope, payload: Reason, *, archived: bool
+    request: HttpRequest,
+    name: str,
+    code: str,
+    scope: Scope,
+    payload: Reason,
+    response: HttpResponse,
+    if_match: str | None,
+    *,
+    archived: bool,
 ) -> Any:  # noqa: ANN401
     me = caller(request)
     entity_type = _list(name)
     found = _registry(me, scope)
     _curating(me, found, name)
     option = _option(found, name, code)
+    expected = preconditions.expected(if_match)
     try:
-        lists.archive(me, option.entry, archived=archived, reason=payload.reason)
+        lists.archive(
+            me, option.entry, archived=archived, expected_revision=expected, reason=payload.reason
+        )
+    except services.Stale as stale:
+        raise _option_stale(stale) from None
     except Invalid as error:
         raise _invalid(error) from None
-    return _options_out(me, found, entity_type, [_option(found, name, code)])[0]
+    fresh = _option(found, name, code)
+    preconditions.tagged(response, fresh.entry.revision)
+    return _options_out(me, found, entity_type, [fresh])[0]
 
 
 class OrderIn(Schema):
@@ -409,12 +448,23 @@ class OrderIn(Schema):
         max_length=10000,
         description="Every option's code, archived and superseded ones too, in the new order.",
     )
+    expected_revisions: dict[str, Annotated[int, Field(ge=1, strict=True)]] | None = Field(
+        None,
+        description="Each option's revision as you read it, by code: every option's. An "
+        "option changed, added or removed since answers 412, as a second curator's order "
+        "would otherwise undo the first's.",
+    )
     reason: str = Field(
         min_length=1, max_length=2000, description="Why: every project's dropdowns follow it."
     )
 
 
-@router.put("/lists/{qualified:name}/order", response=list[OptionOut], summary="Reorder a lab list")
+@router.put(
+    "/lists/{qualified:name}/order",
+    response=list[OptionOut],
+    summary="Reorder a lab list",
+    openapi_extra=preconditions.changes(tagged=False),
+)
 def reorder_list(
     request: HttpRequest, name: str, scope: Query[Scope], payload: OrderIn
 ) -> list[Any]:
@@ -423,8 +473,39 @@ def reorder_list(
     entity_type = _list(name)
     found = _registry(me, scope)
     _curating(me, found, name)
+    revisions = payload.expected_revisions
+    if revisions is None:
+        raise preconditions.required(
+            "Send the revision you read of each option in expected_revisions."
+        )
+    if set(revisions) != set(payload.codes):
+        raise Problem(
+            422,
+            "The revisions must match the order.",
+            errors=[
+                {
+                    "pointer": "#/expected_revisions",
+                    "detail": "Send the revision you read for exactly the options in codes.",
+                }
+            ],
+        )
     try:
-        lists.reorder(me, found, name, payload.codes, reason=payload.reason)
+        lists.reorder(
+            me, found, name, payload.codes, expected_revisions=revisions, reason=payload.reason
+        )
+    except lists.StaleOrder as stale:
+        raise preconditions.stale(
+            None,
+            str(stale),
+            stale=[
+                {
+                    "code": o.code,
+                    "expected_revision": o.expected_revision,
+                    "current_revision": o.current_revision,
+                }
+                for o in stale.options
+            ],
+        ) from None
     except Invalid as error:
         raise _invalid(error) from None
     return _options_out(me, found, entity_type, lists.options(found.pk, name, archived=True))
@@ -441,6 +522,7 @@ class OptionSupersedeIn(Schema):
     "/lists/{qualified:name}/options/{code}/supersede",
     response=OptionOut,
     summary="Supersede a lab list's option",
+    openapi_extra=preconditions.changes(),
 )
 def supersede_option(
     request: HttpRequest,
@@ -448,10 +530,12 @@ def supersede_option(
     code: str,
     scope: Query[Scope],
     payload: OptionSupersedeIn,
+    response: HttpResponse,
+    if_match: IfMatch = None,
 ) -> Any:  # noqa: ANN401
     """For a wrong code: the option is replaced for good by another of the list, which
     dropdowns offer instead. The Admins of each project whose records name it are told, to
-    move them to the replacement."""
+    move them to the replacement. Send the option's ETag as If-Match."""
     me = caller(request)
     entity_type = _list(name)
     found = _registry(me, scope)
@@ -470,15 +554,22 @@ def supersede_option(
                 }
             ],
         )
+    expected = preconditions.expected(if_match)
     try:
-        entries.supersede(me, option.entry, replacement.entry, reason=payload.reason)
+        entries.supersede(
+            me, option.entry, replacement.entry, expected_revision=expected, reason=payload.reason
+        )
+    except services.Stale as stale:
+        raise _option_stale(stale) from None
     except Invalid as error:
         raise Problem(
             422,
             "It can’t be superseded so.",
             errors=[{"pointer": f"#/{n}", "detail": " ".join(m)} for n, m in error.errors.items()],
         ) from None
-    return _options_out(me, found, entity_type, [_option(found, name, code)])[0]
+    fresh = _option(found, name, code)
+    preconditions.tagged(response, fresh.entry.revision)
+    return _options_out(me, found, entity_type, [fresh])[0]
 
 
 class OptionMoveIn(Schema):
@@ -516,77 +607,3 @@ def move_references(request: HttpRequest, name: str, code: str, payload: OptionM
     except Invalid as error:
         raise _invalid(error) from None
     return {"moved": [e.hrid for e in moved]}
-
-
-# --- Curators ------------------------------------------------------------------------------------
-
-
-class ListCuratorOut(Schema):
-    list: str = Field(description="The list's type, such as iki/lots.LotMethod.")
-    user: UserOut
-    appointed_by: UserOut | None
-    appointed_at: datetime
-
-
-def _manageable(user: User, registry_id: UUID) -> Registry:
-    require(user, Action.REGISTRIES_MANAGE)
-    found = Registry.objects.filter(pk=registry_id).first()
-    if found is None:
-        raise Problem(404, "No such registry, or you can’t see it.")
-    return found
-
-
-@router.get(
-    "/registries/{registry_id}/list-curators",
-    response=list[ListCuratorOut],
-    summary="Who curates a registry's lab lists",
-)
-def list_curators(request: HttpRequest, registry_id: UUID) -> list[dict[str, Any]]:
-    """Each list's curators. Its registrars curate every list besides."""
-    me = caller(request)
-    found = registries_api._registry(me, registry_id)
-    rows = found.list_curators.select_related("user", "appointed_by").order_by(
-        "list_type", "user__email"
-    )
-    return [_curator_out(row) for row in rows]
-
-
-def _curator_out(row: ListCurator) -> dict[str, Any]:
-    return {
-        "list": row.list_type,
-        "user": row.user,
-        "appointed_by": row.appointed_by,
-        "appointed_at": row.appointed_at,
-    }
-
-
-@router.put(
-    "/registries/{registry_id}/list-curators/{qualified:name}/{user_id}",
-    response={200: ListCuratorOut, 201: ListCuratorOut},
-    summary="Make someone a lab list's curator",
-)
-def appoint_curator(request: HttpRequest, registry_id: UUID, name: str, user_id: UUID) -> Any:  # noqa: ANN401
-    """Org Admins appoint them, a list at a time: a QC lead for deviation categories, a
-    purification lead for lot methods. Being an Org Admin doesn't make someone one."""
-    me = caller(request)
-    found = _manageable(me, registry_id)
-    _list(name)
-    created = registries.appoint_curator(found, name, person(user_id), by=me)
-    row = ListCurator.objects.select_related("user", "appointed_by").get(
-        registry=found, list_type=name, user_id=user_id
-    )
-    return Status(201 if created else 200, _curator_out(row))
-
-
-@router.delete(
-    "/registries/{registry_id}/list-curators/{qualified:name}/{user_id}",
-    response={204: None},
-    summary="Stop someone curating a lab list",
-)
-def dismiss_curator(
-    request: HttpRequest, registry_id: UUID, name: str, user_id: UUID
-) -> Status[None]:
-    me = caller(request)
-    found = _manageable(me, registry_id)
-    registries.dismiss_curator(found, name, person(user_id), by=me)
-    return Status(204, None)

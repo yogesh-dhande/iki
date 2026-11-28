@@ -22,6 +22,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/qms
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst, description: Tests. }
   reviewer: { label: Reviewer, description: Reviews. }
@@ -42,29 +43,29 @@ slots:
 states:
   recorded:
     label: In progress
-    by: [analyst, reviewer]
+    set_by: [analyst, reviewer]
     reason: required
   submitted:
     label: Submitted
-    by: analyst
+    set_by: analyst
     locks: true
     signature: { meaning: authorship }
     maker: true
   first_review:
     label: First review
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted]]
   second_review:
     label: Second review
-    by: reviewer
+    set_by: reviewer
     locks: true
     signature: { meaning: review }
     independent_of: [creator, editors, signers: [submitted, first_review]]
   released:
     label: Approved
-    by: qa
+    set_by: qa
     locks: true
     signature: { meaning: approval }
     independent_of: [creator, editors, signers: [submitted, first_review, second_review]]
@@ -219,6 +220,19 @@ def test_a_lab_declares_its_sop_as_a_procedure(tmp_path: Path) -> None:
     assert again.procedures == result.plugin.procedures
 
 
+def test_a_procedure_keeps_the_labs_annotations_and_ignores_x_keys(tmp_path: Path) -> None:
+    # Its SOP's document control, as the lab records it (ADR 0293).
+    notes = "annotations:\n  sop: SOP-QA-012 rev 4\nx-acme-reviewed: 2026-11-01\n"
+    result = make(tmp_path, {"procedures/gmp.yaml": GMP + notes})
+    assert codes(result) == []
+    assert result.plugin is not None
+    procedure = result.plugin.procedures["acme/qms.gmp_result_review@2"]
+    assert procedure.annotations == {"sop": "SOP-QA-012 rev 4"}
+    compiled = plugin_to_dict(result.plugin)
+    assert "x-acme-reviewed" not in str(compiled)
+    assert plugin_from_dict(compiled).procedures == result.plugin.procedures
+
+
 @pytest.mark.parametrize(
     ("change", "code"),
     [
@@ -238,7 +252,10 @@ def test_a_lab_declares_its_sop_as_a_procedure(tmp_path: Path) -> None:
             ),
             "when-in-procedure",
         ),
-        (("    by: [analyst, reviewer]\n", "    by: [analyst, approver]\n"), "unknown-slot"),
+        (
+            ("    set_by: [analyst, reviewer]\n", "    set_by: [analyst, approver]\n"),
+            "unknown-slot",
+        ),
         (("    reason: required\n", "    reason: required\n    locks: true\n"), "open-state-locks"),
         (("route: [recorded, submitted,", "route: [recorded, submit,"), "unknown-state"),
     ],
@@ -395,7 +412,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Batch
 schema_version: 1
-hrid: { prefix: BAT }
+hrid: { prefix: BTC }
 fields:
   source: { type: enum, values: [made, bought] }
   made_by: { type: person }

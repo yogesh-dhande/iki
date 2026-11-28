@@ -10,4 +10,4 @@ description: >-
   in fields, so they never fire a trigger again.
 on: entity.registered
 type: DNASequence
-run: compute_composition
+action: compute_composition

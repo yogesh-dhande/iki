@@ -28,6 +28,7 @@ class Migration(iki.Migration):
                 ('locus', iki.TextField(null=True)),
                 ('rearrangement', iki.JSONField(null=True)),
                 ('curator', iki.UUIDField(db_column='curator_id', null=True)),
+                ('nonproductive_reason', iki.TextField(null=True)),
                 ('inputs', iki.JSONField(null=True)),
                 ('notes', iki.TextField(null=True)),
             ],
@@ -44,6 +45,7 @@ class Migration(iki.Migration):
                 ('repertoire_id', iki.CharField(max_length=250, null=True)),
                 ('locus', iki.TextField(null=True)),
                 ('rearrangement', iki.JSONField(null=True)),
+                ('nonproductive_reason', iki.TextField(null=True)),
                 ('inputs', iki.JSONField(null=True)),
                 ('notes', iki.TextField(null=True)),
                 ('antibody', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to='iki__antibody.antibody_entry')),
@@ -52,6 +54,7 @@ class Migration(iki.Migration):
             ],
             table='iki__antibody_rearrangements_antibodyrearrangement',
             indexes=[
+                iki.GinIndex(iki.SearchVector(iki.Left('nonproductive_reason', 100000), config='simple'), name='nonproduct_fts_adba03fc27f865a'),
                 iki.GinIndex(iki.SearchVector(iki.Left('notes', 100000), config='simple'), name='notes_fts_acf4abeccc34ad2deff4'),
             ],
             constraints=[
@@ -60,6 +63,8 @@ class Migration(iki.Migration):
                 iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('repertoire_id'), 1), name='iki__antibody_rearrangements_antibodyrearrangement___16d1eca727'),
                 iki.CheckConstraint(condition=iki.Q(('repertoire_id__regex', '[\\r\\n]'), negated=True), name='iki__antibody_rearrangements_antibodyrearrangement___3576212bdc'),
                 iki.CheckConstraint(condition=iki.Q(('locus__in', ['IGH', 'IGK', 'IGL'])), name='iki__antibody_rearrangements_antibodyrearrangement___b3fdf2ee78'),
+                iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('nonproductive_reason'), 1), name='iki__antibody_rearrangements_antibodyrearrangement___182dd19556'),
+                iki.CheckConstraint(condition=iki.LessThanOrEqual(iki.Length('nonproductive_reason'), 1000), name='iki__antibody_rearrangements_antibodyrearrangement___70cd675054'),
                 iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('notes'), 1), name='iki__antibody_rearrangements_antibodyrearrangement___e1a72a1b7e'),
                 iki.CheckConstraint(condition=iki.LessThanOrEqual(iki.Length('notes'), 3000), name='iki__antibody_rearrangements_antibodyrearrangement___5d5e716a52'),
             ],

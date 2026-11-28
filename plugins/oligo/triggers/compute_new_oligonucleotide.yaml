@@ -12,4 +12,4 @@ on: entity.registered
 type: Oligonucleotide
 watch_included:
   monomers: [smiles, natural_analogue, extinction_260]
-run: compute_oligonucleotide
+action: compute_oligonucleotide

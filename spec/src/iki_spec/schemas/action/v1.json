@@ -5,7 +5,13 @@
   "description": "Something a plugin does to entities: compute properties, create new entities from them, or import them. Each run records what it read, what it wrote and where it ran.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "runs_on", "command"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
     "kind": { "description": "What the manifest declares: `Action`.", "const": "Action" },
     "name": {
@@ -39,10 +45,11 @@
           "items": { "$ref": "#/$defs/creates" }
         },
         "updates": {
-          "description": "The fields a run may set on its inputs' entities, by input.",
-          "type": "array",
-          "maxItems": 20,
-          "items": { "$ref": "#/$defs/updates" }
+          "description": "The fields a run may set on its inputs' entities, by input name, as its output's `updates` are keyed.",
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+          "additionalProperties": { "$ref": "#/$defs/updates" }
         }
       },
       "additionalProperties": false
@@ -297,11 +304,6 @@
       "type": "string",
       "pattern": "^[1-9][0-9]{0,5}(s|m|h|d)$"
     },
-    "constraint": {
-      "description": "The schema versions it works with, such as `>=2` or `>=2,<4`.",
-      "type": "string",
-      "pattern": "^(==|>=|<=|>|<|!=)[0-9]+(,(==|>=|<=|>|<|!=)[0-9]+)*$"
-    },
     "input": {
       "description": "An input: the type of entity it takes, how many, and whether a run needs it.",
       "type": "object",
@@ -311,7 +313,10 @@
           "description": "The type of entity it takes; its subtypes are taken too.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
         },
-        "schema": { "$ref": "#/$defs/constraint" },
+        "schema_version": {
+          "description": "The schema versions of its type it works with, such as `>=2` or `>=2,<4`.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/versionConstraint"
+        },
         "cardinality": {
           "description": "`one` entity (the default), or `many`.",
           "enum": ["one", "many"]
@@ -406,6 +411,10 @@
           "description": "One of the type's unique fields, such as a LIMS record's ID. A create whose value an entity in the run's project has already updates that entity instead, as a revision with its origin.",
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         },
+        "on_match": {
+          "description": "What a create that matches an entity on `match_on` does: `update` (the default) writes its values to that entity, as a revision; `keep` leaves the entity as whoever made it first made it, and the run gives it as the create's entity. `keep` is for a record only one of its makers may write, such as a result's impact case after a failed calibration, which a trace, an instrument use or Equipment QA may each open first.",
+          "enum": ["update", "keep"]
+        },
         "derived_from": {
           "description": "The inputs each created entity comes from, for its lineage.",
           "type": "array",
@@ -417,13 +426,10 @@
       "additionalProperties": false
     },
     "updates": {
+      "description": "What a run may change on the entities given to this input.",
       "type": "object",
-      "required": ["input", "fields"],
+      "required": ["fields"],
       "properties": {
-        "input": {
-          "description": "The input whose entities it changes.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-        },
         "fields": {
           "description": "The fields it sets on them.",
           "type": "array",

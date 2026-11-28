@@ -175,8 +175,8 @@ def test_lab_defined_material_and_aliquot_fields(plugins: Path, database: str) -
     request.write_text(
         request.read_text()
         .replace(
-            "  sends: [samples, protein, tubes]",
-            "  sends: [samples, protein, tubes, specimens]\n  materials: [specimens]",
+            "    sends: [samples, protein, tubes]",
+            "    sends: [samples, protein, tubes, specimens]\n    materials: [specimens]",
         )
         .replace(
             "fields:\n",
@@ -193,7 +193,7 @@ def test_lab_defined_material_and_aliquot_fields(plugins: Path, database: str) -
     result = types / "assay_result.yaml"
     result.write_text(
         result.read_text()
-        .replace("result:\n", "result:\n  material: sample\n")
+        .replace("  result:\n", "  result:\n    material: sample\n")
         .replace(
             "sample: { type: ref, to: Sample }",
             "sample: { type: ref, to: Sample, required: true, immutable: true }",
@@ -375,6 +375,22 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_multimer__history",
         "acme__protein_multimer__entry",
         "acme__protein_multimer__entry__history",
+        "acme__protein_binding",
+        "acme__protein_binding__history",
+        # Two types under one identity (ADR 0165), as Bispecific and Multimer are, under an
+        # abstract one of the lab's own whose tables both share.
+        "acme__protein_reagent",
+        "acme__protein_reagent__history",
+        "acme__protein_reagent__entry",
+        "acme__protein_reagent__entry__history",
+        "acme__protein_primaryantibody",
+        "acme__protein_primaryantibody__history",
+        "acme__protein_primaryantibody__entry",
+        "acme__protein_primaryantibody__entry__history",
+        "acme__protein_secondaryantibody",
+        "acme__protein_secondaryantibody__history",
+        "acme__protein_secondaryantibody__entry",
+        "acme__protein_secondaryantibody__entry__history",
         "acme__protein_lot",
         "acme__protein_lot__history",
         "acme__protein_lot__inputs",
@@ -571,10 +587,10 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         assert loaded.plugin is not None and not loaded.errors, loaded.problems
         declared.append(loaded.plugin)
     prefixes = {
-        entity_type.hrid_prefix.lower()
+        entity_type.numbering_prefix.lower()
         for plugin in declared
         for entity_type in plugin.types.values()
-        if not entity_type.abstract and entity_type.hrid_prefix is not None
+        if entity_type.numbering_prefix is not None
     }
     expected = [f"  HRID sequence iki_hrid_{prefix}" for prefix in sorted(prefixes)]
     assert [line for line in report.splitlines() if line.startswith("  HRID sequence ")] == expected
@@ -832,6 +848,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 SAMPLE = """\
@@ -889,11 +906,12 @@ def test_reversing_an_added_field_only_drops_its_column_guards(lab: Path, databa
             for (name,) in query(
                 database,
                 "SELECT tgname FROM pg_trigger WHERE tgrelid = 'acme__lab_sample'::regclass "
-                "AND (starts_with(tgname, 'iki_unique__') OR starts_with(tgname, 'iki_rule__'))",
+                "AND starts_with(tgname, 'iki_rule__')",
             )
         }
 
-    expected = {"iki_unique__name", "iki_unique__alias", "iki_rule__one_alias_per_name"}
+    # Each unique field's is its one-field rule's (ADR 0082).
+    expected = {"iki_rule__name", "iki_rule__alias", "iki_rule__one_alias_per_name"}
     assert guards() == expected
     # A local trigger belongs to the deployment. Dropping the column must still fail and
     # leave Iki's guards intact until the deployment removes that dependency.
@@ -908,7 +926,7 @@ def test_reversing_an_added_field_only_drops_its_column_guards(lab: Path, databa
     query(database, "DROP TRIGGER local_alias_guard ON acme__lab_sample")
     migrate(out, database, "acme__lab", "0001")
     assert "alias" not in columns(database, "acme__lab_sample")
-    assert guards() == {"iki_unique__name"}
+    assert guards() == {"iki_rule__name"}
     migrate(out, database)
     sync(out, database)
     assert guards() == expected
@@ -2076,9 +2094,9 @@ apiVersion: iki/v1
 kind: Action
 name: weigh
 inputs:
-  sample: { type: Sample, schema: ">=1" }
+  sample: { type: Sample, schema_version: ">=1" }
 effects:
-  updates: [{ input: sample, fields: [mass] }]
+  updates: { sample: { fields: [mass] } }
 runs_on: { tier: backend, environment: tools }
 command: [python, ./weigh.py]
 """
@@ -2197,7 +2215,7 @@ fields:
         "  count: { type: int }\n  material: { type: ref, to: Material, required: true }",
     )
     write_sample(lab, material_ref, ("schema_version: 1", "schema_version: 2"))
-    action = WEIGH.replace('schema: ">=1"', 'schema: ">=1", include: [material]')
+    action = WEIGH.replace('schema_version: ">=1"', 'schema_version: ">=1", include: [material]')
     earlier = (
         WEIGHED
         + """

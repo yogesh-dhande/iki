@@ -32,7 +32,7 @@ from iki_server.entities.models import Entity
 from iki_server.files.scan_state import status_from_decision
 from iki_server.storage.codes import RESERVED_VENDOR_MESSAGE, has_iki_prefix
 from iki_spec import naming, units
-from iki_spec.model import EntityType, Field, as_refined, split_entry
+from iki_spec.model import EntityType, Field, as_refined, split_entry, stored_in_list_table
 from iki_spec.validate import value_problems
 
 
@@ -190,11 +190,11 @@ def shape(qualified: str) -> Shape:
             )
     names = {t.qualified_name for t in chain}
     for e in registry.extensions():
-        if e.extends_type not in names:
+        if e.adds_to not in names:
             continue
         label = naming.app_label(e.plugin)
         record, entry = split_entry(e.fields)
-        name = naming.extension_model(e.extends_type)
+        name = naming.extension_model(e.adds_to)
         if record:
             model = apps.get_model(label, name)
             parts.append(
@@ -204,7 +204,7 @@ def shape(qualified: str) -> Shape:
                     history=apps.get_model(label, naming.history_model(model.__name__)),
                     fields=record,
                     extension=True,
-                    name=f"{e.plugin}:{e.extends_type}",
+                    name=f"{e.plugin}:{e.adds_to}",
                 )
             )
         if entry:
@@ -216,7 +216,7 @@ def shape(qualified: str) -> Shape:
                     history=apps.get_model(label, naming.history_model(model.__name__)),
                     fields=entry,
                     extension=True,
-                    name=f"{e.plugin}:{e.extends_type}#entry",
+                    name=f"{e.plugin}:{e.adds_to}#entry",
                     entry=True,
                 )
             )
@@ -232,12 +232,6 @@ FOREIGN_KEYS = ("ref", "file", "person")
 def list_model(plugin: str, owner: type[models.Model], name: str) -> type[models.Model]:
     """The model of the items of ``owner``'s list ``name``, from ``plugin``'s app."""
     return apps.get_model(naming.app_label(plugin), naming.list_model(owner.__name__, name))
-
-
-def is_list_table(f: Field) -> bool:
-    """Whether a list has a table of its own: of references, files or people, an item per
-    row; or of rows (ADR 0137), a column per row's field."""
-    return f.type == "list" and f.items is not None and f.items.type in (*FOREIGN_KEYS, "row")
 
 
 def row_columns(f: Field) -> dict[str, str]:
@@ -378,7 +372,7 @@ class Refs:
                 held[pk] = type_name
                 if archived_at is not None or superseded_by is not None:
                     found_type = registry.types().get(type_name)
-                    if found_type is not None and found_type.is_list:
+                    if found_type is not None and found_type.is_lab_list:
                         self._retired[pk] = (type_name, superseded_by)
         if entry_ids - held.keys() and self.readable_entries is not None:
             known = dict(
@@ -862,7 +856,7 @@ def read_value(instance: models.Model, f: Field, part: Part) -> Any:  # noqa: AN
             {n: r[c] for n, c in columns.items()}
             for r in found.order_by("position").values(*columns.values())
         ]
-    if is_list_table(f):
+    if stored_in_list_table(f):
         rows = part.list_model(f.name)._default_manager.filter(entity_id=instance.pk)
         return list(rows.order_by("position").values_list("item_id", flat=True))
     if f.type in FOREIGN_KEYS:

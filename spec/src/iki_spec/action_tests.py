@@ -383,7 +383,7 @@ class _Check:
     def _is_request(self, entity_type: EntityType) -> bool:
         current: EntityType | None = entity_type
         while current is not None:
-            if current.request is not None:
+            if current.service.request is not None:
                 return True
             current = self.types.get(current.extends) if current.extends else None
         return False
@@ -409,7 +409,7 @@ class _Check:
             if current is not None:
                 chain.add(current.qualified_name)
         for extension in self.plugin.extensions:
-            if extension.extends_type in chain:
+            if extension.adds_to in chain:
                 out.update(extension.fields)
         return out
 
@@ -487,7 +487,7 @@ def run_input(
         nonlocal n
         n += 1
         entity_type = every[type_name]
-        prefix = entity_type.hrid_prefix or "ENT"
+        prefix = entity_type.numbering_prefix or "ENT"
         amount = amount_of(type_name, every)
         return {
             **({"material_field": amount.material} if amount and amount.material else {}),

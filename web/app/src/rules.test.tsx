@@ -21,7 +21,7 @@ import {
   renderApp,
 } from "./entity-fixtures";
 import { filterable, searchWords } from "./filters";
-import { answer, calls, page, problem, respond, signedIn } from "./test-server";
+import { answer, calls, page, problem, respond, signedIn, stale } from "./test-server";
 
 vi.mock("./apps", async (original) => {
   const real = await original<typeof import("./apps")>();
@@ -80,7 +80,7 @@ function rule(more: Partial<Schemas["RuleOut"]> & Pick<Schemas["RuleOut"], "name
     hold: null,
     unique: [],
     no_overlap: null,
-    while: {},
+    while: null,
     ...more,
   } as Schemas["RuleOut"];
 }
@@ -359,7 +359,7 @@ describe("holds and breaches", () => {
     });
   });
 
-  it("requires reopening the hold and entering a new reason after a stale review", async () => {
+  it("shows the hold as it is now and asks for a new reason after a stale review", async () => {
     onLab();
     const record = "/api/v1/entities/LOT-000001";
     const route = `/api/v1/entities/${LOT_ID}/holds/${HOLD_ID}/review`;
@@ -384,19 +384,19 @@ describe("holds and breaches", () => {
       occurrences: [OBSERVATION, retest],
       review_version: "b".repeat(64),
     };
-    answer(`GET ${record}`, lot({ revision: 3, holds: [updated] }));
-    answer(`POST ${route}`, problem(412, "hold_changed", "The hold changed. Read it again."));
+    // A retest added to the hold meanwhile: Iki refuses the old one, and the page reads it.
+    answer(`POST ${route}`, () => {
+      answer(`GET ${record}`, lot({ revision: 3, holds: [updated] }));
+      return stale(3);
+    });
     await user.click(clear);
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Read it again.");
-    expect(clear).toHaveAttribute("aria-disabled", "true");
-    expect(reason).toHaveValue("");
+    // In place: the record and hold as they are now, and the reason to give again.
+    expect(await within(dialog).findByText("You’re reviewing record revision 3.")).toBeVisible();
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(
+      "Someone changed the record or its hold while this was open.",
+    );
     expect(calls("POST", route)[0]?.headers.get("If-Match")).toBe('"2"');
-
-    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    await within(held).findByText(retest.message);
-    await user.click(within(held).getByRole("button", { name: "Review" }));
-    const refreshed = await screen.findByRole("alertdialog");
-    expect(refreshed).toHaveTextContent("You’re reviewing record revision 3.");
+    const refreshed = dialog;
     expect(refreshed).toHaveTextContent("As measured on the SEC.");
     expect(refreshed).toHaveTextContent("Its purity, 88.5%, is under 90%.");
     const nextReason = within(refreshed).getByRole("textbox", { name: "Why it may stand" });

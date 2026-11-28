@@ -19,16 +19,16 @@ idempotent, and works from the manifests the build installed
   ``registry``. Lists of references or files appear as arrays. The views use
   ``security_invoker``, so whoever queries one needs the right to read what
   it reads.
-- **Unique fields' triggers** (ADR 0082): each keeps ``iki_unique_value`` in
-  step with a unique column, so the database refuses a second entity in a
-  project with the same value. Values already there are filled in, and if
-  entities already share one, the sync stops, saying which.
+- **Vendor barcodes' triggers** (ADR 0082): each refuses the reserved ``IKI:``
+  prefix in a column a concrete type reads as its vendor barcode; if records
+  already have one, the sync stops, saying which.
 - **References' edges** (ADR 0123): triggers on every table holding
   references, and every list of them, keep ``iki_graph_edge`` in step, so the
   graph across references is whatever the tables hold. Tables whose triggers
   are new are filled in, and edges of fields no longer there are dropped.
 - **Plugins' rules** (ADR 0127): triggers keep the rows the database holds
-  ``unique`` and ``no_overlap`` rules with, filling in records already there; if
+  ``unique`` and ``no_overlap`` rules with, a unique field's one-field rule among
+  them (ADR 0082), filling in records already there; if
   records already break one, the sync stops, saying which. Then each type whose
   checks, or whose plugins' versions, changed has its records checked again: those
   breaking a rule are reported, or for a rule that holds, held for review
@@ -79,7 +79,7 @@ from iki_server.graph import edges
 from iki_server.plugins import baseline
 from iki_server.plugins.models import PluginState
 from iki_spec import naming
-from iki_spec.model import EntityType, Extension, Field, split_entry
+from iki_spec.model import EntityType, Extension, Field, split_entry, stored_in_list_table
 
 VIEWS_SCHEMA = "iki_views"
 
@@ -103,7 +103,9 @@ class Report:
     comments: int = 0
     #: What changed about each plugin, such as ``dna detached``.
     plugins: list[str] = field(default_factory=list)
-    unique: list[str] = field(default_factory=list)
+    barcodes: list[str] = field(default_factory=list)
+    #: The lab lists whose labels the database holds once in a registry in any case.
+    labels: list[str] = field(default_factory=list)
     graph: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
     guards: list[str] = field(default_factory=list)
@@ -138,11 +140,8 @@ def sync(analyst_role: str | None = None) -> Report:
         for statement in _comments():
             cursor.execute(statement)
             report.comments += 1
-        report.unique = unique.install(
-            cursor,
-            unique.columns((model, fields) for _, model, fields, _ in _tables()),
-            _barcode_types(),
-        )
+        report.barcodes = unique.install_barcodes(cursor, _barcode_types())
+        report.labels = lists.install_label_indexes(cursor)
         report.graph = edges.install(
             cursor, edges.tables((plugin, model, fields) for plugin, model, fields, _ in _tables())
         )
@@ -165,22 +164,25 @@ def sync(analyst_role: str | None = None) -> Report:
     return report
 
 
-def _barcode_types() -> dict[str, list[str]]:
+def _barcode_types() -> dict[tuple[str, str], list[str]]:
     """The concrete types that designate each physical column as their vendor barcode."""
-    out: dict[str, list[str]] = {}
+    out: dict[tuple[str, str], list[str]] = {}
     for type_name, entity_type in registry.types().items():
         if entity_type.abstract or type_name == naming.ENTITY:
             continue
         form = shape(type_name)
         if name := form.vendor_barcode:
-            out.setdefault(unique.key(form.part_of(name).model, name), []).append(type_name)
+            model = form.part_of(name).model
+            column = str(model._meta.get_field(name).column)  # type: ignore[union-attr]
+            out.setdefault((model._meta.db_table, column), []).append(type_name)
     return out
 
 
 def describe(report: Report) -> list[str]:
     """What a sync made, a line each, as the commands print it."""
     lines = [f"  HRID sequence {name}" for name in report.sequences]
-    lines += [f"  unique {key}" for key in report.unique]
+    lines += [f"  vendor barcode {column}" for column in report.barcodes]
+    lines += [f"  labels of {name}, once in any case" for name in report.labels]
     lines += [f"  references of {table}" for table in report.graph]
     lines += [f"  rule {key}" for key in report.rules]
     for checked in report.checked:
@@ -260,11 +262,7 @@ def analyst_role() -> str | None:
 
 
 def _prefixes() -> set[str]:
-    return {
-        t.hrid_prefix
-        for t in registry.types().values()
-        if t.hrid_prefix is not None and not t.abstract
-    }
+    return {t.numbering_prefix for t in registry.types().values() if t.numbering_prefix}
 
 
 # --- Models ------------------------------------------------------------------------------------
@@ -275,7 +273,7 @@ def _type_model(t: EntityType) -> type[models.Model]:
 
 
 def _extension_model(e: Extension) -> type[models.Model]:
-    return apps.get_model(naming.app_label(e.plugin), naming.extension_model(e.extends_type))
+    return apps.get_model(naming.app_label(e.plugin), naming.extension_model(e.adds_to))
 
 
 def _entry_model(plugin: str, model_name: str) -> type[models.Model]:
@@ -289,12 +287,6 @@ def _history_model(plugin: str, model: type[models.Model]) -> type[models.Model]
 
 def _list_model(plugin: str, owner: type[models.Model], f: Field) -> type[models.Model]:
     return apps.get_model(naming.app_label(plugin), naming.list_model(owner.__name__, f.name))
-
-
-def _is_list_table(f: Field) -> bool:
-    from iki_server.entities.values import is_list_table
-
-    return is_list_table(f)
 
 
 def _column(model: type[models.Model], name: str) -> str:
@@ -331,16 +323,16 @@ def _tables() -> Iterable[tuple[str, type[models.Model], dict[str, Field], str]]
             )
     for e in registry.extensions():
         record, entry = split_entry(e.fields)
-        described = f"Fields the {e.plugin} plugin adds to {e.extends_type}."
+        described = f"Fields the {e.plugin} plugin adds to {e.adds_to}."
         if record or not entry:
             yield e.plugin, _extension_model(e), record, _sentence(described, e.description)
         if entry:
             yield (
                 e.plugin,
-                _entry_model(e.plugin, naming.extension_model(e.extends_type)),
+                _entry_model(e.plugin, naming.extension_model(e.adds_to)),
                 entry,
                 _sentence(
-                    f"Registry fields the {e.plugin} plugin adds to {e.extends_type}'s "
+                    f"Registry fields the {e.plugin} plugin adds to {e.adds_to}'s "
                     "entries (ADR 0115).",
                     e.description,
                 ),
@@ -399,7 +391,7 @@ def _comments() -> list[sql.Composable]:
             out.append(_comment_on_column(history._meta.db_table, _column(history, f.name), text))
             if f.removed:
                 continue
-            if _is_list_table(f):
+            if stored_in_list_table(f):
                 items = _list_model(plugin, model, f)
                 out.append(
                     _comment_on_table(
@@ -510,7 +502,7 @@ def _view(t: EntityType) -> tuple[str, sql.Composable, list[sql.Composable]]:
                     "FROM {} l WHERE l.entity_id = {}), '[]'::jsonb) AS {}"
                 ).format(pairs, sql.Identifier(items._meta.db_table), on, sql.Identifier(f.name))
                 label = f.name
-            elif _is_list_table(f):
+            elif stored_in_list_table(f):
                 items = _list_model(plugin, model, f)
                 column = sql.SQL(
                     "ARRAY(SELECT l.item_id FROM {} l WHERE l.entity_id = {} "
@@ -540,7 +532,7 @@ def _analyst_grants(role: str) -> list[sql.Composable]:
         tables += [
             _list_model(plugin, model, f)._meta.db_table
             for f in fields.values()
-            if _is_list_table(f) and not f.removed
+            if stored_in_list_table(f) and not f.removed
         ]
     return [
         sql.SQL("GRANT USAGE ON SCHEMA {}, public TO {}").format(sql.Identifier(VIEWS_SCHEMA), who),

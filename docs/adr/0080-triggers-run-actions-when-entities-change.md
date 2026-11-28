@@ -1,6 +1,7 @@
 # 0080. Triggers run actions when entities change
 
-- Status: Accepted
+- Status: Accepted (refined by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): a value from the record's own values is worked out at every save, not by a triggered action)
+- Amended by [0298](0298-a-plugin-can-run-its-dependencies-actions.md): `action:` may name a declared dependency's action; a recheck runs only its own plugin's
 - Date: 2026-11-13
 - Refines: [0013](0013-agents-via-mcp-oauth-approvals.md),
   [0079](0079-workflows-are-dags-of-ordinary-runs.md)
@@ -111,6 +112,47 @@ records. Registry changes apply to every holder. Project observations apply
 within their project. Filling a previously empty registry value can wake its
 dependents because that value can be filled only once. A completed calculation
 clears its notice after checking its input and evidence revisions.
+
+Note of 2026-11-27: the build checks those reads. A calculation's trigger
+(`on: entity.updated`, its action updating the record it's given, no `recheck`)
+lists under `watch_included` every reference its input includes whose
+entities have a value that can change, naming the fields it reads, which must
+be fields they have and not states. A required, immutable value, or a lab
+list's immutable fact, is fixed: naming it only says the calculation reads it,
+and it never wakes one. A reference with nothing that can change needs no
+entry. When the trigger lists `fields`, every reference its input includes is
+among them, fixed or not: a move to a superseded entry's or lab list option's
+replacement re-points even an immutable one (ADR 0115, ADR 0270). A recheck
+can't watch references, since a change to what they name has no editor whose
+credential could run it.
+
+Note of 2026-11-27: a recheck can watch a record's registry facts (ADR 0115).
+Any change to one clears the check's result on every record of the entry, in
+the change's transaction, and each shows **Needs re-verification**. A holder
+who fills the fact in by editing their record has the recheck run on it with
+their credential. The entry's other records, and all of them when a registrar
+changes the fact, had no editor in their project, so they wait for someone with
+access to recheck them. A record whose state locks it, an archived one, or one
+of a detached plugin keeps its result, and shows which check needs to run
+again.
+
+A fixed fact never changes, so what changes what a calculation read of it is
+supersession (ADR 0143). A lab whose A280 method should calculate nothing
+supersedes its option with one that doesn't; each record moved to the
+replacement is flagged as needing its calculations again, and its trigger
+fires where the project turned it on. Superseding alone moves nothing and
+flags nothing, and neither does a label change. A record moved to its own
+entry's replacement is that entry's record now: each record of the project
+that reads through a reference to it is flagged, and fired where it's on.
+
+## Amendment of 2026-11-27 — a firing whose launch keeps breaking
+
+A launch can fail for a reason that has no answer for the lab, such as a bug.
+Then the launch is undone and the firing stays `pending`, with the failure
+counted and logged for the operator. The minute's sweep tries it again. After
+five failures it ends `failed`, saying its run couldn't start and that the
+server's log records why. No firing stays pending for good, and none holds up
+the firings after it.
 
 ## Consequences
 

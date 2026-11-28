@@ -12,7 +12,10 @@ description: >-
   the heavy chain has a constant region, it says the isotype: aligned with
   IMGT's human constant regions (Biopython's pairwise aligner, BLOSUM62),
   it's the one it matches. For `other`, a heavy chain without numbered
-  variable domains, such as an Fc fusion's, is compared whole. Its parts are
+  variable domains, such as an Fc fusion's, is compared whole. It's human only
+  when it's nearer a human reference than any of IMGT's rhesus macaque ones:
+  one nearer a macaque's is an Old World monkey's, whose isotype is read off
+  the macaque references when its species is given as macaque. Its parts are
   its chains, two copies of each for an IgG and one for a Fab, an Fv, an scFv
   or a VHH, and for an IgG1 or an IgG4 its chains' disulfides are given as the
   subclass places them: each light chain to its heavy chain, and the heavy
@@ -20,12 +23,24 @@ description: >-
   hasn't is left out and said, and its bond map says whether its bonds are
   all it has: not an IgG2's or IgG3's between its chains, which aren't given,
   and only the predominant form's for a native IgG4's hinge. An IgM's chains
-  make one of its subunits: its pentamer or hexamer is a protein complex. A
+  make one of its subunits, and for format other, an IgM's or an IgA's
+  polymer is given as its subunits, two heavy and two light chains each, with
+  its J chain: an IgM pentamer's five, or a hexamer's six, which has none, or
+  an IgA dimer's two. A
   constant region no human reference matches, such as a mouse's, keeps the
   isotype and species given, which must be one that species has.
 inputs:
-  heavy_chain: { type: iki/protein.Protein, schema: ">=2", label: Heavy chain }
-  light_chain: { type: iki/protein.Protein, schema: ">=2", label: Light chain, optional: true }
+  heavy_chain: { type: iki/protein.Protein, schema_version: ">=2", label: Heavy chain }
+  light_chain:
+    { type: iki/protein.Protein, schema_version: ">=2", label: Light chain, optional: true }
+  j_chain:
+    type: iki/protein.Protein
+    schema_version: ">=2"
+    label: J chain
+    optional: true
+    description: >-
+      The J chain that joins an IgM pentamer's or an IgA polymer's subunits,
+      with subunits.
 params:
   name:
     type: string
@@ -45,18 +60,29 @@ params:
     description: >-
       Its heavy chain constant region's class, as its species names it: IgG or
       one of its subclasses for an IgG; none for an Fv, scFv or VHH. Left out,
-      it's the heavy chain's human constant region's, where it has one; given,
-      it must be that. For a constant region no human one matches, give it with
-      its species.
+      it's the heavy chain's human or macaque constant region's, where it has
+      one; given, it must be that. For a constant region no human or macaque
+      one matches, give it with its species.
   constant_species:
     type: enum
-    values: [human, mouse, rat, rabbit]
+    values: [human, macaque, mouse, rat, rabbit]
     label: Constant region species
     description: >-
       The species of the heavy chain's constant region. Left out, it's human
-      when the chain matches a human constant region. Give it for a mouse's,
-      rat's or rabbit's, whose isotype is then as given.
+      when the chain matches a human constant region, nearer it than a
+      macaque's. Give macaque for a rhesus or cynomolgus macaque's, whose
+      isotype is then read off IMGT's macaque references; and give it for a
+      mouse's, rat's or rabbit's, whose isotype is then as given.
   target: { type: string, max_length: 255, description: What it binds. }
+  subunits:
+    type: int
+    min: 1
+    max: 6
+    description: >-
+      For format other, how many subunits of two heavy and two light chains an
+      IgM's or an IgA's polymer has: 5 for an IgM pentamer, with its J chain if
+      it has one, 6 for a hexamer, which has none, and 2 to 5 for an IgA
+      polymer. Left out, its chains make one.
   copies:
     type: int
     min: 1
@@ -64,9 +90,10 @@ params:
     description: >-
       How many copies of each chain, for `other` only: two for a chain with an
       Fc's CH3 (or an IgM's or IgE's CH4), which pairs, and one without, such as
-      an isolated CH2, if left out.
+      an isolated CH2, if left out. A polymer's are its subunits'.
 effects:
-  creates: [{ type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain] }]
+  creates:
+    - { type: Antibody, cardinality: one, derived_from: [heavy_chain, light_chain, j_chain] }
 software:
   - { name: Biopython, version: "1.88", url: https://biopython.org }
 runs_on: { tier: backend, environment: antibody-tools }

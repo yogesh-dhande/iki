@@ -97,11 +97,12 @@ def read_procedure(plugin: str, data: Mapping[str, Any], file: str | None) -> Re
             if isinstance(f, dict)
         },
         file=file,
+        annotations=dict(data.get("annotations") or {}),
     )
 
 
 def _state(name: str, data: Mapping[str, Any]) -> ReviewState:
-    by = data.get("by")
+    by = data.get("set_by")
     sig = data.get("signature")
     signature = None
     if isinstance(sig, dict):
@@ -116,7 +117,7 @@ def _state(name: str, data: Mapping[str, Any]) -> ReviewState:
         name=name,
         label=str(data.get("label") or name.replace("_", " ").capitalize()),
         description=data.get("description") if isinstance(data.get("description"), str) else None,
-        by=(by,) if isinstance(by, str) else tuple(by) if isinstance(by, list) else (),
+        set_by=(by,) if isinstance(by, str) else tuple(by) if isinstance(by, list) else (),
         locks=data.get("locks") is True,
         reason=data.get("reason") if isinstance(data.get("reason"), str) else None,
         on_edit=data.get("on_edit") if isinstance(data.get("on_edit"), str) else None,
@@ -149,14 +150,14 @@ def check_procedure(procedure: ReviewProcedure) -> list[ProcedureProblem]:
     used_slots: set[str] = set()
     for name, st in procedure.states.items():
         at = ("states", name)
-        for slot in st.by:
+        for slot in st.set_by:
             used_slots.add(slot)
             if slot not in procedure.slots:
                 add(
                     "unknown-slot",
                     f"`{slot}` isn't one of this procedure's slots.",
                     *at,
-                    "by",
+                    "set_by",
                     hint="Declare it under `slots`, or name one that is: "
                     + ", ".join(f"`{s}`" for s in procedure.slots)
                     + ".",
@@ -187,12 +188,12 @@ def check_procedure(procedure: ReviewProcedure) -> list[ProcedureProblem]:
                     "signature",
                     hint="Add `maker: true`, or give the signature another meaning.",
                 )
-            if not st.by:
+            if not st.set_by:
                 add(
                     "signed-by-no-one",
                     f"No slot sets `{name}`, so no one could sign it.",
                     *at,
-                    hint="Name the slots whose holders sign it under `by`.",
+                    hint="Name the slots whose holders sign it under `set_by`.",
                 )
         if st.on_edit is not None:
             if st.on_edit not in procedure.states:
@@ -292,7 +293,7 @@ def check_procedure(procedure: ReviewProcedure) -> list[ProcedureProblem]:
         for s in flow.states:
             in_a_flow.add(s)
             found = procedure.states.get(s)
-            if found is not None and s != flow.open and not found.by:
+            if found is not None and s != flow.open and not found.set_by:
                 add(
                     "unreachable-state",
                     f"No slot sets `{s}`, so `{name}`'s records never reach it.",
@@ -482,7 +483,7 @@ def compile_flow(
             name=name,
             label=st.label,
             description=st.description,
-            set_by=tuple(binding[s] for s in st.by if s in binding) if reentered else (),
+            set_by=tuple(binding[s] for s in st.set_by if s in binding) if reentered else (),
             locks=st.locks,
             reason=st.reason if reentered else None,
             on_edit=st.on_edit if st.on_edit in names else None,
@@ -701,7 +702,7 @@ def staffing(
 ) -> Staffing:
     flow = procedure.flows[flow_name]
     route = _route(flow, review)
-    steps = {s: procedure.states[s].by for s in route[1:]}
+    steps = {s: procedure.states[s].set_by for s in route[1:]}
     apart: set[frozenset[str]] = set()
     if review is None or not review.derived:
         for s in steps:

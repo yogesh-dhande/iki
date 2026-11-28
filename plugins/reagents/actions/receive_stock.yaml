@@ -7,8 +7,8 @@ description: >-
   hand, as a lot of this catalogue item at the selected storage. The document reference and
   line identify the receipt, so it can't be posted twice.
 inputs:
-  item: { type: StockItem, schema: ">=1" }
-  storage: { type: StockStore, schema: ">=1" }
+  item: { type: StockItem, schema_version: ">=1" }
+  storage: { type: StockStore, schema_version: ">=1" }
 params:
   received_as:
     type: enum

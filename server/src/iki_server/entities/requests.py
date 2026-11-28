@@ -55,12 +55,12 @@ from iki_server.entities.models import (
     Request,
     Revision,
 )
-from iki_server.entities.values import Invalid, is_list_table, shape
+from iki_server.entities.values import Invalid, shape
 from iki_server.org import permissions
 from iki_server.org.models import Project
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
-from iki_spec.model import RequestSpec, ResultSpec, WorkItemSpec, amount_of
+from iki_spec.model import RequestSpec, ResultSpec, WorkItemSpec, amount_of, stored_in_list_table
 
 __all__ = [
     "ASKER",
@@ -104,12 +104,14 @@ def spec_of(type_name: str) -> RequestSpec | None:
         return None
     found: RequestSpec | None = None
     for t in [*reversed(registry.ancestors(entity_type)), entity_type]:
-        if t.request is None:
+        if t.service.request is None:
             continue
         if found is None:
-            found = t.request
+            found = t.service.request
         else:
-            added = tuple(n for n in t.request.service_fields if n not in found.service_fields)
+            added = tuple(
+                n for n in t.service.request.service_fields if n not in found.service_fields
+            )
             found = replace(found, service_fields=(*found.service_fields, *added))
     return found
 
@@ -121,8 +123,8 @@ def result_spec(type_name: str) -> ResultSpec | None:
     if entity_type is None:
         return None
     for t in [entity_type, *registry.ancestors(entity_type)]:
-        if t.result is not None:
-            return t.result
+        if t.service.result is not None:
+            return t.service.result
     return None
 
 
@@ -133,7 +135,11 @@ def work_item_spec(type_name: str) -> WorkItemSpec | None:
     if entity_type is None:
         return None
     return next(
-        (t.work_item for t in [entity_type, *registry.ancestors(entity_type)] if t.work_item),
+        (
+            t.service.work_item
+            for t in [entity_type, *registry.ancestors(entity_type)]
+            if t.service.work_item
+        ),
         None,
     )
 
@@ -844,7 +850,7 @@ def check_result(
             request
             and request.completed_field
             and states.values_of(found.entity).get(request.completed_field)
-            == request.completed_state
+            in request.completed_states
         ):
             return {spec.of: ["This request has already been delivered."]}
         answering = answered_by(found.entity.type)
@@ -1057,14 +1063,14 @@ def guarded_tables() -> list[Guarded]:
                 sorted(
                     str(getattr(part.model._meta.get_field(n), "column", n))
                     for n, f in part.fields.items()
-                    if n in service and not f.removed and not is_list_table(f)
+                    if n in service and not f.removed and not stored_in_list_table(f)
                 )
             )
             table = part.model._meta.db_table
             if table not in out or columns:
                 out[table] = Guarded(table, columns)
             for n, f in part.fields.items():
-                if not f.removed and is_list_table(f):
+                if not f.removed and stored_in_list_table(f):
                     listed = part.list_model(n)._meta.db_table
                     out[listed] = Guarded(listed, (), SERVICE if n in service else ASKER)
     return sorted(out.values(), key=lambda g: g.table)

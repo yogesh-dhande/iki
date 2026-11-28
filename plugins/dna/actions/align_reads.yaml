@@ -14,7 +14,7 @@ description: >-
 inputs:
   reference:
     type: DNASequence
-    schema: ">=1"
+    schema_version: ">=1"
     description: The sequence the reads should match, such as the plasmid as designed.
 params:
   reads:

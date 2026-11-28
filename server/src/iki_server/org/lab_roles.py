@@ -139,7 +139,7 @@ def uses(role: str) -> list[Use]:
                     for wanted in state.signatures
                     if role in ((wanted.role,) if wanted.role else state.set_by)
                 )
-            for purpose, allowed in entity_type.draw_purposes.items():
+            for purpose, allowed in entity_type.draws.purposes.items():
                 if role in allowed:
                     purpose_label = DrawPurpose(purpose).label
                     out.append(

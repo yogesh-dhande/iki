@@ -365,7 +365,7 @@ def _find(project: Project, picked: list[Entity]) -> _Found:
                 if (
                     record is None
                     and entity.registry_id == project.registry_id
-                    and (_is_list(entity.type))
+                    and registry.is_lab_list(entity.type)
                 ):
                     # A lab list's option (ADR 0270): the project's records name it without
                     # holding it, and it goes by its code, which the importing registry's
@@ -420,11 +420,6 @@ def _find(project: Project, picked: list[Entity]) -> _Found:
             # Only a run read it: the run's record keeps it, and importing doesn't need it.
             found.outside[target] = "run"
     return found
-
-
-def _is_list(type_name: str) -> bool:
-    found = registry.types().get(type_name)
-    return found is not None and found.is_list
 
 
 def _entry_values(entry: Entity) -> dict[str, Any]:
@@ -557,8 +552,8 @@ def _plugins(found: _Found) -> list[dict[str, Any]]:
             }
     extensions: dict[str, dict[str, Any]] = {}
     for e in registry.extensions():
-        if e.extends_type in types:
-            extensions.setdefault(e.plugin, {})[e.extends_type] = {"units": _units(e.fields)}
+        if e.adds_to in types:
+            extensions.setdefault(e.plugin, {})[e.adds_to] = {"units": _units(e.fields)}
     entries = {e["name"]: e for e in (registry.installed() or {}).get("plugins", ())}
     out = []
     for name, plugin in registry.plugins().items():

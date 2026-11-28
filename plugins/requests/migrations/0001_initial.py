@@ -169,7 +169,6 @@ class Migration(iki.Migration):
                 ('request', iki.UUIDField(db_column='request_id', null=True)),
                 ('priority', iki.TextField(null=True)),
                 ('scheduled_on', iki.DateField(null=True)),
-                ('instrument', iki.TextField(null=True)),
                 ('notes', iki.TextField(null=True)),
                 ('status', iki.TextField(null=True)),
             ],
@@ -263,7 +262,6 @@ class Migration(iki.Migration):
                 ('entity', iki.OneToOneField(db_column='entity_id', on_delete=iki.PROTECT, parent_link=True, primary_key=True, related_name='+', serialize=False, to=iki.ENTITY)),
                 ('priority', iki.TextField(db_default='routine', null=True)),
                 ('scheduled_on', iki.DateField(null=True)),
-                ('instrument', iki.CharField(max_length=200, null=True)),
                 ('notes', iki.TextField(null=True)),
                 ('status', iki.StateField(db_comment='A state field (ADR 0125): one of queued, scheduled, running, done, cancelled.', db_default='queued', states=['queued', 'scheduled', 'running', 'done', 'cancelled'])),
                 ('request', iki.ForeignKey(on_delete=iki.PROTECT, related_name='+', to=iki.ENTITY)),
@@ -335,7 +333,7 @@ class Migration(iki.Migration):
         ),
         iki.AddConstraint(
             model_name='request',
-            constraint=iki.CheckConstraint(condition=iki.Q(('priority__in', ['routine', 'urgent'])), name='iki__requests_request__priority__values'),
+            constraint=iki.CheckConstraint(condition=iki.Q(('priority__in', ['routine', 'high', 'urgent'])), name='iki__requests_request__priority__values'),
         ),
         iki.AddConstraint(
             model_name='request',
@@ -348,14 +346,6 @@ class Migration(iki.Migration):
         iki.AddConstraint(
             model_name='workitem',
             constraint=iki.CheckConstraint(condition=iki.Q(('priority__in', ['routine', 'high', 'urgent'])), name='iki__requests_workitem__priority__values'),
-        ),
-        iki.AddConstraint(
-            model_name='workitem',
-            constraint=iki.CheckConstraint(condition=iki.GreaterThanOrEqual(iki.Length('instrument'), 1), name='iki__requests_workitem__instrument__not_empty'),
-        ),
-        iki.AddConstraint(
-            model_name='workitem',
-            constraint=iki.CheckConstraint(condition=iki.Q(('instrument__regex', '[\\r\\n]'), negated=True), name='iki__requests_workitem__instrument__one_line'),
         ),
         iki.AddConstraint(
             model_name='workitem',

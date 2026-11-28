@@ -1,12 +1,14 @@
 """A component's frame and module, as the web app's sandboxed frames load them (ADR 0084).
 
 The web app shows a component in ``<iframe sandbox="allow-scripts">`` pointed at its
-frame: a page with Iki's bridge and the component's module, and nothing else. Both are
-addressed by the module's digest, so they never change: browsers keep them for ever,
-and a new version is a new address. Neither needs the person's session, and neither
-gets it: the frame's document has an origin of its own that is no one's, so its module
-is a cross-origin request without cookies, and Iki's code is as public as its own
-scripts are. What the frame shows comes from the page, through the bridge.
+frame: a page with Iki's bridge and the component's module, and nothing else. The module
+is addressed by its digest, and the frame by the module's and the bridge's, so neither
+ever changes: browsers keep them for ever, and a new version of either is a new address.
+A frame a browser kept never runs a bridge older than the page that frames it (ADR
+0286). Neither needs the person's session, and neither gets it: the frame's document has
+an origin of its own that is no one's, so its module is a cross-origin request without
+cookies, and Iki's code is as public as its own scripts are. What the frame shows comes
+from the page, through the bridge.
 
 The frame's policy allows the bridge (by its hash) and the module (by its address,
 with its digest as the script's integrity) and nothing else: no network, no other
@@ -38,6 +40,8 @@ logger = structlog.get_logger("iki.components")
 
 #: Iki's bridge in every frame: it runs the component's element (``bridge.js``).
 BRIDGE = (Path(__file__).parent / "bridge.js").read_text()
+#: The bridge's digest, in every frame's address beside the module's.
+BRIDGE_DIGEST = hashlib.sha256(BRIDGE.encode()).hexdigest()
 #: Frames and modules are addressed by digest: they never change.
 FOR_EVER = 365 * 24 * 60 * 60
 
@@ -96,7 +100,10 @@ def _page(label: str, element: str, module: str, integrity: str) -> str:
 
 @require_GET
 @xframe_options_sameorigin
-def frame(request: HttpRequest, name: str, digest: str) -> HttpResponse:
+def frame(request: HttpRequest, name: str, digest: str, bridge: str) -> HttpResponse:
+    if bridge != BRIDGE_DIGEST:
+        # A frame of another Iki's bridge: the page that asks for it is out of date.
+        raise Http404
     component = _installed(name, digest)
     data = _module(component)
     module = public_origin(request) + reverse("component_module", args=[name, digest])

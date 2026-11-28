@@ -4,5 +4,5 @@ name: rank_received_requests
 label: Rank requests as they arrive
 on: request.received
 type: RankedAssayRequest
-run: rank_requests
+action: rank_requests
 input: requests

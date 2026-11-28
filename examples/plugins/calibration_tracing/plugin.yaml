@@ -2,12 +2,12 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/calibration_tracing
-version: 0.2.0
+version: 0.3.2
 title: Automatic calibration impact tracing
-description: Open impact cases for affected measurements when a project marks an instrument's calibration as failed.
+description: Run Equipment's calibration trace, opening impact cases for affected measurements, when a project marks an instrument's calibration as failed.
 license: Apache-2.0
 iki: ">=0.1"
 dependencies:
+  # Its trigger watches Equipment's instruments and runs Equipment's own trace (ADR 0298).
   iki/equipment:
-    types:
-      { Instrument: ">=1", EquipmentService: ">=2", InstrumentUse: ">=2", CalibrationImpact: ">=4" }
+    types: { Instrument: ">=1" }

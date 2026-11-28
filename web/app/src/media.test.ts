@@ -89,7 +89,7 @@ describe("media", () => {
 
   it("says why the file is refused before uploading it", async () => {
     await expect(
-      media.identify(new File([], "notes.pdf"), ["iki/core.protein-fasta"]),
+      media.identify(new File([], "notes.pdf"), ["iki/core.protein_fasta"]),
     ).rejects.toThrow(
       "notes.pdf is in PDF format. Choose a file matching protein FASTA (.fasta, .fa or .faa).",
     );

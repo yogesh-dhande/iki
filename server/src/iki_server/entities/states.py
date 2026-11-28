@@ -29,8 +29,8 @@ be set to a state that locks it until its holds are reviewed.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import UUID
 
@@ -40,25 +40,27 @@ from psycopg import sql
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import registry
+from iki_server.entities import guards, registry
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.signatures import entries
-from iki_spec.model import Field, State
+from iki_spec.model import Field, State, stored_in_list_table
 
 __all__ = [
     "CorrectionReason",
     "GuardRefused",
     "NeedsSignatures",
     "Option",
+    "conditions_of",
     "install_guards",
     "locked_why",
     "locking",
     "on_edit",
     "options",
+    "options_of",
     "refusal",
     "return_for_edit",
     "set_state",
@@ -230,30 +232,55 @@ def options(
     """For each of a record's state fields, the states it could be set to (every one but
     the one it's in), each with why ``user`` may not set it. ``values``: the record's,
     as the database stores them: its guards read them."""
-    if entity.registry_id is not None:
-        return {}
-    history = entries.for_records([entity]) if history is None else history
-    out: dict[str, list[Option]] = {}
-    for name, f in state_fields(entity.type).items():
-        current = values.get(name)
-        candidates = [
-            st
-            for st in transitions(entity, f, current or "", history).values()
-            if not st.removed and st.name != current
-        ]
-        whys = {st.name: _why_not_who(user, entity, name, st) for st in candidates}
-        conditions = _conditions(
-            user, entity, name, [st for st in candidates if whys[st.name] is None], values
-        )
-        found = []
+    return options_of(user, [entity], {entity.pk: values}, history=history).get(entity.pk, {})
+
+
+def options_of(
+    user: User,
+    entities: Sequence[Entity],
+    values: Mapping[UUID, Mapping[str, Any]],
+    *,
+    history: Mapping[tuple[UUID, str], entries.Entry] | None = None,
+) -> dict[UUID, dict[str, list[Option]]]:
+    """:func:`options` for each of a page of records, by ID: their holds and what their
+    guards read are read once for all of them. ``values``: each record's, by ID. A
+    registry entry has none."""
+    records = [e for e in entities if e.registry_id is None]
+    history = entries.for_records(records) if history is None else history
+    asks: list[tuple[Entity, Field, list[State], dict[str, tuple[str, bool] | None]]] = []
+    for entity in records:
+        for name, f in state_fields(entity.type).items():
+            current = values[entity.pk].get(name)
+            candidates = [
+                st
+                for st in transitions(entity, f, current or "", history).values()
+                if not st.removed and st.name != current
+            ]
+            whys = {st.name: _why_not_who(user, entity, name, st) for st in candidates}
+            asks.append((entity, f, candidates, whys))
+    conditions = conditions_of(
+        user,
+        [
+            guards.Ask(
+                entity,
+                f.name,
+                [st for st in candidates if whys[st.name] is None],
+                values[entity.pk],
+            )
+            for entity, f, candidates, whys in asks
+        ],
+    )
+    out: dict[UUID, dict[str, list[Option]]] = {e.pk: {} for e in records}
+    for (entity, f, candidates, whys), found in zip(asks, conditions, strict=True):
+        offered = []
         for st in candidates:
             refusal = whys[st.name]
             if refusal is not None:
-                found.append(Option(f, st, refusal[0]))
+                offered.append(Option(f, st, refusal[0]))
             else:
-                why, guard = conditions.get(st.name, (None, None))
-                found.append(Option(f, st, why, guard))
-        out[name] = found
+                why, guard = found.get(st.name, (None, None))
+                offered.append(Option(f, st, why, guard))
+        out[entity.pk][f.name] = offered
     return out
 
 
@@ -297,38 +324,128 @@ def _conditions(
     candidates: list[State],
     values: Mapping[str, Any],
     signatures: Sequence[Mapping[str, Any]] = (),
+    *,
+    rules: bool = True,
 ) -> dict[str, tuple[str, str | None]]:
     """Why the record can't be set to each of ``candidates`` now, as the record is, by
-    state: its holds (for a state that locks it, ADR 0127) or a guard (ADR 0128), with
-    the guard's name."""
-    from iki_server.entities import checking, guards, holds, requests
+    state: its holds (for a state that locks it, ADR 0127), the plugins' rules reading
+    the field (unless not ``rules``), or a guard (ADR 0128), with the guard's name."""
+    ask = guards.Ask(entity, field, candidates, values, signatures)
+    return conditions_of(user, [ask], rules=rules)[0]
 
-    if not candidates:
-        return {}
-    out: dict[str, tuple[str, str | None]] = {}
-    completion = requests.spec_of(entity.type)
-    if completion and completion.completed_field == field:
-        for st in candidates:
-            if st.name == completion.completed_state and (why := requests.delivery_refusal(entity)):
-                out[st.name] = (why, None)
-    if any(st.locks for st in candidates):
-        held = holds.blocks_locking(entity)
-        if held:
-            out.update({st.name: (held, None) for st in candidates if st.locks})
-    if any(st.signatures for st in candidates):
-        saving = checking.Saving(values.get, id=entity.pk, hrid=entity.hrid)
-        failed = checking.broken(entity.type, [saving], before_signing=True)[0]
-        if failed:
-            out.update(
+
+def conditions_of(
+    user: User, asks: Sequence[guards.Ask], *, rules: bool = True
+) -> list[dict[str, tuple[str, str | None]]]:
+    """Why each of ``asks``' records can't be set to each of its states now, by state, with
+    the guard refusing it, if one does (:func:`condition`): a page of records' at once.
+    Their holds are read once, for the holds and the guards alike, and the plugins' rules
+    reading each state field are checked for each type's records at once (unless not
+    ``rules``)."""
+    from iki_server.entities import checking, holds, requests
+
+    out: list[dict[str, tuple[str, str | None]]] = [{} for _ in asks]
+    held = holds.open_of(
+        {a.entity.pk for a in asks if any(st.locks or st.guards for st in a.states)}
+    )
+    # The rules a signed state checks again before signing, for each type's records at once.
+    signed: dict[str, list[int]] = {}
+    for i, ask in enumerate(asks):
+        if any(st.signatures for st in ask.states):
+            signed.setdefault(ask.entity.type, []).append(i)
+    failures: dict[int, list[checking.Broken]] = {}
+    for type_name, at in signed.items():
+        savings = [
+            checking.Saving(asks[i].values.get, id=asks[i].entity.pk, hrid=asks[i].entity.hrid)
+            for i in at
+        ]
+        failures.update(
+            zip(at, checking.broken(type_name, savings, before_signing=True), strict=True)
+        )
+    by_rules = _breaking_of(asks) if rules else {}
+    rest: list[guards.Ask] = []
+    for i, (found, ask) in enumerate(zip(out, asks, strict=True)):
+        entity, field, candidates = ask.entity, ask.field, ask.states
+        if not candidates:
+            rest.append(ask)
+            continue
+        completion = requests.spec_of(entity.type)
+        if completion and completion.completed_field == field:
+            for st in candidates:
+                if st.name in completion.completed_states and (
+                    why := requests.delivery_refusal(entity)
+                ):
+                    found[st.name] = (why, None)
+        if any(st.locks for st in candidates):
+            blocking = holds.blocks_locking(entity, held.get(entity.pk, []))
+            if blocking:
+                found.update({st.name: (blocking, None) for st in candidates if st.locks})
+        if failed := failures.get(i):
+            found.update(
                 {
                     st.name: (failed[0].message, failed[0].rule.key)
                     for st in candidates
                     if st.signatures
                 }
             )
-    rest = [st for st in candidates if st.name not in out]
-    for name, refusal in guards.refusals(user, entity, field, rest, values, signatures).items():
-        out[name] = (refusal.message, refusal.guard.name)
+        # The plugins' rules reading the field (ADR 0127), as a save of it checks them. A
+        # state that locks can't be set while a rule holds the record, nor one that's
+        # signed, whose signatures give no reason to hold it for.
+        for st in candidates:
+            broke = by_rules.get(i, {}).get(st.name, [])
+            refusing = [b for b in broke if not b.held]
+            shown = refusing or [b for b in broke if b.held and (st.locks or st.signatures)]
+            if shown and st.name not in found:
+                found[st.name] = (shown[0].message, None)
+        rest.append(replace(ask, states=[st for st in candidates if st.name not in found]))
+    for found, refused in zip(out, guards.refusals_of(user, rest, held), strict=True):
+        for name, refusal in refused.items():
+            found[name] = (refusal.message, refusal.guard.name)
+    return out
+
+
+def breaking(
+    entity: Entity, field: str, states: Sequence[str], values: Mapping[str, Any]
+) -> list[list[Any]]:
+    """The plugins' rules (ADR 0127) the record would break in each of ``states``, as its
+    state field ``field`` is a value it saves: those reading the field, as an edit of it
+    checks them. Nothing for a type none of whose rules reads it."""
+    from iki_server.entities import guards
+
+    found = _breaking_of([guards.Ask(entity, field, [], values)], {0: states}).get(0, {})
+    return [found.get(state, []) for state in states]
+
+
+def _breaking_of(
+    asks: Sequence[Any], named: Mapping[int, Sequence[str]] | None = None
+) -> dict[int, dict[str, list[Any]]]:
+    """:func:`breaking` for each of ``asks``, by its index and state: its states, or those
+    ``named`` for it. Each type's records are checked for a field at once."""
+    from iki_server.entities import checking
+
+    def setting(values: Mapping[str, Any], field: str, state: str) -> Callable[[str], Any]:
+        return lambda n: state if n == field else values.get(n)
+
+    groups: dict[tuple[str, str], list[tuple[int, str]]] = {}
+    for i, ask in enumerate(asks):
+        states = named[i] if named is not None else [st.name for st in ask.states]
+        if not states or not any(ask.field in r.reads for r in checking.checks_of(ask.entity.type)):
+            continue
+        groups.setdefault((ask.entity.type, ask.field), []).extend((i, st) for st in states)
+    out: dict[int, dict[str, list[Any]]] = {}
+    for (type_name, field), at in groups.items():
+        changed = frozenset({field})
+        savings = [
+            checking.Saving(
+                setting(asks[i].values, field, state),
+                changed,
+                id=asks[i].entity.pk,
+                hrid=asks[i].entity.hrid,
+            )
+            for i, state in at
+        ]
+        for (i, state), found in zip(at, checking.broken(type_name, savings), strict=True):
+            out.setdefault(i, {})[state] = found
     return out
 
 
@@ -396,9 +513,12 @@ def set_state(
     *,
     expected_revision: int,
     reason: str = "",
+    _edited: bool = False,
 ) -> Revision:
     """Sets the record's state field ``field`` to ``state``: checked, then a revision of
-    its own, told to webhooks and triggers, and in the audit log. Raises
+    its own, told to webhooks and triggers, and in the audit log. ``_edited``: it's an
+    edit's return (:func:`return_for_edit`), whose save checks the plugins' rules with the
+    state and the edit's values together. Raises
     :class:`PermissionDenied` when ``user`` may not, :class:`Refused` when the record
     can't take it now (:class:`NeedsSignatures` for a state its signatures set), and
     :class:`Invalid` for an unknown state or a missing reason."""
@@ -442,18 +562,55 @@ def set_state(
             why, forbidden = found
             raise PermissionDenied(why) if forbidden else Refused(why)
         record = services.current_values(services.specific(locked))
-        condition = _conditions(user, locked, field, [target], record).get(state)
+        reason = reason.strip()
+        broke: list[Any] = [] if _edited else breaking(locked, field, [state], record)[0]
+        holding = _rules_kept(broke, target, reason)
+        # Its rules are checked above, as a save checks them.
+        condition = _conditions(user, locked, field, [target], record, rules=False).get(state)
         if condition is not None:
             why, guard = condition
             raise GuardRefused(why, guard) if guard is not None else Refused(why)
-        reason = reason.strip()
         if target.reason == "required" and not reason:
             raise Invalid(
                 {"reason": [f"Setting its {f.label} to {target.label} needs a reason: say why."]}
             )
         if len(reason) > MAX_REASON:
             raise Invalid({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
-        return write(locked, f, state, user, reason)
+        revision = write(locked, f, state, user, reason)
+        _held(locked, f.name, broke, holding, user, reason, revision)
+        return revision
+
+
+def _rules_kept(found: Sequence[Any], target: State, reason: str) -> list[Any]:
+    """Raises for the rules a state change breaks (ADR 0127), as for a save: one that
+    refuses refuses it; one that holds asks for a reason, and holds the record for it.
+    A state that locks it isn't set while it would be held (ADR 0128). Returns what holds."""
+    from iki_server.entities import checking
+
+    if target.locks and any(b.held for b in found):
+        held = next(b for b in found if b.held)
+        raise Refused(
+            f"It would break “{held.rule.label}”, which holds records for review, so it isn't "
+            f"set to {target.label}: {held.message}"
+        )
+    return checking.raise_broken(found, hold_reason=reason)
+
+
+def _held(
+    locked: Entity,
+    field: str,
+    found: Sequence[Any],
+    holding: Sequence[Any],
+    user: User,
+    reason: str,
+    revision: Revision,
+) -> None:
+    from iki_server.entities import checking, holds
+
+    if holding:
+        record = Entity.objects.select_related("owner_project").get(pk=locked.pk)
+        holds.hold(record, holding, user=user, reason=reason, revision=revision.number)
+    checking.kept(locked, frozenset({field}), found)
 
 
 def return_for_edit(user: User, locked: Entity, targets: Mapping[str, str], reason: str) -> None:
@@ -466,7 +623,9 @@ def return_for_edit(user: User, locked: Entity, targets: Mapping[str, str], reas
         raise CorrectionReason({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
     number = locked.revision
     for name, target in targets.items():
-        change = set_state(user, locked, name, target, expected_revision=number, reason=reason)
+        change = set_state(
+            user, locked, name, target, expected_revision=number, reason=reason, _edited=True
+        )
         number = change.number
 
 
@@ -531,7 +690,7 @@ def write(
 def guarded_tables() -> list[tuple[str, str]]:
     """Every table holding values of records with state fields, with its column naming the
     record: (table, column)."""
-    from iki_server.entities.values import is_list_table, shape
+    from iki_server.entities.values import shape
 
     out: dict[str, str] = {}
     for entity_type in registry.types().values():
@@ -542,7 +701,7 @@ def guarded_tables() -> list[tuple[str, str]]:
                 continue
             out[part.model._meta.db_table] = "entity_id"
             for f in part.fields.values():
-                if not f.removed and is_list_table(f):
+                if not f.removed and stored_in_list_table(f):
                     out[part.list_model(f.name)._meta.db_table] = "entity_id"
     return sorted(out.items())
 

@@ -1,6 +1,6 @@
 """Read append-only revision metadata in the vocabulary of the installed plugin."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from django.db.models import Q
@@ -65,13 +65,20 @@ class FieldNames:
 
     def setting(self, name: str) -> Q:
         """Match the spelling valid when each revision was written, even if a name was reused."""
+        return self._spelled(name, lambda spelled: Q(changed_fields__contains=[spelled]))
+
+    def transitioning(self, name: str) -> Q:
+        """Match the revisions that set state field ``name``, as each was written."""
+        return self._spelled(name, lambda spelled: Q(state_field=spelled))
+
+    def _spelled(self, name: str, match: Callable[[str], Q]) -> Q:
         matches = Q(pk__in=[])
         period = Q()
         for rename in reversed(self.renames):
             if rename.to == name or rename.name == name:
-                matches |= period & Q(history_seen__gte=rename.pk, changed_fields__contains=[name])
+                matches |= period & Q(history_seen__gte=rename.pk) & match(name)
                 if rename.name == name:
                     return matches
                 name = rename.name
                 period = Q(history_seen__lt=rename.pk)
-        return matches | (period & Q(changed_fields__contains=[name]))
+        return matches | (period & match(name))

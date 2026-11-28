@@ -65,6 +65,7 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert dna["extends"] == "acme/dna.Sequence"
     assert dna["identity"] == ["bases"]
     assert dna["hrid_prefix"] == "DNA"
+    assert dna["annotations"] == {"gxp_classification": "GAMP 5 category 4"}
     fields = {f["name"]: f for f in dna["fields"]}
     # Inherited from iki/core.Sequence, by way of acme/dna.Sequence.
     assert fields["name"]["plugin"] == "iki/core"
@@ -79,6 +80,7 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert schema["properties"]["length"]["readOnly"] is True
     assert schema["properties"]["bases"]["x-iki-immutable"] is True
     sequence = api.get("/entity-types/acme/dna.Sequence").json()
+    assert sequence["annotations"] == {}
     assert sequence["abstract"] and "acme/protein.Protein" in sequence["subtypes"]
     problem(api.get("/entity-types/acme/dna.Nothing"), 404, "not_found")
 
@@ -287,8 +289,10 @@ def test_changes_need_the_etag_and_refuse_a_stale_one(world: World) -> None:
     api = api_as(world)
     ref = create(api, world.project, {"bases": "ACGT"}).json()["id"]
     problem(patch(api, ref, {"values": {"name": "a"}}, None), 428, "precondition_required")
-    problem(patch(api, ref, {"values": {"name": "a"}}, "*"), 412, "precondition_failed")
-    problem(patch(api, ref, {"values": {"name": "a"}}, '"1", "2"'), 412, "precondition_failed")
+    # One change is made from one reading: `*`, a list or a weak ETag names none (ADR 0289).
+    for unusable in ("*", '"1", "2"', 'W/"1"', "1"):
+        refused = patch(api, ref, {"values": {"name": "a"}}, unusable)
+        problem(refused, 428, "precondition_required")
     changed = patch(api, ref, {"values": {"name": "a"}, "reason": "Typo"}, '"1"')
     assert changed.status_code == 200, changed.content
     assert changed["ETag"] == '"2"' and changed.json()["values"]["name"] == "a"
@@ -296,8 +300,9 @@ def test_changes_need_the_etag_and_refuse_a_stale_one(world: World) -> None:
     stale = patch(api, ref, {"values": {"name": "b"}}, '"1"')
     assert problem(stale, 412, "stale")["detail"].startswith("Someone changed it")
     assert stale["ETag"] == '"2"'
-    # Weak ETags compare the same.
-    assert patch(api, ref, {"values": {"name": "b"}}, 'W/"2"').status_code == 200
+    # An ETag Iki never gave matches no revision.
+    problem(patch(api, ref, {"values": {"name": "b"}}, '"two"'), 412, "stale")
+    assert patch(api, ref, {"values": {"name": "b"}}, '"2"').status_code == 200
 
 
 def test_edit_rules_answer_422(world: World) -> None:

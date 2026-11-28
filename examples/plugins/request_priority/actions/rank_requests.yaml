@@ -9,14 +9,14 @@ description: >-
 inputs:
   requests:
     type: SequencingRequest
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 500
     label: Requests
     description: Requests sent to this project, which it serves.
   ranking:
     type: ServedProject
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     optional: true
     # Not chosen: every run reads the project's whole ranking, as it is (ADR 0232).
@@ -24,7 +24,7 @@ inputs:
     label: Ranking
     description: The projects this core serves, and their ranks.
 effects:
-  updates: [{ input: requests, fields: [project_rank] }]
+  updates: { requests: { fields: [project_rank] } }
 runs_on: { tier: backend, environment: python }
 command: [python, ./scripts/rank.py]
 deterministic: true

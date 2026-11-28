@@ -12,10 +12,10 @@ description: >-
   mismatch and the site's melting temperature. A site may cross a circular molecule's
   origin, and none crosses a linear molecule's ends (ADR 0168).
 inputs:
-  plasmid: { type: Plasmid, schema: ">=3", include: [sequence] }
+  plasmid: { type: Plasmid, schema_version: ">=3", include: [sequence] }
   primers:
     type: iki/dna.Primer
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 500
     label: Primers
@@ -47,7 +47,7 @@ params:
       allows one at it.
 effects:
   updates:
-    - input: plasmid
+    plasmid:
       fields: [primer_binding_sites, primer_binding_sites_found_with]
 software:
   - { name: Iki molecular module, version: "0.3.0", url: https://ikisci.org/plugins/plasmid }

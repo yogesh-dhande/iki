@@ -161,7 +161,7 @@ class FormatRegistry:
         extensions = defaultdict(list)
         for plugin in self._plugins:
             for extension in plugin.extensions:
-                extensions[extension.extends_type].append(extension)
+                extensions[extension.adds_to].append(extension)
 
         def record_fields(name: str) -> dict[str, Field]:
             fields: dict[str, Field] = {}

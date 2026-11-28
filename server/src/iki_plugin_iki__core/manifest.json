@@ -7,7 +7,7 @@
     "description": "The types every Iki deployment has.",
     "license": "Apache-2.0",
     "homepage": "https://ikisci.org",
-    "iki": null,
+    "iki": ">=0.1",
     "dependencies": {},
     "settings": {},
     "types": {
@@ -498,13 +498,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -1042,13 +1037,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -1354,13 +1344,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -2684,13 +2669,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -2715,13 +2695,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -2947,13 +2922,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -3128,13 +3098,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -4039,13 +4004,8 @@
         "due": null,
         "rules": {},
         "notifications": {},
-        "request": null,
-        "result": null,
         "amount": null,
-        "draws_received": null,
         "stock_catalogue": null,
-        "draw_guards": {},
-        "draw_purposes": {},
         "storage": null,
         "sample": false,
         "refines": {}
@@ -4175,8 +4135,8 @@
         "viewer": null,
         "order": 7
       },
-      "iki/core.nucleotide-fasta": {
-        "id": "iki/core.nucleotide-fasta",
+      "iki/core.nucleotide_fasta": {
+        "id": "iki/core.nucleotide_fasta",
         "label": "nucleotide FASTA",
         "media_types": [
           "chemical/seq-na-fasta"
@@ -4191,8 +4151,8 @@
         "viewer": "alignment",
         "order": 8
       },
-      "iki/core.protein-fasta": {
-        "id": "iki/core.protein-fasta",
+      "iki/core.protein_fasta": {
+        "id": "iki/core.protein_fasta",
         "label": "protein FASTA",
         "media_types": [
           "chemical/seq-aa-fasta"
@@ -4384,8 +4344,8 @@
         "viewer": "spectrum-mzml",
         "order": 19
       },
-      "iki/core.jcamp-dx": {
-        "id": "iki/core.jcamp-dx",
+      "iki/core.jcamp_dx": {
+        "id": "iki/core.jcamp_dx",
         "label": "JCAMP-DX",
         "media_types": [
           "chemical/x-jcamp-dx"
@@ -4711,7 +4671,7 @@
             "name": "recorded",
             "label": "Recorded",
             "description": "The work is recorded and can be edited.",
-            "by": [
+            "set_by": [
               "analyst",
               "reviewer",
               "qa"
@@ -4727,7 +4687,7 @@
             "name": "accepted",
             "label": "Accepted",
             "description": "The work is accepted as recorded, without a signature, and locked.",
-            "by": [
+            "set_by": [
               "analyst",
               "reviewer"
             ],
@@ -4742,7 +4702,7 @@
             "name": "signed_off",
             "label": "Signed off",
             "description": "A reviewer who didn't make or edit it has signed it off.",
-            "by": [
+            "set_by": [
               "reviewer"
             ],
             "locks": true,
@@ -4778,7 +4738,7 @@
             "name": "submitted",
             "label": "Submitted",
             "description": "Its maker has signed it and submitted it for review.",
-            "by": [
+            "set_by": [
               "analyst"
             ],
             "locks": true,
@@ -4799,7 +4759,7 @@
             "name": "reviewed",
             "label": "Independently reviewed",
             "description": "A reviewer independent of its maker and submitter has signed the review.",
-            "by": [
+            "set_by": [
               "reviewer"
             ],
             "locks": true,
@@ -4845,7 +4805,7 @@
             "name": "released",
             "label": "QA released",
             "description": "QA, independent of everyone before, has released it.",
-            "by": [
+            "set_by": [
               "qa"
             ],
             "locks": true,

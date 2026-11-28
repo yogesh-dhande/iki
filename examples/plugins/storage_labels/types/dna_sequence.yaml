@@ -4,7 +4,7 @@
 # this plugin's own table, so removing the plugin leaves dna's data alone.
 apiVersion: iki/v1
 kind: EntityTypeExtension
-extends_type: iki/dna.DNASequence
+adds_to: iki/dna.DNASequence
 fields:
   construct_id: { type: string, max_length: 50, indexed: true, pattern: "^[A-Z]{2,5}-[0-9]+$" }
   sequence_verified: { type: bool, default: false }

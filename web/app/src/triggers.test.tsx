@@ -354,6 +354,7 @@ describe("a project's triggers", () => {
 const RANKING: Schemas["ProjectTriggerOut"] = {
   ...OFF,
   name: "acme/request_priority.rank_arriving_requests",
+  plugin: "acme/request_priority",
   label: "Rank requests as they arrive",
   on: "request.received",
   type: "iki/requests.PlainRequest",
@@ -363,6 +364,43 @@ const RANKING: Schemas["ProjectTriggerOut"] = {
   runs_as_account: true,
   run_as_choices: [ROBOT],
 };
+
+/** A lab's trigger on its own subtype that runs Protein's calculation (ADR 0298). */
+const NANOBODIES: Schemas["ProjectTriggerOut"] = {
+  ...OFF,
+  name: "acme/nanobodies.weigh_new_nanobodies",
+  plugin: "acme/nanobodies",
+  label: "Weigh new nanobodies",
+  type: "acme/nanobodies.Nanobody",
+};
+
+describe("a trigger that runs another plugin's action", () => {
+  it("says whose action it runs, in its row and before it's turned on", async () => {
+    onProject([NANOBODIES], []);
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
+    const rows = await screen.findByRole("list", { name: "Triggers" });
+    const [row] = within(rows).getAllByRole("listitem");
+    expect(row).toHaveTextContent(
+      "starts a run of Compute properties, from the iki/protein plugin",
+    );
+    await user.click(await screen.findByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent(
+      "Compute properties is an action of the iki/protein plugin. Its runs are that plugin’s, as it declares them",
+    );
+  });
+
+  it("says nothing of the kind for its own plugin's action", async () => {
+    onProject([OFF], []);
+    const { user } = await renderApp("/projects/kinase-atlas/automation/triggers/");
+    const rows = await screen.findByRole("list", { name: "Triggers" });
+    const [row] = within(rows).getAllByRole("listitem");
+    expect(row).not.toHaveTextContent("from the iki/protein plugin");
+    await user.click(await screen.findByRole("button", { name: "Turn on" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).not.toHaveTextContent("is an action of the");
+  });
+});
 
 describe("a trigger on a request's arrival", () => {
   it("runs as the service account you choose, on your authority", async () => {

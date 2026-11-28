@@ -10,7 +10,7 @@ description: >-
 inputs:
   compounds:
     type: Compound
-    schema: ">=1"
+    schema_version: ">=1"
     cardinality: many
     max: 100000
     description: The compounds to search, such as a project's library.

@@ -5,6 +5,7 @@ label: Requested Research assay result
 extends: ResearchAssayResult
 schema_version: 3
 hrid: { prefix: RSF }
-result: { of: request, material: sample, released: { field: review, states: [signed] } }
+service:
+  result: { of: request, material: sample, released: { field: review, states: [signed] } }
 fields:
   request: { type: ref, to: iki/requests.ResearchRequest, required: true, immutable: true }

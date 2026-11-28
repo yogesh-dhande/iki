@@ -4,10 +4,10 @@ kind: Action
 name: primer_properties
 label: Compute length, GC content, both Tms and the primer's own checks
 inputs:
-  primer: { type: Primer, schema: ">=1" }
+  primer: { type: Primer, schema_version: ">=1" }
 effects:
   updates:
-    - input: primer
+    primer:
       fields:
         [
           length,

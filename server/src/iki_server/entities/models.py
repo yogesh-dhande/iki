@@ -39,10 +39,14 @@ from iki_server.org.models import Project
 
 #: A qualified type name, ``plugin.Type``.
 TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z][A-Za-z0-9]*$"
-#: The constraint a second entity in a project with a unique field's value breaks.
+#: The constraint a second record in a project breaks with a ``unique`` rule's values
+#: (ADR 0127), a unique field's among them (ADR 0082).
 UNIQUE_CONSTRAINT = "iki_unique_value_once"
-#: The one a second entry in a registry with a unique fact's value breaks (ADR 0115).
+#: The one a second entry in a registry breaks with a ``within: registry`` rule's (ADR 0115).
 UNIQUE_IN_REGISTRY = "iki_unique_value_once_in_registry"
+#: The unique indexes a second option of a lab list in a registry with a label in another
+#: case breaks start with this (ADR 0270), one for each list.
+LIST_LABEL_INDEX = "iki_list_label__"
 #: The constraints two of a project's records break whose ranges a rule says mustn't
 #: overlap (ADR 0127): of dates and datetimes, and of numbers.
 RANGE_CONSTRAINT = "iki_range_value_apart"
@@ -93,7 +97,9 @@ class Entity(models.Model):
     )
     created_at = models.DateTimeField(db_default=Now())
     archived_at = models.DateTimeField(null=True, blank=True)
-    #: A registry entry's SHA-256 of its type's identity fields, by which it's found.
+    #: A registry entry's SHA-256 of its type's identity fields, by which it's found. An
+    #: entry superseded by one of the same identity as another type (ADR 0165) has handed
+    #: it to its replacement, which registering that identity finds now.
     identity_hash = models.CharField(max_length=64, null=True, blank=True)
     #: The latest revision's number. Edits name it, so two people's edits can't cross.
     revision = models.PositiveIntegerField(default=0)
@@ -149,10 +155,15 @@ class Entity(models.Model):
             # project, and no registry or identity of its own.
             models.CheckConstraint(
                 condition=(
-                    # An entry's identity is gone only once its plugin's purged.
+                    # An entry's identity is gone only once its plugin's purged, or once it
+                    # was superseded by an entry of its identity as another type (ADR 0165).
                     (
                         Q(registry__isnull=False, owner_project__isnull=True, entry__isnull=True)
-                        & (Q(identity_hash__isnull=False) | Q(purged_at__isnull=False))
+                        & (
+                            Q(identity_hash__isnull=False)
+                            | Q(purged_at__isnull=False)
+                            | Q(superseded_by__isnull=False)
+                        )
                     )
                     | Q(
                         registry__isnull=True,
@@ -412,43 +423,49 @@ class ProjectDashboard(models.Model):
 
 
 class UniqueValue(models.Model):
-    """A value of a unique field (ADR 0082), held once per project, or for a registry
-    fact, once per registry (ADR 0115).
+    """A record's values under a ``unique`` rule (ADR 0127), a unique field's among them
+    (ADR 0082): held once per project, or for a ``within: registry`` rule, once per
+    registry (ADR 0115).
 
-    Triggers on the plugin tables keep these rows, so whatever writes a value,
-    a person, a run, a bulk import or SQL, a second entity in the project (or
-    entry in the registry) with the same value is refused by the database.
-    ``iki-server sync_plugins`` installs the triggers and fills in values
-    already there.
+    Triggers on the plugin tables keep these rows, so whatever writes the values, a
+    person, a run, a bulk import or SQL, a second record in the project (or entry in the
+    registry) with the same ones is refused by the database. ``iki-server sync_plugins``
+    installs the triggers and fills in rows for records already there.
     """
 
     id = models.BigAutoField(primary_key=True)
-    #: A record's owner project: values are unique within it.
+    #: A ``within: project`` rule's: the record's owner project, where its values are
+    #: unique. Exactly one of this and ``registry`` is set: the rule's scope.
     project = models.ForeignKey(
         Project, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
-    #: A registry entry's registry: values are unique within it.
+    #: A ``within: registry`` rule's: the entry's registry.
     registry = models.ForeignKey(
         "iki_org.Registry", null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
-    #: The field, as ``table.column``, such as ``lims_protein.lims_id``.
+    #: The rule, as ``table:rule``, such as ``lims_protein:lims_id``.
     key = models.CharField(max_length=127)
-    value = models.CharField(max_length=600)
+    #: Its fields' values, as a JSON array of their text, such as ``["LIMS-1"]``.
+    value = models.TextField()
+    #: The SHA-256 of ``value``'s UTF-8, which is what's unique: any length of value fits
+    #: the index.
+    digest = models.BinaryField(max_length=32)
     entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="+")
 
     class Meta:
         db_table = "iki_unique_value"
         db_table_comment = (
-            "Each unique field's values, once per project. Kept by triggers on the plugin tables."
+            "Each record's values under each unique rule, once per project or registry. Kept "
+            "by triggers on the plugin tables."
         )
         constraints: ClassVar[list[models.BaseConstraint]] = [
             models.UniqueConstraint(
-                fields=["project", "key", "value"],
+                fields=["project", "key", "digest"],
                 condition=Q(project__isnull=False),
                 name=UNIQUE_CONSTRAINT,
             ),
             models.UniqueConstraint(
-                fields=["registry", "key", "value"],
+                fields=["registry", "key", "digest"],
                 condition=Q(registry__isnull=False),
                 name=UNIQUE_IN_REGISTRY,
             ),
@@ -460,7 +477,7 @@ class UniqueValue(models.Model):
             ),
         ]
         indexes: ClassVar[list[models.Index]] = [
-            models.Index(fields=["key", "value"], name="iki_unique_value_lookup"),
+            models.Index(fields=["key", "digest"], name="iki_unique_value_lookup"),
         ]
 
     def __str__(self) -> str:
@@ -530,7 +547,9 @@ class Revision(models.Model):
     state_to = models.CharField(max_length=50, blank=True, default="", db_default="")
     #: For a state set by signing for it (ADR 0126): the signatures that set it, in order.
     signatures = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
-    #: For a record that moved (ADR 0115): the superseded entry it held before.
+    #: For a record that moved (ADR 0115): the superseded entry it held before. For a
+    #: registry entry's first, when a registrar registered it in place of an entry of
+    #: another type (ADR 0165): that entry.
     moved_from = models.ForeignKey(
         Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
@@ -781,8 +800,9 @@ class RuleHoldOccurrence(models.Model):
 
 class RuleBreach(models.Model):
     """A record that breaks a rule it was saved before (ADR 0127): one its plugin added
-    or changed later, or one a bundle brought from another deployment. It's reported, not
-    refused, until a save that checks the rule finds it kept."""
+    or changed later, one a bundle brought from another deployment, or one a change to its
+    registry entry's values broke (ADR 0115). It's reported, not refused, until a save that
+    checks the rule finds it kept."""
 
     id = models.BigAutoField(primary_key=True)
     entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="breaches")
@@ -859,6 +879,10 @@ class RecordExport(models.Model):
     #: Every record read to write it, its own and what they refer to: whoever downloads it
     #: must still be able to read them all.
     references = ArrayField(models.UUIDField(), null=True, blank=True)
+    #: The limits of the token it was asked for with (ADR 0152), which writing it keeps
+    #: to in the background as it would while the request waited; None when it was asked
+    #: for in the browser.
+    limits = models.JSONField(null=True, blank=True)
     state = models.CharField(
         max_length=16, choices=RecordExportState.choices, default=RecordExportState.QUEUED
     )

@@ -88,8 +88,3 @@ export function utcText(value: string): string {
 export function UtcTime({ value }: { value: string }) {
   return <time dateTime={value}>{utcText(value)}</time>;
 }
-
-/** Which revision: “revision 4”, or “entry revision 2” of a registry entry's. */
-export function revisionName(revision: Pick<Revision, "number" | "entry">): string {
-  return `${revision.entry ? "entry revision" : "revision"} ${String(revision.number)}`;
-}

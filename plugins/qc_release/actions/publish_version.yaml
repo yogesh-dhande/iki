@@ -19,7 +19,7 @@ params:
       policy, such as "Importing the approved history from the paper specification file".
       The run keeps it.
 effects:
-  updates: [{ input: schedule, fields: [versions] }]
+  updates: { schedule: { fields: [versions] } }
 runs_on: { tier: backend, environment: qc-tools }
 command: [python, ./scripts/qc_release.py, publish_version]
 timeout: 1m

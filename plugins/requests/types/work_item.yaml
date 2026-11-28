@@ -3,10 +3,11 @@ apiVersion: iki/v1
 kind: EntityType
 name: WorkItem
 label: Work item
-schema_version: 1
+schema_version: 2
 hrid: { prefix: WKI }
 description: A service project's private record of work on a request.
-work_item: { of: request }
+service:
+  work_item: { of: request }
 fields:
   request:
     type: ref
@@ -14,16 +15,19 @@ fields:
     required: true
     immutable: true
     description: The request sent to the project doing the work.
+  # The request's scale, so a work item's priority reads the same as its request's.
   priority:
     type: enum
     values: [routine, high, urgent]
     default: routine
+    description: >-
+      How soon the service does it: routine, in its turn; high, ahead of routine work;
+      urgent, before anything else.
+  # The instrument it runs on is a booking of iki/equipment's for the work item, which
+  # checks the instrument is in service and shows on its lineage, rather than a name here.
   scheduled_on:
     type: date
     label: Scheduled date
-  instrument:
-    type: string
-    max_length: 200
   notes:
     type: text
     label: Internal notes

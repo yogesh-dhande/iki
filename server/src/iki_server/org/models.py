@@ -220,62 +220,70 @@ def default_registry() -> Any:  # noqa: ANN401 - a UUID, as Django's field defau
     return Registry.default().pk
 
 
-class Registrar(models.Model):
-    """Someone who curates a registry (ADR 0115): changes its entries' facts once they're
-    set, and supersedes mistaken entries. Org Admins appoint them, a registry at a time."""
+class RegistryRole(models.Model):
+    """A role someone holds in a registry (ADR 0292), granted by an Org Admin: over the
+    whole registry, as a registrar curates its facts and supersedes its mistaken entries
+    (ADR 0115); or over one of its lab lists, as that list's curator adds, relabels,
+    reorders, archives and supersedes its options (ADR 0270)."""
+
+    class Role(models.TextChoices):
+        REGISTRAR = "registrar", "Registrar"
+        LIST_CURATOR = "list_curator", "List curator"
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    registry = models.ForeignKey(Registry, on_delete=models.CASCADE, related_name="registrars")
+    registry = models.ForeignKey(Registry, on_delete=models.CASCADE, related_name="roles")
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="registrar_of"
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="registry_roles"
     )
-    appointed_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
+    role = models.CharField(
+        max_length=20, choices=Role.choices, db_comment="registrar or list_curator (ADR 0292)."
     )
-    appointed_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "iki_registrar"
-        db_table_comment = "Who curates each registry's facts and supersessions (ADR 0115)."
-        constraints: ClassVar[list[models.BaseConstraint]] = [
-            models.UniqueConstraint(fields=["registry", "user"], name="iki_registrar_once"),
-        ]
-
-    def __str__(self) -> str:
-        return f"{self.user} curates {self.registry}"
-
-
-class ListCurator(models.Model):
-    """Someone who curates one of a registry's lab lists (ADR 0270): adds its options,
-    relabels, reorders, archives and supersedes them. Org Admins appoint them, a list at a
-    time; a registry's registrars curate all its lists already."""
-
-    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    registry = models.ForeignKey(Registry, on_delete=models.CASCADE, related_name="list_curators")
-    #: The list's type, such as ``iki/lots.LotMethod``. A plugin's removal leaves the
-    #: appointment, which curates nothing until a list of that name is installed again.
+    #: The list a list curator curates, such as ``iki/lots.PurityMethod``; null for a role
+    #: over the whole registry. A plugin's removal leaves the grant, which curates nothing
+    #: until a list of that name is installed again.
     list_type = models.CharField(
-        max_length=112, db_comment="The list's type, such as iki/lots.LotMethod (ADR 0270)."
+        max_length=112,
+        null=True,
+        blank=True,
+        db_comment="A list curator's list, such as iki/lots.PurityMethod; null for a role over "
+        "the whole registry (ADR 0292).",
     )
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="list_curator_of"
-    )
-    appointed_by = models.ForeignKey(
+    granted_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="+"
     )
-    appointed_at = models.DateTimeField(auto_now_add=True)
+    granted_at = models.DateTimeField(auto_now_add=True)
+
+    #: The roles that cover one list rather than the whole registry.
+    LIST_ROLES: ClassVar[frozenset[str]] = frozenset({Role.LIST_CURATOR})
 
     class Meta:
-        db_table = "iki_list_curator"
-        db_table_comment = "Who curates each of a registry's lab lists (ADR 0270)."
+        db_table = "iki_registry_role"
+        db_table_comment = (
+            "Who holds each registry's roles: its registrars, and its lab lists' curators "
+            "(ADR 0292)."
+        )
         constraints: ClassVar[list[models.BaseConstraint]] = [
+            # A registrar's role is the whole registry's; a curator's, one list's.
+            models.CheckConstraint(
+                condition=Q(role="registrar", list_type__isnull=True)
+                | (Q(role="list_curator", list_type__isnull=False) & ~Q(list_type="")),
+                name="iki_registry_role_scope",
+            ),
             models.UniqueConstraint(
-                fields=["registry", "list_type", "user"], name="iki_list_curator_once"
+                fields=["registry", "user", "role"],
+                condition=Q(list_type__isnull=True),
+                name="iki_registry_role_once",
+            ),
+            models.UniqueConstraint(
+                fields=["registry", "user", "role", "list_type"],
+                condition=Q(list_type__isnull=False),
+                name="iki_registry_role_once_per_list",
             ),
         ]
 
     def __str__(self) -> str:
-        return f"{self.user} curates {self.list_type} in {self.registry}"
+        scope = f"{self.list_type} in {self.registry}" if self.list_type else str(self.registry)
+        return f"{self.user} is {self.get_role_display()} of {scope}"
 
 
 def registry_of(project: "Project") -> UUID:

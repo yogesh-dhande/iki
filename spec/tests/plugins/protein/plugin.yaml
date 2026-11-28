@@ -2,8 +2,9 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/protein
 version: 3.0.0
+iki: ">=0.1"
 formats:
-  model-pdb:
+  model_pdb:
     label: Model coordinates
     media_types: [chemical/x-acme-model, chemical/x-acme-coordinates]
     extensions: [.model.pdb]
