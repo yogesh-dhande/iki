@@ -36,8 +36,8 @@ from pathlib import Path
 from typing import IO, Any, cast
 
 import structlog
-from django.db import transaction
-from django.db.models import QuerySet
+from django.db import connection, transaction
+from django.db.models import F, Func, IntegerField, QuerySet
 from django.tasks import TaskContext
 from django.utils import timezone
 
@@ -48,7 +48,7 @@ from iki_server.entities import access, exports, plugin_writers, registry, searc
 from iki_server.entities.models import Entity, ProjectLink, RecordExport, RecordExportState
 from iki_server.entities.sequence_files import Written
 from iki_server.files import storage
-from iki_server.org import holds
+from iki_server.org import holds, permissions
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.tasks import task
@@ -71,10 +71,23 @@ PROGRESS_EVERY = 100
 PAGE = 500
 #: Refusals a failed export names, of all its writer refused.
 NAMED = 10
+#: The most background exports a person may have waiting to be written, or being
+#: written, at once; and the most of a project's records. Each spools up to
+#: :data:`MAX_BYTES` and holds a writer while it's written, so nobody fills the task
+#: runners, the file store or the writers' sandbox for everyone else.
+MOST_WAITING = 3
+MOST_WAITING_IN_A_PROJECT = 10
+#: One still waiting after this long isn't counted: its task gave up on it.
+WAITING_FOR = timedelta(days=1)
 
 
 class NotReadable(Refused):
     """A record picked that isn't one its requester can read: answered as not found."""
+
+
+class TooMany(Refused):
+    """More background exports waiting than may be at once: answered 429, to try again
+    once one is written."""
 
 
 @dataclass(frozen=True)
@@ -121,6 +134,8 @@ def start(
     name = _file_name(pinned, chosen, list(projects))
     records = [[str(p.id), p.hrid, p.revision] for p in pinned]
     with transaction.atomic():
+        if len(pinned) > INLINE:
+            _room_for(by, list(projects))
         made = RecordExport.objects.create(
             requested_by=by,
             agent=audit.current_agent(),
@@ -133,6 +148,8 @@ def start(
             projects=[p.pk for p in projects],
             read_in=sorted(read_in),
             name=name,
+            limits=limits.stored() if (limits := permissions.token_limits(by)) else None,
+            background=len(pinned) > INLINE,
         )
         audit.record(
             "entities.export_requested",
@@ -145,17 +162,63 @@ def start(
                 "selection": selection,
                 "search": made.search,
                 "fields": fields,
+                "projects": [str(p.pk) for p in projects],
                 "count": len(records),
                 "records": [{"id": i, "hrid": h, "revision": r} for i, h, r in records],
             },
         )
-        if len(pinned) > INLINE:
+        if made.background:
             # The task is a row in the same transaction: it runs only if this commits.
             write_record_export.enqueue(str(made.pk))
-    if len(pinned) <= INLINE:
+    if not made.background:
         _write(made)
         made.refresh_from_db()
     return made
+
+
+def _waiting() -> QuerySet[RecordExport]:
+    """Background exports a task is still to write, or is writing."""
+    return RecordExport.objects.alias(
+        many=Func(F("records"), function="jsonb_array_length", output_field=IntegerField())
+    ).filter(
+        state__in=(RecordExportState.QUEUED, RecordExportState.WRITING),
+        many__gt=INLINE,
+        created_at__gte=timezone.now() - WAITING_FOR,
+    )
+
+
+def _room_for(by: User, projects: list[Project]) -> None:
+    """Refuses another background export past :data:`MOST_WAITING` of ``by``'s, or past
+    :data:`MOST_WAITING_IN_A_PROJECT` with records of one of ``projects``. Holds the
+    person's and the projects' locks until the transaction ends, so two at once can't both
+    take the last place."""
+    ordered = sorted(projects, key=lambda p: p.pk)
+    with connection.cursor() as cursor:
+        for key in [f"user:{by.pk}", *(f"project:{p.pk}" for p in ordered)]:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                [f"iki_record_exports:{key}"],
+            )
+    waiting = _waiting()
+    if waiting.filter(requested_by=by).count() >= MOST_WAITING:
+        raise TooMany(
+            f"You have {MOST_WAITING} exports waiting to be written. Export more once one of "
+            "them is ready.",
+            field="entities",
+        )
+    held: dict[uuid.UUID, int] = {}
+    for listed in waiting.filter(projects__overlap=[p.pk for p in ordered]).values_list(
+        "projects", flat=True
+    ):
+        for pk in listed:
+            held[pk] = held.get(pk, 0) + 1
+    for project in ordered:
+        if held.get(project.pk, 0) >= MOST_WAITING_IN_A_PROJECT:
+            raise TooMany(
+                f"{project.name} has {MOST_WAITING_IN_A_PROJECT} exports waiting to be "
+                "written. Export more once one of them is ready.",
+                field="entities",
+            )
 
 
 def _found(by: User, ref: str, project: Project | None) -> Pinned:
@@ -297,6 +360,7 @@ def _search_of(wanted: search.Search | None) -> dict[str, Any] | None:
         "where": dict(wanted.where) if wanted.where else None,
         "sort": wanted.sort,
         "descending": wanted.descending,
+        "then": search.then_json(wanted.then),
     }
 
 
@@ -316,6 +380,14 @@ def write_record_export(context: TaskContext[Any, Any], export_id: str) -> str:
     # Again if a runner stopped partway: the file is written afresh, to the same key.
     if made.state not in (RecordExportState.QUEUED, RecordExportState.WRITING):
         return str(made.state)
+    # It reads as the request would have: within the token's projects, scopes and agent.
+    if made.limits is not None:
+        limits = permissions.TokenLimits.restored(made.limits)
+        if limits is None:
+            return _failed(
+                made, "The app it was asked for through can no longer read records. Export again."
+            )
+        permissions.limit_to(made.requested_by, limits)
     return _write(made, background=True, last=context.attempt >= ATTEMPTS)
 
 
@@ -614,6 +686,7 @@ def download_url(by: User, made: RecordExport) -> str:
             "file": made.name,
             "sha256": made.sha256,
             "size": made.size,
+            "projects": [str(p) for p in made.projects],
             "count": len(made.records),
             "records": [{"id": i, "hrid": h, "revision": r} for i, h, r in made.records],
             # What the file couldn't hold of each record, as it says it where it can.
@@ -625,6 +698,34 @@ def download_url(by: User, made: RecordExport) -> str:
     return storage.download_url(
         storage.uri(storage.record_export_key(made.pk)), "", made.name, media_type
     )
+
+
+#: How long past its writer's deadline an export written while its request waits is taken
+#: as interrupted: well past any request's, too.
+INTERRUPTED_AFTER = timedelta(minutes=15)
+
+
+def interrupted() -> int:
+    """Fails each export written while its request waited whose write never finished,
+    because the process writing it stopped (a restart, a timeout): no task would ever
+    finish it, so its requester would otherwise see it writing for good."""
+    stale = RecordExport.objects.filter(
+        background=False,
+        state__in=(RecordExportState.QUEUED, RecordExportState.WRITING),
+        created_at__lte=timezone.now()
+        - timedelta(seconds=plugin_writers.inline_deadline())
+        - INTERRUPTED_AFTER,
+    )
+    count = 0
+    for pk in stale.values_list("pk", flat=True):
+        with transaction.atomic():
+            made = stale.select_for_update(skip_locked=True).filter(pk=pk).first()
+            if made is None:
+                continue
+            _failed(made, "Writing it was interrupted, so no file was made: export again.")
+            logger.warning("record_export_interrupted", export=str(made.pk))
+            count += 1
+    return count
 
 
 def expire() -> int:

@@ -90,7 +90,9 @@
     "list": {
       "description": "Its entities are the options of a list the lab curates (ADR 0270), such as lot methods or deviation categories, offered as a dropdown wherever a field refers to it. Each option is a registry entry, identified by its `code`, with a `label`, a `description` and a place in the list's order, which its registry's registrars and list curators change, each with a reason; projects in the registry pick from it. Its other fields are its options' too. `true` for a list with no starting options. Only descriptive vocabulary is a list: a value a guard, state, rule, signature or computation reads stays an `enum`. Inheritance: `own`. Not inherited: each type's own.",
       "oneOf": [
-        { "const": true },
+        {
+          "const": true
+        },
         {
           "type": "object",
           "additionalProperties": false,
@@ -161,6 +163,133 @@
             },
             "additionalProperties": {
               "$ref": "https://ikisci.org/schemas/field/v1#/$defs/rowRole"
+            }
+          }
+        }
+      }
+    },
+    "review": {
+      "description": "Its records are reviewed under a review procedure a project chooses (ADRs 0301, 0302). Iki adds the state field the procedure drives (`review`, or the one `field` names) and two immutable fields the server stamps at create, `review_procedure` and `review_flow`. It says what it needs of a procedure, not which procedure it uses; any that fits can be chosen. Its subtypes are reviewed the same way. Inheritance: `once`. Inherited, and declared once in a lineage: a subtype has its ancestor's, and can't declare another.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "The name of the state field the procedure drives. `review` if left out.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "label": {
+          "description": "The state field's label. Review if left out.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label"
+        },
+        "pinned": {
+          "description": "Where its procedure comes from: `create`, the project's choice (or the deployment's default) when it's created; or `{by: field}`, the procedure of the record a required, immutable reference names, such as a release case's.",
+          "oneOf": [
+            {
+              "const": "create"
+            },
+            {
+              "type": "object",
+              "required": ["by"],
+              "additionalProperties": false,
+              "properties": {
+                "by": {
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                }
+              }
+            }
+          ]
+        },
+        "opens": {
+          "description": "It has no review of its own: it pins a procedure, at create, for the records that are `pinned: {by: ...}` it, such as a release case for its certificate and investigations.",
+          "const": true
+        },
+        "derived": {
+          "description": "It re-issues a record already reviewed under the same flow, such as a certificate of analysis from its certificate: its route is the flow's first state and its final one, signed as the final one is.",
+          "const": true
+        },
+        "needs": {
+          "description": "What it needs of a procedure. A procedure that fits all of it can be chosen; one that doesn't is refused with what it misses.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "open": {
+              "description": "The state its actions write in: every flow starts in it.",
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+            },
+            "final": {
+              "description": "The states its readers take as complete, such as a request receiving it or a record citing it: every flow ends in one of them.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "states": {
+              "description": "Other states it names, in notifications, assignments, guards, rules and scripts: the procedure has each.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 20,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+              }
+            },
+            "locks": {
+              "description": "`signed`: every signed state locks the record. `final`: each flow's final state locks it.",
+              "enum": ["signed", "final"]
+            },
+            "slots": {
+              "description": "The slots its own fields and guards name: the procedure declares each.",
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName"
+              }
+            }
+          }
+        },
+        "independent_of": {
+          "description": "People every state that declares `independent_of` also excludes: `{people: [fields]}`, whom its person fields name, each with an optional `when`.",
+          "$ref": "https://ikisci.org/schemas/review-procedure/v1#/$defs/independentOf"
+        },
+        "guards": {
+          "description": "Its own conditions on the procedure's states, by name, each `on` some states, appended to what the procedure declares (ADR 0128).",
+          "type": "object",
+          "maxProperties": 20,
+          "propertyNames": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": ["on", "check", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "on": {
+                "description": "The states it applies to: names, `signed` for every signed state, or `final` for each flow's final state.",
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+                }
+              },
+              "check": {
+                "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/expression"
+              },
+              "message": {
+                "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/message"
+              },
+              "when": {
+                "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/expression"
+              },
+              "description": {
+                "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+              }
             }
           }
         }
@@ -261,7 +390,9 @@
           "minItems": 1,
           "maxItems": 10,
           "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef" }
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+          }
         },
         "ready": {
           "description": "A computed field set when the record is prepared: until it has a value, the record takes no draw.",
@@ -339,7 +470,9 @@
           "type": "array",
           "maxItems": 20,
           "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
         },
         "receives": {
           "description": "What the service receives against the request (ADR 0180): a list of references it `sends`, to a type with `storage`, such as its tubes. The service checks each in with a receipt, as matched, missing, damaged or rejected, with what's extra.",
@@ -704,7 +837,9 @@
           "description": "The field each of the writer's roles reads, by role: `volume: transfer_volume`. Every required role is mapped, each to a field of its role's type.",
           "type": "object",
           "maxProperties": 64,
-          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,62}$"
+          },
           "additionalProperties": {
             "description": "The field this role reads, such as `transfer_volume`.",
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
@@ -714,8 +849,14 @@
     },
     "gridSize": {
       "oneOf": [
-        { "type": "integer", "minimum": 1, "maximum": 48 },
-        { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 48
+        },
+        {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
       ]
     },
     "export": {
@@ -725,7 +866,9 @@
         "export": {
           "description": "What it writes: one of Iki's (`sequence`, `protein`, `compound`, `signed_report`), or a plugin's writer (ADR 0230), such as `acme/lab.tecan-worklist`, with `fields`.",
           "anyOf": [
-            { "enum": ["sequence", "protein", "compound", "signed_report"] },
+            {
+              "enum": ["sequence", "protein", "compound", "signed_report"]
+            },
             {
               "type": "string",
               "maxLength": 125,
@@ -736,32 +879,71 @@
       },
       "allOf": [
         {
-          "if": { "required": ["export"], "properties": { "export": { "const": "sequence" } } },
-          "then": { "$ref": "#/$defs/sequenceExport" }
-        },
-        {
-          "if": { "required": ["export"], "properties": { "export": { "const": "protein" } } },
-          "then": { "$ref": "#/$defs/proteinExport" }
-        },
-        {
-          "if": { "required": ["export"], "properties": { "export": { "const": "compound" } } },
-          "then": { "$ref": "#/$defs/compoundExport" }
-        },
-        {
           "if": {
             "required": ["export"],
-            "properties": { "export": { "const": "signed_report" } }
+            "properties": {
+              "export": {
+                "const": "sequence"
+              }
+            }
           },
-          "then": { "$ref": "#/$defs/reportExport" }
+          "then": {
+            "$ref": "#/$defs/sequenceExport"
+          }
         },
         {
           "if": {
             "required": ["export"],
             "properties": {
-              "export": { "not": { "enum": ["sequence", "protein", "compound", "signed_report"] } }
+              "export": {
+                "const": "protein"
+              }
             }
           },
-          "then": { "$ref": "#/$defs/pluginExport" }
+          "then": {
+            "$ref": "#/$defs/proteinExport"
+          }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": {
+                "const": "compound"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/compoundExport"
+          }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": {
+                "const": "signed_report"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/reportExport"
+          }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": {
+                "not": {
+                  "enum": ["sequence", "protein", "compound", "signed_report"]
+                }
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/pluginExport"
+          }
         }
       ]
     },
@@ -857,7 +1039,9 @@
           "minItems": 1,
           "maxItems": 10,
           "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
         }
       }
     },

@@ -158,7 +158,7 @@ def test_a_compute_admin_reads_each_environments_image_and_the_unused_pins(
             for button in region.get_by_role("button").all():
                 at = button.bounding_box()
                 assert box and at and at["x"] + at["width"] <= box["x"] + box["width"] + 1
-        assert_clean(page, axe_in_firefox=False)
+        assert_clean(page)
     page.context.close()
 
 

@@ -23,7 +23,7 @@ import {
 import { lineageOf, type Entity, type EntityType } from "../entities";
 import { usePageTitle } from "../layout";
 import { actionsQuery } from "../runs";
-import { useEntity } from "./entity";
+import { useEntity } from "./entity-header";
 import { NoSuchTab } from "./errors";
 import { PluginPlace } from "./plugin-place";
 

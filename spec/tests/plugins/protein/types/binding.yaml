@@ -1,0 +1,14 @@
+# A lab's measurement of how tightly a bispecific binds one of its targets, by surface
+# plasmon resonance. It refers to the bispecific as one, so it can't refer to another type
+# of complex (ADR 0165).
+apiVersion: iki/v1
+kind: EntityType
+name: Binding
+label: Binding measurement
+schema_version: 1
+description: How tightly a bispecific antibody binds one of its targets, by SPR.
+hrid: { prefix: BND }
+fields:
+  bispecific: { type: ref, to: Bispecific, required: true }
+  target: { type: string, max_length: 40 }
+  kd: { type: float, min: 0, label: KD (nM) }

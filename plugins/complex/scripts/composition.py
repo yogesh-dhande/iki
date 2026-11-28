@@ -267,6 +267,11 @@ def mass(formula: Counter[str], table: dict[str, float]) -> float:
 # --- Parts ------------------------------------------------------------------------------------
 
 
+def is_a(record: dict[str, Any], type_name: str) -> bool:
+    """Whether a run input's record is of a type or of a lab's subtype of it."""
+    return type_name in record["types"]
+
+
 def _part(part: dict[str, Any]) -> tuple[Counter[str], int, int | None, list[str]]:
     """A part's formula, how many chains it is, its molar absorbance at 280 nm with each
     cysteine's thiol free, or None if Pace's values don't give it, and what to say of how
@@ -311,7 +316,7 @@ def _part(part: dict[str, Any]) -> tuple[Counter[str], int, int | None, list[str
         ) from None
     if values.get("chain_count") is not None:
         chains = int(values["chain_count"])
-    elif part.get("type") == "iki/oligo.Duplex" or values.get("strandedness") == "double":
+    elif is_a(part, "iki/oligo.Duplex") or values.get("strandedness") == "double":
         chains = 2
     else:
         # A part with residues is a chain of them: a protein's, a nucleic acid's, an

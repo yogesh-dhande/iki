@@ -2,7 +2,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: SpecificationVersion
 label: Specification version
-schema_version: 3
+schema_version: 4
 hrid: { prefix: SPV }
 description: A specification's acceptance criteria and methods at a single effective date, as numbers with limits or requirements a result conforms to.
 fields:
@@ -37,8 +37,35 @@ fields:
             doesn't to a stated requirement, such as an identification test or an
             appearance (ICH Q6A).
         unit: { type: string, max_length: 50, description: A numeric result's reporting unit. }
-        lower: { type: float, label: Inclusive lower limit }
-        upper: { type: float, label: Inclusive upper limit }
+        lower:
+          type: string
+          label: Inclusive lower limit
+          max_length: 17
+          pattern: "^-?(0|[1-9][0-9]{0,8})([.][0-9]{1,6})?$"
+          pattern_help: a decimal number as the specification states it, such as 99.0
+          description: >-
+            As the specification states it, to its last significant place: 99.0 is
+            significant to its tenths (USP General Notices 7.20).
+        upper:
+          type: string
+          label: Inclusive upper limit
+          max_length: 17
+          pattern: "^-?(0|[1-9][0-9]{0,8})([.][0-9]{1,6})?$"
+          pattern_help: a decimal number as the specification states it, such as 100.5
+          description: >-
+            As the specification states it, to its last significant place: 0.5 is
+            significant to its tenths (USP General Notices 7.20).
+        rounding:
+          type: enum
+          label: Compared as
+          values: [limit_places, unrounded]
+          default: limit_places
+          description: >-
+            limit_places: the result is rounded to the limits' last place before it's
+            compared, looking only at the next digit, 5 or more rounding up (USP General
+            Notices 7.20). 97.96 meets "NLT 98.0" as 98.0; 97.94 is 97.9 and doesn't.
+            unrounded: the result is compared as measured, when the specification says
+            so.
         acceptance:
           type: string
           max_length: 500
@@ -92,6 +119,23 @@ rules:
       and neither limits nor a unit.
   ordered_limits:
     label: Put the lower limit before the upper limit
-    check: record.criteria.all(c, c.lower == null || c.upper == null || c.lower <= c.upper)
+    check: >-
+      record.criteria.all(c, c.lower == null || c.upper == null ||
+      double(c.lower) <= double(c.upper))
     message: An inclusive lower limit cannot exceed its upper limit.
+  stated_places:
+    label: State a range's limits to the same place
+    # A limit's decimal places: its length less its whole part's, the point and, for a
+    # negative limit above -1, the sign "0" doesn't keep. The pattern bounds a limit to
+    # 15 digits, which a double holds exactly enough that int() never crosses a whole.
+    check: >-
+      record.criteria.all(c, c.lower == null || c.upper == null ||
+      c.rounding == "unrounded" ||
+      (c.lower.contains(".") ? size(c.lower) - size(string(int(double(c.lower)))) - 1 -
+      (c.lower.startsWith("-") && int(double(c.lower)) == 0 ? 1 : 0) : 0) ==
+      (c.upper.contains(".") ? size(c.upper) - size(string(int(double(c.upper)))) - 1 -
+      (c.upper.startsWith("-") && int(double(c.upper)) == 0 ? 1 : 0) : 0))
+    message: >-
+      State both limits to the same decimal place, such as 98.0 and 102.0: a result is
+      rounded to the limits' last place before it's compared.
 display: { title: "Specification {{ version }}" }

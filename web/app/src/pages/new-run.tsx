@@ -21,7 +21,6 @@ import {
   typesQuery,
   type Entity,
   type EntityType,
-  type FieldDef,
 } from "../entities";
 import { parseLabels } from "../compute";
 import { money } from "../costs";
@@ -33,6 +32,7 @@ import {
   isBlank,
   type Draft,
   type Schemaed,
+  NO_RULES,
 } from "../entity-values";
 import { useForm } from "../forms";
 import { usePageTitle } from "../layout";
@@ -44,6 +44,8 @@ import {
   RUNS,
   runEntitiesQuery,
   type Action,
+  inputField,
+  type ActionInput,
 } from "../runs";
 import {
   Button,
@@ -54,24 +56,18 @@ import {
   TextField,
   useMessages,
 } from "../ui";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
+import { listed } from "../requests";
 
 const AND = new Intl.ListFormat("en", { type: "conjunction" });
 
-export type Input = Action["inputs"][number];
+type Input = ActionInput;
 
 interface Launch {
   inputs: Record<string, string | string[]>;
   params: Record<string, unknown>;
   /** Link inputs from other projects into this one first (ADR 0066). */
   addToProject: boolean;
-}
-
-/** "PRT-000001", "PRT-000001 and PRT-000002", "PRT-000001, PRT-000002 and PRT-000003". */
-export function listed(items: string[]): string {
-  return items.length > 1
-    ? `${items.slice(0, -1).join(", ")} and ${items.at(-1) ?? ""}`
-    : (items[0] ?? "");
 }
 
 /** Whether entities of `type` can be given to an input taking `wanted`. */
@@ -98,7 +94,6 @@ function duration(seconds: number): string {
   return `${String(Math.round(seconds / 3600))} hours`;
 }
 
-/** As a field the entity form's inputs know: a reference, or a list of them. */
 /** What a run may cost (ADR 0070): typically, from its recent runs, and at most, for its
  * timeout, on the machine it would run on. */
 function Estimate({ estimate, runs }: { estimate: NonNullable<Action["estimate"]>; runs: number }) {
@@ -121,41 +116,6 @@ function Estimate({ estimate, runs }: { estimate: NonNullable<Action["estimate"]
     </>
   );
 }
-
-export function inputField(input: Input): FieldDef {
-  return {
-    role: null,
-    role_label: null,
-    assignment: false,
-    assignment_field: null,
-    assignment_states: [],
-    name: input.name,
-    label: input.label,
-    description: input.description,
-    type: input.cardinality === "many" ? "list" : "ref",
-    items: input.cardinality === "many" ? "ref" : null,
-    to: [input.type],
-    plugin: "",
-    required: !input.optional,
-    immutable: false,
-    computed: false,
-    unique: false,
-    detached: false,
-    link: null,
-    unit: null,
-    unit_symbol: null,
-    display_unit: null,
-    display_unit_symbol: null,
-    display_scale: null,
-    display_offset: null,
-    input_units: [],
-    values: [],
-    initial: null,
-    states: [],
-  };
-}
-
-export const NO_RULES: Schemaed = { values_schema: { type: "object", properties: {} } };
 
 export function NewRun() {
   const project = useProject();

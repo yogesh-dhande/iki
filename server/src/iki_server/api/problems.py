@@ -97,6 +97,92 @@ def response(problem: Problem) -> JsonResponse:
     return result
 
 
+#: One thing wrong with a request, as the OpenAPI document gives it.
+ERROR_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": "One thing wrong with the request: a body field, by its JSON Pointer, "
+    "or a query or path parameter, by its name. Each has one of the two.",
+    "required": ["detail"],
+    "properties": {
+        "pointer": {
+            "type": "string",
+            "description": "Where in the body, as a JSON Pointer: `#/values/sequence`.",
+        },
+        "parameter": {
+            "type": "string",
+            "description": "The query or path parameter: `cursor`, `project`.",
+        },
+        "detail": {"type": "string", "description": "What's wrong there, for people."},
+        "rule": {
+            "type": "string",
+            "description": "The plugin's rule it breaks, if it's a rule's (ADR 0127).",
+        },
+        "hold": {
+            "type": "boolean",
+            "description": "The rule holds the record for review rather than refusing it: "
+            "saving with a `hold_reason` keeps it.",
+        },
+    },
+}
+#: The problem document every error under /api/ is (RFC 9457, ADR 0027).
+PROBLEM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "description": "An RFC 9457 problem: how every error is described (ADR 0027). `code` is "
+    "stable, for programs; `detail` is for people. Some codes carry more members, which "
+    "each operation's description names.",
+    "required": ["type", "title", "status", "code", "detail"],
+    "properties": {
+        "type": {"type": "string", "description": "`about:blank`."},
+        "title": {"type": "string", "description": "The HTTP status's phrase."},
+        "status": {"type": "integer", "description": "The HTTP status."},
+        "code": {
+            "type": "string",
+            "description": "Stable, for programs: `validation_failed`, `refused`, "
+            "`insufficient_scope`, …",
+        },
+        "detail": {"type": "string", "description": "What went wrong, for people."},
+        "errors": {
+            "type": "array",
+            "description": "For `validation_failed` and `hold_reason_required`: what's wrong, "
+            "and where.",
+            "items": {"$ref": "#/components/schemas/ProblemError"},
+        },
+        "request_id": {
+            "type": "string",
+            "description": "The request's ID, which helps an administrator find it.",
+        },
+    },
+    # Members particular codes carry are allowed, as JSON Schema allows any by default;
+    # saying so would make every member of a generated client's type an unknown.
+}
+
+
+def documented(schema: dict[str, Any]) -> dict[str, Any]:
+    """The OpenAPI document with the problem its operations answer errors with: a
+    `Problem` schema, each operation's `default` response, and the content of each error
+    response it names, so a client generated from it reads errors as they are."""
+    components = schema.setdefault("components", {})
+    components.setdefault("schemas", {}).update(Problem=PROBLEM_SCHEMA, ProblemError=ERROR_SCHEMA)
+    content = {CONTENT_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}}
+    components.setdefault("responses", {})["Problem"] = {
+        "description": "An error, as a problem (ADR 0027).",
+        "content": content,
+    }
+    for operations in schema.get("paths", {}).values():
+        for method, operation in operations.items():
+            if method not in ("get", "put", "post", "delete", "patch"):
+                continue
+            # Ninja keys them by number until the document is written out, and a
+            # `default` beside them must be a string, as they all are in JSON.
+            responses = {str(k): v for k, v in operation.get("responses", {}).items()}
+            operation["responses"] = responses
+            for status, answer in responses.items():
+                if status[:1] in ("4", "5") and "content" not in answer:
+                    answer["content"] = content
+            responses.setdefault("default", {"$ref": "#/components/responses/Problem"})
+    return schema
+
+
 def from_validation(errors: list[dict[str, Any]]) -> Problem:
     """A 422 problem from django-ninja's validation errors."""
     items = []
