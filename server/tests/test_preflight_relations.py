@@ -10,6 +10,7 @@ from django.db.models.functions import Now
 from django.test.utils import CaptureQueriesContext
 from org_world import World
 from psycopg import sql
+from test_preflight import uniquely
 from test_preflight_records import nodes
 from test_registries import PROTEIN, api_as, create, rival
 from test_rules import BATCH, made, world
@@ -89,14 +90,10 @@ def test_date_overlap_counts_nested_and_touching_records_once_within_the_project
     last = made(world, dates("30", "31"))
     other = create(api_as(world, "outsider"), rival, {"name": "L-1", **dates("30", "31")}, BATCH)
     assert other.status_code == 201, other.content
+    proposed = uniquely(old, "name")
+    proposed = replace(proposed, rules={**proposed.rules, date_range.name: date_range})
     with CaptureQueriesContext(connection) as queries:
-        checked = findings(
-            replace(
-                old,
-                fields={**old.fields, "name": replace(old.fields["name"], unique=True)},
-                rules={**old.rules, date_range.name: date_range},
-            )
-        )
+        checked = findings(proposed)
     expected = sorted(row["hrid"] for row in (first, inside, last))
     for key in ("name", date_range.name):
         assert checked[key].count == 3
@@ -116,9 +113,7 @@ def test_registry_counts_distinct_entries_then_reports_every_holder(
     world: World, rival: Project
 ) -> None:
     old = registry.types()[PROTEIN]
-    proposed = replace(
-        old, fields={**old.fields, "ec_number": replace(old.fields["ec_number"], unique=True)}
-    )
+    proposed = uniquely(old, "ec_number")
     editor, outsider = api_as(world, "editor"), api_as(world, "outsider")
 
     def register(

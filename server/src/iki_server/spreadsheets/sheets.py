@@ -740,8 +740,8 @@ def _stale(record: Entity, read: int) -> Problem:
 
 def _problems(error: Exception, fields: Mapping[str, Field]) -> list[Problem]:
     """An edit's or a create's problems, each at the cell it's about, or the row's: a
-    field's as its label begins it (``Purity must be at most 100.``), a plugin's rule's
-    as it says it (ADR 0127)."""
+    field's as its label begins it (``Purity must be at most 100.``), as a unique field's
+    rule's does, a plugin's rule's as it says it (ADR 0127)."""
     if not isinstance(error, Invalid):
         return [Problem("", str(error))]
     out: list[Problem] = []
@@ -751,7 +751,11 @@ def _problems(error: Exception, fields: Mapping[str, Field]) -> list[Problem]:
             told.setdefault(name, []).append(b.message)
             at = f"values/{name}" if name in fields else ""
             held = " Saved, it's held for review: say why to save it so." if b.held else ""
-            out.append(Problem(at, f"{b.message}{held}"))
+            # A unique field's rule is said of the field, as its other errors are.
+            said = b.message
+            if b.rule.from_field and name in fields:
+                said = f"{_field_label(fields[name], name)} {said}"
+            out.append(Problem(at, f"{said}{held}"))
     for name, messages in error.errors.items():
         rest = [m for m in messages if m not in told.get(name, [])]
         if not rest:
