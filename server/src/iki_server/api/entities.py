@@ -30,7 +30,7 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import transaction
-from django.db.models import F, Q, QuerySet
+from django.db.models import F, Q, QuerySet, prefetch_related_objects
 from django.http import HttpRequest, HttpResponse, StreamingHttpResponse
 from ninja import Field, HeaderEx, P, Query, Router, Schema, Status
 from pydantic import ConfigDict, ValidationError, field_serializer
@@ -1922,6 +1922,8 @@ def _gone(user: User, ref: str) -> None:
 
 
 def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
+    # Their projects, for their states' and signatures' checks: one read for the page.
+    prefetch_related_objects(entities, "owner_project")
     # Read these versions before the values. A concurrent change may show newer values
     # alongside an older version, which the review or signature then refuses.
     entries = _entries_of(user, entities)
@@ -1964,6 +1966,8 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
         e.owner_project_id for e in entities if eligibility.purpose_roles(e.type)
     }
     permissions.remember_roles(user, [p for p in projects.values() if p.pk in restricted_projects])
+    offered = states.options_of(user, entities, values, history=signed_history)
+    signs = _signs_can(user, entities, values, signing, offered)
     out = []
     for entity in entities:
         fields = shape(entity.type).fields()
@@ -1986,7 +1990,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
             and storage.spec(entity.type) is not None
             and storage.holds_material(user, entity)
         )
-        transitions = states.options(user, entity, values[entity.pk], history=signed_history)
+        transitions = offered.get(entity.pk, {})
         mine = ids_in(fields, values[entity.pk])
         shown = {
             name: to_json(fields[name], value, readable_refs=refs)
@@ -2045,7 +2049,7 @@ def _out(user: User, entities: list[Entity]) -> list[dict[str, Any]]:
                     if draw_amount
                     else [],
                     "states": _states_can(transitions),
-                    "sign": _sign_can(user, entity, values[entity.pk], signing, transitions),
+                    "sign": signs.get(entity.pk, []),
                     "take": take.get(entity.pk, []) if entity.type not in frozen else [],
                 },
             }
@@ -2214,21 +2218,27 @@ class _Signing:
         return self._cant[0]
 
 
-def _sign_can(
+def _signs_can(
     user: User,
-    entity: Entity,
-    values: dict[str, Any],
+    entities: list[Entity],
+    values: Mapping[Any, dict[str, Any]],
     signing: _Signing,
-    transitions: dict[str, list[states.Option]],
-) -> list[dict[str, Any]]:
-    out = []
-    for change in sig_changes.signed(transitions, values):
-        slots = sig_services.slots(
-            user, entity, change, given=signing.given(entity), cant=signing.cant(), values=values
-        )
+    offered: Mapping[Any, dict[str, list[states.Option]]],
+) -> dict[Any, list[dict[str, Any]]]:
+    """What each record's signed states need, and whether ``user`` may give them: their
+    guards and holds checked for the whole page at once."""
+    wanted = [
+        sig_services.Signable(entity, change, signing.given(entity), values[entity.pk])
+        for entity in entities
+        for change in sig_changes.signed(offered.get(entity.pk, {}), values[entity.pk])
+    ]
+    found = sig_services.slots_of(user, wanted, cant=signing.cant()) if wanted else []
+    out: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+    for each, slots in zip(wanted, found, strict=True):
+        change = each.change
         allowed = any(s.why_not is None for s in slots)
         open_slots = [s for s in slots if s.signature is None]
-        out.append(
+        out[each.entity.pk].append(
             {
                 "field": change.field,
                 "field_label": change.field_label,
