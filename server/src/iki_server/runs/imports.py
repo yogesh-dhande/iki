@@ -58,6 +58,7 @@ from iki_server.entities import (
     constraints,
     holds,
     identity,
+    pipeline,
     registry,
     requests,
     unique,
@@ -1191,7 +1192,7 @@ def _update_matches_of(
     done: list[int] = []
     effects = []
     effect_lines: list[int] = []
-    with entities.quietly():
+    with pipeline.quietly():
         for row in matched:
             line = row.line
             # Django reads jsonb as text.
@@ -1942,7 +1943,7 @@ class _Filling:
                 self.set_by[(entry_id, name)] = line
         # Written even after an error, which fails the import anyway: later lines are
         # compared with what earlier ones filled.
-        with entities.quietly():
+        with pipeline.quietly():
             for entry_id, values in new.items():
                 try:
                     filled = entities.fill_entry(

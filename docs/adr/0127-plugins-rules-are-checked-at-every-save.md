@@ -1,6 +1,6 @@
 # 0127. Plugins' rules are checked at every save, and a rule can hold a record for review
 
-- Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules)
+- Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules; refined by [0280](0280-every-change-is-checked-and-written-by-one-pipeline.md): every save is checked by one pipeline)
 - Clarified 2026-11-27: a rule and a guard reading the same expression treat an empty value oppositely, documented side by side, with a validator warning
 - Date: 2026-11-18
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),

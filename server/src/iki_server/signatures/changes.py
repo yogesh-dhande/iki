@@ -119,9 +119,13 @@ def make(
     locked: Entity, change: Change, user: User, reason: str, signatures: tuple[Any, ...]
 ) -> Revision:
     """Sets the state, once its last signature is given, on a record whose row this
-    transaction has locked: the revision carries the signatures."""
+    transaction has locked: the revision carries the signatures. Checked as any save is
+    (ADR 0127), though its conditions refused it already for a rule it would break."""
+    from iki_server.entities import pipeline
+
     assert change.how is not None  # noqa: S101 - find made it
-    return states.write(locked, change.how, change.to, user, reason, signatures=signatures)
+    made = states.plan(locked, change.how, change.to, user, reason, signatures=signatures)
+    return states.write(made, pipeline.evaluate(made))
 
 
 def carried(revision: Revision) -> tuple[str, str, str]:

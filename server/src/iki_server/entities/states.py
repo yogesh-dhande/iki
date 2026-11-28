@@ -40,8 +40,8 @@ from psycopg import sql
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import guards, registry
-from iki_server.entities.models import Entity, Revision
+from iki_server.entities import guards, pipeline, registry
+from iki_server.entities.models import Entity, Revision, RevisionKind
 from iki_server.entities.values import Invalid
 from iki_server.org import lab_roles, permissions
 from iki_server.org.permissions import Action
@@ -561,10 +561,11 @@ def set_state(
         if found is not None:
             why, forbidden = found
             raise PermissionDenied(why) if forbidden else Refused(why)
-        record = services.current_values(services.specific(locked))
         reason = reason.strip()
-        broke: list[Any] = [] if _edited else breaking(locked, field, [state], record)[0]
-        holding = _rules_kept(broke, target, reason)
+        change = plan(locked, f, state, user, reason)
+        # Checked as a save is (ADR 0127); a return, with its edit's values together.
+        checked = None if _edited else pipeline.evaluate(change)
+        record = services.current_values(services.specific(locked))
         # Its rules are checked above, as a save checks them.
         condition = _conditions(user, locked, field, [target], record, rules=False).get(state)
         if condition is not None:
@@ -576,41 +577,7 @@ def set_state(
             )
         if len(reason) > MAX_REASON:
             raise Invalid({"reason": [f"Say why in {MAX_REASON} characters or fewer."]})
-        revision = write(locked, f, state, user, reason)
-        _held(locked, f.name, broke, holding, user, reason, revision)
-        return revision
-
-
-def _rules_kept(found: Sequence[Any], target: State, reason: str) -> list[Any]:
-    """Raises for the rules a state change breaks (ADR 0127), as for a save: one that
-    refuses refuses it; one that holds asks for a reason, and holds the record for it.
-    A state that locks it isn't set while it would be held (ADR 0128). Returns what holds."""
-    from iki_server.entities import checking
-
-    if target.locks and any(b.held for b in found):
-        held = next(b for b in found if b.held)
-        raise Refused(
-            f"It would break “{held.rule.label}”, which holds records for review, so it isn't "
-            f"set to {target.label}: {held.message}"
-        )
-    return checking.raise_broken(found, hold_reason=reason)
-
-
-def _held(
-    locked: Entity,
-    field: str,
-    found: Sequence[Any],
-    holding: Sequence[Any],
-    user: User,
-    reason: str,
-    revision: Revision,
-) -> None:
-    from iki_server.entities import checking, holds
-
-    if holding:
-        record = Entity.objects.select_related("owner_project").get(pk=locked.pk)
-        holds.hold(record, holding, user=user, reason=reason, revision=revision.number)
-    checking.kept(locked, frozenset({field}), found)
+        return write(change, checked)
 
 
 def return_for_edit(user: User, locked: Entity, targets: Mapping[str, str], reason: str) -> None:
@@ -633,7 +600,7 @@ class NeedsSignatures(Refused):
     """The state is set only by signing for it (ADR 0126)."""
 
 
-def write(
+def plan(
     locked: Entity,
     f: Field,
     state: str,
@@ -641,26 +608,61 @@ def write(
     reason: str,
     *,
     signatures: tuple[Any, ...] = (),
-) -> Revision:
-    """Sets ``f`` to ``state`` on a record whose row this transaction has locked, once it's
-    been checked: by :func:`set_state`, or for a signed state by its last signature, whose
-    revision carries them all (``signatures``, in order)."""
+) -> pipeline.Plan:
+    """Setting ``f`` to ``state`` on a record whose row this transaction has locked, as the
+    write pipeline takes it (ADR 0280): a revision of its own with its history row. A state
+    that locks the record isn't set while a rule would hold it (ADR 0128). A signed
+    state's revision carries the signatures that set it, in order (ADR 0126)."""
     from iki_server.entities import services
+    from iki_server.entities.values import shape
 
-    fields = state_fields(locked.type)
-    values = values_of(locked)
-    current = values.get(f.name) or ""
+    form = shape(locked.type)
+    current = values_of(locked).get(f.name) or ""
+    target = f.states[state]
+    return pipeline.Plan(
+        user=user,
+        form=form,
+        kind=RevisionKind.STATE_CHANGED,
+        entity=locked,
+        rows=services.Rows.of(services.specific(locked)),
+        values={f.name: state},
+        reason=reason,
+        project=locked.owner_project if locked.owner_project_id else None,
+        hold_reason=reason,
+        locking=target.label if target.locks else "",
+        # A state isn't an edit of what a check reads (ADR 0080).
+        rechecks=False,
+        state=(f.name, current, state),
+        signatures=signatures,
+    )
+
+
+def write(change: pipeline.Plan, checked: pipeline.Checked | None) -> Revision:
+    """Writes a state change (:func:`plan`) once it's been checked: by :func:`set_state`,
+    or for a signed state by its last signature, whose revision carries them all. Whoever
+    the new state makes it the work of is told (ADR 0122), and it's held by the rules
+    ``checked`` found that hold it."""
     from iki_server.entities import requests
 
+    locked = change.entity
+    assert change.state is not None  # noqa: S101 - a state change's plan
+    name, current, state = change.state
+    user, reason, signatures = change.user, change.reason, change.signatures
+    fields = state_fields(locked.type)
+    f = fields[name]
+    values = values_of(locked)
     # The field changes while the record is unlocked, under its row's lock: the
     # database's guard refuses every change to a locked record, this one too.
     if locked.locked_by:
         Entity.objects.filter(pk=locked.pk).update(locked_by=[])
+    # Its rows as they are now, unlocked, so saving them doesn't write the lock back.
+    from iki_server.entities import services
+
+    change.rows = services.Rows.of(services.specific(locked))
     # A request's state field is its side's to write (ADR 0132), checked by who set it.
-    with requests.writing(frozenset({requests.side_of(locked.type, f.name)})):
-        revision = services.state_changed(
-            user, locked, f, current, state, reason, signatures=signatures
-        )
+    change.sides = frozenset({requests.side_of(locked.type, f.name)})
+    revision = pipeline.commit(change, checked).revision
+    assert revision is not None  # noqa: S101 - a state change's
     after = locking(fields, {**values, f.name: state})
     if after:
         Entity.objects.filter(pk=locked.pk).update(locked_by=after)

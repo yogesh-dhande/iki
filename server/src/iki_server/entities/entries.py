@@ -53,8 +53,8 @@ from iki_server.entities import (
     access,
     breaches,
     checking,
-    holds,
     identity,
+    pipeline,
     registry,
     requests,
     services,
@@ -231,10 +231,18 @@ def curate(
             return None
         _keeps_its_rules(form, locked, rows, new)
         before = {n: to_json(fields[n], rows.get(n)) for n in new}
-        touched = services._write(form, rows, new, locked.pk)
-        revision = services._revise(locked, RevisionKind.CURATED, sorted(new), user, reason)
-        services._write_history(touched, rows, revision.number)
-        services._use_files(fields, locked.pk, new, revision.number)
+        plan = pipeline.Plan(
+            user=user,
+            form=form,
+            kind=RevisionKind.CURATED,
+            entity=locked,
+            rows=rows,
+            values=new,
+            reason=reason,
+        )
+        # Checked above for the entry alone, and for its records by check_holders.
+        revision = pipeline.commit(plan, None).revision
+        assert revision is not None  # noqa: S101 - it changes something
         # Every record of it, as its registrars' changes are every holder's (ADR 0127).
         breaches.check_holders(
             locked,
@@ -381,7 +389,7 @@ def supersede(
         locked.superseded_by = other
         locked.superseded_at = dt.datetime.now(dt.UTC)
         locked.save(update_fields=["superseded_by", "superseded_at"])
-        revision = services._revise(locked, RevisionKind.SUPERSEDED, [], user, reason)
+        revision = _superseded(user, locked, reason)
         log.record(
             "entry.superseded",
             actor=user,
@@ -517,7 +525,7 @@ def supersede_as(
         new, _ = services.register_entry(
             user, form, locked.registry_id, given, said, pk=new_id, moved_from=locked.pk
         )
-        services._revise(locked, RevisionKind.SUPERSEDED, [], user, said)
+        _superseded(user, locked, said)
         log.record(
             "entry.superseded",
             actor=user,
@@ -749,27 +757,28 @@ def move(
         was = services.current_values(services.specific(locked))
         Entity.objects.filter(pk=locked.pk).update(entry=new, hrid=new.hrid)
         locked.refresh_from_db()
-        changed, holding = _checked_on(locked, was, said)
-        revision = services._revise(locked, RevisionKind.MOVED, [], user, said, moved_from=old.pk)
-        if holding:
-            holds.hold(
-                Entity.objects.select_related("owner_project").get(pk=locked.pk),
-                holding,
-                user=user,
-                reason=said,
-                revision=revision.number,
-                entry_revision=new.revision,
-            )
-        if changed:
-            # What the record's checks read of its entry changed: their results go.
-            services.update(
-                user,
-                locked,
-                {},
-                expected_revision=revision.number,
-                reason=said,
-                _entry_moved=changed,
-            )
+        instance = services.specific(locked)
+        now = services.current_values(instance)
+        form = shape(locked.type)
+        # Its values are its new entry's: those that differ are changed, as an edit of them
+        # would change them (ADR 0127, ADR 0080).
+        changed = frozenset(n for n in form.entry_fields() if was.get(n) != now.get(n))
+        plan = pipeline.Plan(
+            user=user,
+            form=form,
+            kind=RevisionKind.MOVED,
+            entity=locked,
+            rows=services.Rows.of(instance),
+            reason=said,
+            project=project,
+            also={n: now.get(n) for n in changed},
+            edited=changed,
+            hold_reason=said,
+            moved_from=old.pk,
+            entry_revision=new.revision,
+        )
+        revision = pipeline.commit(plan, pipeline.evaluate(plan)).revision
+        assert revision is not None  # noqa: S101 - a move's
         repointed = _repoint(user, project, old, new, said)
         from iki_server.runs import triggers
 
@@ -790,22 +799,19 @@ def move(
     return Moved(services.specific(Entity.objects.get(pk=locked.pk)), revision, repointed)
 
 
-def _checked_on(
-    record: Entity, was: Mapping[str, Any], reason: str
-) -> tuple[frozenset[str], list[checking.Broken]]:
-    """A moved record checked against its rules (ADR 0127), by the values its new entry
-    gives it that differ from its old one's: one it would break refuses the move; one
-    that holds holds it, for the move's reason. Returns what changed, and what holds it."""
-    form = shape(record.type)
-    now = services.current_values(services.specific(record))
-    changed = frozenset(n for n in form.entry_fields() if was.get(n) != now.get(n))
-    if not changed:
-        return changed, []
-    saving = checking.Saving(now.get, changed, id=record.pk, hrid=record.hrid)
-    found = checking.broken(record.type, [saving])[0]
-    holding = checking.raise_broken(found, hold_reason=reason)
-    checking.kept(record, changed, found)
-    return changed, holding
+def _superseded(user: User, entry: Entity, reason: str) -> Revision:
+    """A superseded entry's revision: it changes none of its values, which its records'
+    rules read, so there's nothing to check."""
+    plan = pipeline.Plan(
+        user=user,
+        form=shape(entry.type),
+        kind=RevisionKind.SUPERSEDED,
+        entity=entry,
+        reason=reason,
+    )
+    revision = pipeline.commit(plan, None).revision
+    assert revision is not None  # noqa: S101 - a supersession's
+    return revision
 
 
 def carried(record_type: str, replacement_type: str) -> tuple[str, ...]:

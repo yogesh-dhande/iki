@@ -1,7 +1,9 @@
 """Creating, editing and archiving entities: revisions, history and provenance (ADR 0035).
 
-Every change goes through here, so its rules hold for the web, the API, MCP
-and runs alike:
+Every change to an entity is planned here, or by another operation of
+:mod:`iki_server.entities` (entries, lists, states), and checked and written by
+:mod:`iki_server.entities.pipeline` (ADR 0280), so its rules hold for the web, the API,
+MCP and runs alike:
 
 - **Revisions.** Each change is a numbered :class:`Revision`: who, how
   (``via``), when, why, and which fields. The new values of every table it
@@ -41,27 +43,23 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 
 from django.db import IntegrityError, connection, transaction
-from django.db.models import F, Model, Q
-from django.db.models.functions import Now
+from django.db.models import Model, Q
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.audit.log import agent_data, current_agent, current_oauth_client, current_via
 from iki_server.core.ids import uuid7
 from iki_server.entities import (
     access,
-    assignments,
     breaches,
     checking,
     computing,
     constraints,
-    holds,
     identity,
+    pipeline,
     registry,
     requests,
     rules,
@@ -83,10 +81,7 @@ from iki_server.entities.values import (
     read_value,
     row_columns,
     shape,
-    to_history,
 )
-from iki_server.files.models import FileUse
-from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
 from iki_server.setup import starter_flows
@@ -120,9 +115,6 @@ STATE_SET_ALONE = (
     "is a state field: it's set on its own, by someone with one of its states' lab roles "
     "(ADR 0125). New records start in its initial state."
 )
-
-#: A recheck's note on a record once what its check read changed (ADR 0080).
-RECHECK_NOTE = "Needs re-verification"
 
 
 class Stale(Exception):  # noqa: N818 - reads as "the edit was stale"
@@ -276,7 +268,7 @@ def create(
     given_amount = amounts.Given.of(amount) if amount is not None else None
     refs = access.refs_for(user, project)
     with refs.keeping(keeping):
-        form, given, holding = prepare(
+        form, given, checked = prepare(
             user,
             type_name,
             project,
@@ -291,12 +283,9 @@ def create(
             raise Invalid(errors)
         if refused := starter_flows.refused_create(project, [type_name]):
             raise Invalid({"type": [refused]})
-        saved = _create(user, form, project, values, given, reason, by_run, fills)
-        if holding and not saved.reused and saved.revision is not None:
-            entry_number = (
-                saved.entry_revision.number if saved.registered and saved.entry_revision else None
-            )
-            _hold(saved, holding, user, hold_reason, saved.revision.number, entry_number)
+        saved = _create(
+            user, form, project, values, given, reason, by_run, fills, checked, hold_reason
+        )
         if given_amount is not None and not saved.reused:
             record = Entity.objects.get(pk=saved.entity.pk)
             amounts.record(
@@ -316,10 +305,13 @@ def _create(
     given: Mapping[str, Any],
     reason: str,
     by_run: bool,
-    fills: frozenset[str] = frozenset(),
+    fills: frozenset[str],
+    checked: pipeline.Checked,
+    hold_reason: str,
 ) -> Saved:
+    """``checked``: what :func:`prepare` found of it, which its new record is held by."""
     if not form.has_entries:
-        return _new_record(user, form, project, given, reason, by_run)
+        return _new_record(user, form, project, given, reason, by_run, checked, hold_reason)
     entry = _find_entry(form, project, given)
     if entry is not None:
         # What's given for the entry fills what it hasn't got, and a fact that differs is
@@ -352,6 +344,8 @@ def _create(
             given,
             reason,
             by_run,
+            checked,
+            hold_reason,
             entry=entry,
             submitted=spelled or None,
         )
@@ -359,26 +353,20 @@ def _create(
         return saved
     entry, entry_revision = _new_entry(user, form, project, given, reason, by_run)
     saved = _new_record(
-        user, form, project, given, reason, by_run, entry=entry, registered=entry_revision
+        user,
+        form,
+        project,
+        given,
+        reason,
+        by_run,
+        checked,
+        hold_reason,
+        entry=entry,
+        registered=entry_revision,
     )
     saved.registered = True
     saved.entry_revision = entry_revision
     return saved
-
-
-def _hold(
-    saved: Saved,
-    holding: Sequence[checking.Broken],
-    user: User,
-    reason: str,
-    revision: int,
-    entry_revision: int | None,
-) -> None:
-    entity = Entity.objects.select_related("owner_project").get(pk=saved.entity.pk)
-    holds.hold(
-        entity, holding, user=user, reason=reason, revision=revision, entry_revision=entry_revision
-    )
-    saved.held = [b.rule.key for b in holding]
 
 
 def _new_record(
@@ -388,59 +376,49 @@ def _new_record(
     given: Mapping[str, Any],
     reason: str,
     by_run: bool,
+    checked: pipeline.Checked,
+    hold_reason: str,
     *,
     entry: Entity | None = None,
     registered: Revision | None = None,
     submitted: dict[str, Any] | None = None,
 ) -> Saved:
-    """The project's record: its own fields' values, and for an identity, its entry.
-    ``submitted``: its identity's values as given, where they're spelled other than the
-    entry's (ADR 0138)."""
+    """The project's record: its own fields' values, and for an identity, its entry, held
+    by the rules ``checked`` found it breaks that hold. ``submitted``: its identity's values
+    as given, where they're spelled other than the entry's (ADR 0138)."""
     instance = form.model(owner_project=project, created_by=user)
     if entry is not None:
         instance.entry_id = entry.pk
         instance.hrid = entry.hrid
-    rows = Rows(form, instance, None)
-    mine = [p for p in form.parts if not p.entry]
-    for part in mine:
-        if not part.extension:
+    for part in form.parts:
+        if not part.entry and not part.extension:
             for name, f in part.fields.items():
                 if name in given and not stored_in_list_table(f):
-                    _set(instance, f, given[name])
+                    pipeline.set_value(instance, f, given[name])
     own = {n: v for n, v in given.items() if not form.part_of(n).entry}
     clashes = unique.taken(project, form, own)
     if clashes:
         raise Invalid(clashes)
-    instance.save()
-    touched = [p for p in mine if not p.extension]
-    for part in mine:
-        if part.extension and any(own.get(n) is not None for n in part.fields):
-            row = rows.ensure(part)
-            for name, f in part.fields.items():
-                if name in own and not stored_in_list_table(f):
-                    _set(row, f, own[name])
-            row.save()
-            touched.append(part)
-        for name, f in part.fields.items():
-            if stored_in_list_table(f) and own.get(name):
-                _write_list(part, f, instance.pk, own[name])
-    changed = sorted(n for n, v in own.items() if v is not None)
-    revision = _revise(
-        instance,
-        RevisionKind.CREATED,
-        changed,
-        user,
-        reason,
+    plan = pipeline.Plan(
+        user=user,
+        form=form,
+        kind=RevisionKind.CREATED,
+        entity=instance,
+        rows=Rows(form, instance, None),
+        values=own,
+        reason=reason,
         via="run" if by_run else None,
+        project=project,
+        hold_reason=hold_reason,
         registered=registered,
         submitted=submitted,
+        entry_revision=registered.number if registered is not None else None,
     )
-    _write_history(touched, rows, revision.number)
-    _use_files(form.fields(), instance.pk, own, revision.number)
-    ProjectLink.objects.create(entity_id=instance.pk, project=project, linked_by=user)
-    assignments.changed(instance, revision, assignments.diff(instance.type, {}, own), user)
-    declared.created(instance, revision, user)
-    return Saved(_specific(instance), revision)
+    revision = pipeline.commit(plan, checked).revision
+    saved = Saved(_specific(instance), revision)
+    if checked.holding:
+        saved.held = [b.rule.key for b in checked.holding]
+    return saved
 
 
 def _find_entry(form: Shape, project: Project, given: Mapping[str, Any]) -> Entity | None:
@@ -518,7 +496,7 @@ def _entry_instance(form: Shape, given: Mapping[str, Any]) -> Model:
         if part.entry and not part.extension:
             for name, f in part.fields.items():
                 if name in given and not stored_in_list_table(f):
-                    _set(instance, f, given[name])
+                    pipeline.set_value(instance, f, given[name])
     return instance
 
 
@@ -573,36 +551,21 @@ def register_entry(
         instance, form.entity_type, _lists(form, given)
     )
     fields = form.entry_fields()
-    mine = {n: v for n, v in given.items() if n in fields}
-    instance.save()
-    rows = Rows(form, None, instance)
-    touched = [p for p in form.parts if p.entry and not p.extension]
-    for part in form.parts:
-        if not part.entry:
-            continue
-        if part.extension and any(mine.get(n) is not None for n in part.fields):
-            row = rows.ensure(part)
-            for name, f in part.fields.items():
-                if name in mine and not stored_in_list_table(f):
-                    _set(row, f, mine[name])
-            row.save()
-            touched.append(part)
-        for name, f in part.fields.items():
-            if stored_in_list_table(f) and mine.get(name):
-                _write_list(part, f, instance.pk, mine[name])
-    changed = sorted(n for n, v in mine.items() if v is not None)
-    revision = _revise(
-        instance,
-        RevisionKind.CREATED,
-        changed,
-        user,
-        reason,
+    plan = pipeline.Plan(
+        user=user,
+        form=form,
+        kind=RevisionKind.CREATED,
+        entity=instance,
+        rows=Rows(form, None, instance),
+        values={n: v for n, v in given.items() if n in fields},
+        reason=reason,
         via="run" if by_run else None,
-        project=project,
+        through=project,
         moved_from=moved_from,
     )
-    _write_history(touched, rows, revision.number)
-    _use_files(fields, instance.pk, mine, revision.number)
+    # Its records' rules are checked as they're made, by its values (ADR 0115).
+    revision = pipeline.commit(plan, None).revision
+    assert revision is not None  # noqa: S101 - a new entry's first
     return Entity.objects.get(pk=instance.pk), revision
 
 
@@ -645,18 +608,21 @@ def fill_entry(
         raise Invalid(errors)
     if not new:
         return None
-    touched = _write(form, rows, new, locked.pk)
-    revision = _revise(
-        locked,
-        RevisionKind.EDITED,
-        sorted(new),
-        user,
-        reason,
+    plan = pipeline.Plan(
+        user=user,
+        form=form,
+        kind=RevisionKind.EDITED,
+        entity=locked,
+        rows=rows,
+        values=new,
+        reason=reason,
         via="run" if by_run else None,
-        project=project,
+        through=project,
     )
-    _write_history(touched, rows, revision.number)
-    _use_files(form.fields(), locked.pk, new, revision.number)
+    # Its records' rules are checked by what it fills: the saving one's by its save, the
+    # others' here, by check_holders.
+    revision = pipeline.commit(plan, None).revision
+    assert revision is not None  # noqa: S101 - it fills something
     breaches.check_holders(
         locked,
         frozenset(new),
@@ -703,7 +669,7 @@ def recheck_holders(
         for name in outputs:
             if name in fields and not form.part_of(name).entry:
                 empty: list[Any] | None = [] if stored_in_list_table(fields[name]) else None
-                clearing[name] = RECHECK_NOTE if name == spec.recheck else empty
+                clearing[name] = pipeline.RECHECK_NOTE if name == spec.recheck else empty
     detached = frozen(form) is not None
     flagged: list[Recalculation] = []
     groups: dict[frozenset[str], list[Entity]] = defaultdict(list)
@@ -723,80 +689,15 @@ def recheck_holders(
     cleared: dict[Any, frozenset[str]] = {}
     for names, group in groups.items():
         new = {n: clearing[n] for n in names}
-        touched = _write_each(form, [r.pk for r in group], new)
-        revisions = Revision.objects.bulk_create(
-            [
-                Revision(
-                    entity_id=r.pk,
-                    number=r.revision + 1,
-                    kind=RevisionKind.EDITED,
-                    changed_fields=sorted(names),
-                    user=user,
-                    # Who changed the entry isn't told to its other holders (ADR 0115).
-                    via=current_via() if user is not None else "system",
-                    client=current_oauth_client() if user is not None else "",
-                    agent=current_agent() if user is not None else None,
-                    reason=reason.strip(),
-                )
-                for r in group
-            ]
-        )
-        Entity.objects.filter(pk__in=[r.pk for r in group]).update(
-            revision=F("revision") + 1, updated_at=Now()
+        # Who changed the entry isn't told to its other holders (ADR 0115): with no
+        # user, by no one, through the system.
+        pipeline.commit_alike(
+            group, new, user=user, reason=reason, changed={r.pk: sorted(names) for r in group}
         )
         for record in group:
-            record.revision += 1
             values[record.pk].update(new)
             cleared[record.pk] = names
-        for part in touched:
-            part.history._default_manager.bulk_create(
-                [
-                    part.history(
-                        entity_id=r.pk,
-                        revision=r.revision,
-                        **{
-                            n: None if f.removed else to_history(f, values[r.pk].get(n))
-                            for n, f in part.fields.items()
-                        },
-                    )
-                    for r in group
-                ]
-            )
-        for record, revision in zip(group, revisions, strict=True):
-            if not _quiet.get():
-                # A calculation reading through a reference to it reads what it cleared.
-                triggers.source_changed(record, revision)
     return cleared
-
-
-def _write_each(form: Shape, ids: Sequence[Any], new: Mapping[str, Any]) -> list[Part]:
-    """Writes the same ``new`` values to each of the records ``ids``, as :func:`_write`
-    does to one, a query or two a table: a list's only cleared. Returns the tables it
-    wrote."""
-    touched: list[Part] = []
-    for part in form.parts:
-        mine = {n: v for n, v in new.items() if n in part.fields}
-        if not mine or part.entry:
-            continue
-        touched.append(part)
-        columns: dict[str, Any] = {}
-        for name, value in mine.items():
-            f = part.fields[name]
-            if stored_in_list_table(f):
-                assert not value  # noqa: S101 - what a recheck clears
-                part.list_model(name)._default_manager.filter(entity_id__in=ids).delete()
-            else:
-                columns[f"{name}_id" if f.type in FOREIGN_KEYS else name] = value
-        if not columns:
-            continue
-        manager = part.model._default_manager
-        if not part.extension:
-            manager.filter(pk__in=ids).update(**columns)
-            continue
-        have = set(manager.filter(entity_id__in=ids).values_list("entity_id", flat=True))
-        manager.filter(entity_id__in=have).update(**columns)
-        manager.bulk_create([part.model(entity_id=i, **columns) for i in ids if i not in have])
-    return touched
 
 
 def entry_filled(entry: Entity, form: Shape, new: Mapping[str, Any]) -> str:
@@ -949,12 +850,12 @@ def prepare(
     hold_reason: str = "",
     check_rules: bool = True,
     defer_result_check: bool = False,
-) -> tuple[Shape, dict[str, Any], list[checking.Broken]]:
+) -> tuple[Shape, dict[str, Any], pipeline.Checked]:
     """A new entity's values as the database stores them, defaults filled in, checked
-    against its type's fields and rules, with the plugins' rules it breaks that hold it
-    for review (ADR 0127), saved anyway for ``hold_reason``. Raises :class:`Invalid` with
-    what's wrong, or :class:`checking.Held` when it breaks rules that hold and there's no
-    reason.
+    against its type's fields and rules (:func:`pipeline.evaluate`), with the plugins'
+    rules it breaks that hold it for review (ADR 0127), saved anyway for ``hold_reason``.
+    Raises :class:`Invalid` with what's wrong, or :class:`checking.Held` when it breaks
+    rules that hold and there's no reason.
 
     Bulk imports (ADR 0056) check each record with this, as :func:`create` does, but
     without the plugins' rules (``check_rules=False``): they work a chunk's computed values
@@ -1011,15 +912,6 @@ def prepare(
                 errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
-    unworked: dict[str, list[str]] = {}
-    if not errors and check_rules:
-        # Its computed values (ADR 0297), before its rules read them; one its field refuses
-        # is said with what its rules say. A bulk import works a chunk's out at once, as
-        # it checks their rules (``imports.breaking``).
-        try:
-            computing.fill(type_name, [given])
-        except Invalid as error:
-            unworked = dict(error.errors)
     if not errors:
         from iki_server.amounts import stock
 
@@ -1028,19 +920,24 @@ def prepare(
         errors = requests.check_work_item(project, type_name, given)
     if not errors and not defer_result_check:
         errors = requests.check_result(project, type_name, given)
-    if not errors:
-        errors = rules.check(user, entity_type, project, given.get)
     if errors:
         raise Invalid(errors)
     if not check_rules:
-        return form, given, []
-    own = {n: v for n, v in given.items() if not form.part_of(n).entry}
-    found = [
-        *checking.broken(type_name, [checking.Saving(given.get)])[0],
-        *checking.apart(project.pk, form, own),
-    ]
-    holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
-    return form, given, holding
+        # A bulk import works a chunk's computed values out, and checks their rules, at
+        # once (``imports.breaking``).
+        errors = rules.check(user, entity_type, project, given.get)
+        if errors:
+            raise Invalid(errors)
+        return form, given, pipeline.Checked(changed=None)
+    plan = pipeline.Plan(
+        user=user,
+        form=form,
+        kind=RevisionKind.CREATED,
+        values=given,
+        project=project,
+        hold_reason=hold_reason,
+    )
+    return form, given, pipeline.evaluate(plan)
 
 
 def not_a_record(entity_type: EntityType) -> str:
@@ -1270,70 +1167,37 @@ def update(
             fields[name].reason_on_clear and rows.get(name) is True for name in new
         ):
             raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
-        from iki_server.runs import triggers
-
+        if not (new or for_entry or _entry_moved):
+            # Nothing changes: nothing is returned for a correction either.
+            returns = {}
         # What it gives its entry changes the entry's facts, which its checks may read too.
         filling, _ = entry_changes(
             form, {n: rows.get(n) for n in for_entry}, for_entry, explicit=not by_run
         )
-        edited = set(new) | set(filling) | _entry_moved
-        rechecks = triggers.rechecks(locked.type, edited) if edited else []
-        for spec, outputs in rechecks:
-            for name in outputs:
-                value = RECHECK_NOTE if name == spec.recheck else None
-                if rows.get(name) != value or name in new:
-                    new[name] = value
-        unworked: dict[str, list[str]] = {}
-        if new:
-            # Its computed values (ADR 0297), from what it will hold, before its rules; one
-            # its field refuses is said with what its rules say.
-            try:
-                new.update(
-                    computing.changes(
-                        locked.type, lambda n: new[n] if n in new else rows.get(n), rows.get
-                    )
-                )
-            except Invalid as error:
-                unworked = dict(error.errors)
-        changing = {**new, **for_entry}
-        if changing:
-            if returns:
-                states.return_for_edit(user, locked, returns, reason)
-                # _write saves the typed row, including its state and entity revision.
-                # Its in-memory value must include the returns recorded above.
-                locked.refresh_from_db()
-                instance = _specific(locked)
-                rows = Rows.of(instance)
-                changing.update(returns)
-            errors = rules.check(
-                user,
-                form.entity_type,
-                project,
-                lambda n: changing[n] if n in changing else rows.get(n),
-                changed=changing,
-            )
-        if errors:
-            raise Invalid(errors)
-        holding: list[checking.Broken] = []
-        found: list[checking.Broken] = []
-        changed: frozenset[str] = frozenset()
-        if changing:
-            current = lambda n: changing[n] if n in changing else rows.get(n)  # noqa: E731
-            changed = frozenset(changing)
-            found = [
-                *checking.broken(
-                    locked.type,
-                    [checking.Saving(current, changed, id=locked.pk, hrid=locked.hrid)],
-                )[0],
-                *checking.apart(
-                    project.pk,
-                    form,
-                    {n: current(n) for n in fields if not form.part_of(n).entry},
-                    entity=locked.pk,
-                    changed=changed,
-                ),
-            ]
-            holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
+        plan = pipeline.Plan(
+            user=user,
+            form=form,
+            kind=RevisionKind.EDITED,
+            entity=locked,
+            rows=rows,
+            values=new,
+            reason=reason,
+            via="run" if by_run else None,
+            project=project,
+            also={**for_entry, **returns},
+            edited=frozenset(filling) | _entry_moved,
+            hold_reason=hold_reason,
+            group=group,
+            entry_revision=checked_entry_revision,
+            sides=allowed or frozenset(),
+        )
+        checked = pipeline.evaluate(plan)
+        if returns:
+            states.return_for_edit(user, locked, returns, reason)
+            # Its write saves the typed row, including its state and entity revision: the
+            # row it writes has the returns recorded above.
+            locked.refresh_from_db()
+            plan.rows = Rows.of(_specific(locked))
         entry_revision = None
         if for_entry:
             assert rows.entry is not None  # noqa: S101 - entry fields are an entry's
@@ -1348,51 +1212,20 @@ def update(
                 explicit=not by_run,
                 besides=frozenset({locked.pk}),
             )
-        held_entry_revision = entry_revision.number if entry_revision else checked_entry_revision
-        if not new:
-            saved = Saved(_specific(locked), entry_revision=entry_revision)
-            checking.kept(locked, changed, found)
-            if holding:
-                # Its registry entry's values held it: by the record as it is.
-                _hold(saved, holding, user, hold_reason, locked.revision, held_entry_revision)
-            return saved
-        was = {n: rows.get(n) for n in new}
-        before = {n: v for n, v in was.items() if names_people(fields[n])}
-        with requests.writing(allowed or frozenset()):
-            touched = _write(form, rows, new, instance.pk)
-        revision = _revise(
-            locked, RevisionKind.EDITED, sorted(new), user, reason, via="run" if by_run else None
-        )
-        _write_history(touched, rows, revision.number)
-        if request is not None:
+            if entry_revision is not None:
+                # A held observation names the entry revision it read (ADR 0127).
+                plan.entry_revision = entry_revision.number
+        done = pipeline.commit(plan, checked)
+        if done.revision is not None and request is not None:
             # What it sends now goes to the service with it.
             requests.send(user, locked, current_values(_specific(locked)))
-        _use_files(fields, locked.pk, new, revision.number)
-        assignments.changed(
-            locked, revision, assignments.diff(locked.type, before, new), user, group=group
-        )
-        saved = Saved(_specific(locked), revision, entry_revision=entry_revision)
-        checking.kept(locked, changed, found)
-        if holding:
-            _hold(saved, holding, user, hold_reason, revision.number, held_entry_revision)
-        declared.changed(locked, revision, {n: (was.get(n), v) for n, v in new.items()}, user)
-        # A failed launch may append a diagnostic. The action's effect still names its own edit.
-        updated = saved
-        for spec, _ in rechecks:
-            problem = triggers.recheck_edit(user, locked, revision, spec)
-            if problem:
-                with log.using(log.Context(via="trigger")):
-                    saved = update(
-                        user,
-                        locked,
-                        {spec.recheck: f"{RECHECK_NOTE}. {problem}"[:10000]},
-                        _recheck_note=spec.recheck,
-                        expected_revision=saved.revision.number
-                        if saved.revision
-                        else revision.number,
-                        reason=revision.reason,
-                    )
-    return updated if by_run else saved
+        saved = Saved(_specific(locked), done.revision, entry_revision=entry_revision)
+        if checked.holding:
+            saved.held = [b.rule.key for b in checked.holding]
+    if done.noted is not None and not by_run:
+        # A recheck that couldn't start noted why: the change ends there.
+        return Saved(_specific(locked), done.noted)
+    return saved
 
 
 def reworked(entity: Entity, values: Mapping[str, Any], reason: str) -> Revision:
@@ -1403,12 +1236,22 @@ def reworked(entity: Entity, values: Mapping[str, Any], reason: str) -> Revision
     it tells no webhook and fires no trigger: the deploy's audit event counts them."""
     locked = Entity.objects.select_for_update().get(pk=entity.pk)
     form = shape(locked.type)
-    rows = Rows.of(_specific(locked))
-    touched = _write(form, rows, values, locked.pk)
+    plan = pipeline.Plan(
+        user=None,
+        form=form,
+        kind=RevisionKind.MIGRATED,
+        entity=locked,
+        rows=Rows.of(_specific(locked)),
+        values=dict(values),
+        reason=reason,
+        via="system",
+    )
     changed = sorted(values)
-    with quietly():
-        revision = _revise(locked, RevisionKind.MIGRATED, changed, None, reason, via="system")
-    _write_history(touched, rows, revision.number)
+    with pipeline.quietly():
+        # The deploy checks its records' rules once their values are worked out again,
+        # as it does a migration's (:func:`breaches.recheck`).
+        revision = pipeline.commit(plan, None).revision
+    assert revision is not None  # noqa: S101 - a migrated revision
     log.record(
         "entity.migrated",
         target=locked,
@@ -1446,33 +1289,6 @@ def _named_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model val
     return set(current) if isinstance(current, list) else {current}
 
 
-def _write(form: Shape, rows: Rows, new: Mapping[str, Any], owner_id: Any) -> list[Part]:  # noqa: ANN401 - a UUID
-    """Writes ``new`` values to the tables of ``rows`` that hold them; returns those it did."""
-    touched: list[Part] = []
-    saves: list[Model] = []
-    for part in form.parts:
-        mine = {n: v for n, v in new.items() if n in part.fields}
-        if not mine:
-            continue
-        touched.append(part)
-        target = rows.ensure(part)
-        owner = rows.owner(part)
-        key = owner.pk if owner is not None else owner_id
-        for name, value in mine.items():
-            f = part.fields[name]
-            if stored_in_list_table(f):
-                part.list_model(name)._default_manager.filter(entity_id=key).delete()
-                if value:
-                    _write_list(part, f, key, value)
-            else:
-                _set(target, f, value)
-        if all(target is not s for s in saves):
-            saves.append(target)
-    for target in saves:
-        target.save()
-    return touched
-
-
 def set_archived(
     user: User,
     entity: Entity,
@@ -1504,7 +1320,11 @@ def set_archived(
         locked.archived_at = dt.datetime.now(dt.UTC) if archived else None
         locked.save(update_fields=["archived_at"])
         kind = RevisionKind.ARCHIVED if archived else RevisionKind.RESTORED
-        revision = _revise(locked, kind, [], user, reason)
+        # It changes none of its values, which its rules read.
+        plan = pipeline.Plan(
+            user=user, form=shape(locked.type), kind=kind, entity=locked, reason=reason
+        )
+        revision = pipeline.commit(plan, None).revision
     return Saved(_specific(locked), revision)
 
 
@@ -1971,206 +1791,6 @@ def disclosing(projects: Iterable[Any]) -> Q:
 # --- Writing ------------------------------------------------------------------------------------
 
 
-def _set(instance: Model, f: Field, value: Any) -> None:  # noqa: ANN401 - a model value
-    if f.type in FOREIGN_KEYS:
-        setattr(instance, f"{f.name}_id", value)
-    else:
-        setattr(instance, f.name, value)
-
-
-def _use_files(
-    fields: Mapping[str, Field],
-    entity_id: uuid.UUID,
-    values: Mapping[str, Any],
-    revision: int,
-) -> None:
-    """Records the files these values refer to, so the entity's readers can read them."""
-    found: set[Any] = set()
-    for name, value in values.items():
-        f = fields[name]
-        if value is None:
-            continue
-        if f.type == "file":
-            found.add(value)
-        elif f.type == "list" and f.items is not None and f.items.type == "file":
-            found.update(value)
-        elif f.is_rows:
-            assert f.items is not None  # noqa: S101 - lists have items
-            files = [n for n, cell in f.items.fields.items() if cell.type == "file"]
-            found.update(row[n] for row in value for n in files if row.get(n) is not None)
-    if found:
-        FileUse.objects.bulk_create(
-            [FileUse(file_id=i, entity_id=entity_id, revision=revision) for i in sorted(found)],
-            ignore_conflicts=True,
-        )
-
-
-def _write_list(part: Part, f: Field, entity_id: Any, items: list[Any]) -> None:  # noqa: ANN401
-    model = part.list_model(f.name)
-    if f.is_rows:
-        columns = row_columns(f)
-        model._default_manager.bulk_create(
-            model(entity_id=entity_id, position=index, **{c: row[n] for n, c in columns.items()})
-            for index, row in enumerate(items)
-        )
-        return
-    model._default_manager.bulk_create(
-        model(entity_id=entity_id, position=index, item_id=item) for index, item in enumerate(items)
-    )
-
-
-def _revise(
-    entity: Model,
-    kind: str,
-    changed: list[str],
-    user: User | None,
-    reason: str,
-    via: str | None = None,
-    *,
-    project: Project | None = None,
-    registered: Revision | None = None,
-    moved_from: Any = None,  # noqa: ANN401 - a UUID
-    state: tuple[str, str, str] | None = None,
-    signatures: tuple[Any, ...] = (),
-    submitted: dict[str, Any] | None = None,
-) -> Revision:
-    """The entity's next revision. ``project``: for an entry's, the project it was made
-    through; ``registered``: for a record's first, the entry's first, which it made."""
-    current = Entity.objects.only("revision", "has_been_locked").get(pk=entity.pk)
-    if kind == RevisionKind.EDITED and not reason.strip() and current.has_been_locked:
-        raise states.CorrectionReason(
-            {"reason": ["Give a reason for editing this record after its lock was lifted."]}
-        )
-    number = current.revision + 1
-    revision = Revision.objects.create(
-        entity_id=entity.pk,
-        number=number,
-        kind=kind,
-        changed_fields=changed,
-        user=user,
-        via=via or current_via(),
-        client=current_oauth_client(),
-        agent=current_agent(),
-        reason=reason.strip(),
-        project=project,
-        moved_from_id=moved_from,
-        signatures=list(signatures),
-        submitted=submitted,
-        **(
-            dict(zip(("state_field", "state_from", "state_to"), state, strict=True))
-            if state
-            else {}
-        ),
-    )
-    Entity.objects.filter(pk=entity.pk).update(revision=number, updated_at=Now())
-    if getattr(entity, "registry_id", None) is not None:
-        _announce_entry(entity.pk, revision, user)
-    else:
-        _announce(entity.pk, revision, user, registered=registered)
-    return revision
-
-
-def state_changed(
-    user: User,
-    entity: Entity,
-    f: Field,
-    old: str,
-    new: str,
-    reason: str,
-    *,
-    signatures: tuple[Any, ...] = (),
-) -> Revision:
-    """Writes a record's state field's new state, as a revision of its own with its history
-    row (see :func:`states.set_state`, which checks it and keeps the lock). Whoever the new
-    state makes it the work of is told (ADR 0122). A signed state's revision carries the
-    signatures that set it, in order (ADR 0126)."""
-    form = shape(entity.type)
-    instance = _specific(entity)
-    rows = Rows.of(instance)
-    touched = _write(form, rows, {f.name: new}, instance.pk)
-    revision = _revise(
-        entity,
-        RevisionKind.STATE_CHANGED,
-        [f.name],
-        user,
-        reason,
-        state=(f.name, old, new),
-        signatures=signatures,
-    )
-    _write_history(touched, rows, revision.number)
-    assignments.became(entity, revision, f.name, old, new, user)
-    declared.changed(entity, revision, {f.name: (old or None, new)}, user)
-    return revision
-
-
-_EVENTS = {
-    RevisionKind.CREATED: "entity.created",
-    RevisionKind.EDITED: "entity.updated",
-    RevisionKind.ARCHIVED: "entity.archived",
-    RevisionKind.RESTORED: "entity.restored",
-    RevisionKind.MOVED: "entity.updated",
-    RevisionKind.STATE_CHANGED: "entity.state_changed",
-}
-
-
-#: Inside :func:`quietly`: changes too many to tell of one by one.
-_quiet: ContextVar[bool] = ContextVar("iki_entities_quiet", default=False)
-
-
-@contextmanager
-def quietly() -> Iterator[None]:
-    """Changes made inside tell no webhook and fire no trigger, one by one: a bulk import
-    (ADR 0056) tells of them all in one event, and fires nothing per entity."""
-    token = _quiet.set(True)
-    try:
-        yield
-    finally:
-        _quiet.reset(token)
-
-
-def _announce(
-    entity_id: Any,  # noqa: ANN401 - a UUID
-    revision: Revision,
-    user: User | None,
-    *,
-    registered: Revision | None = None,
-) -> None:
-    """Tells the owner project's and the organization's webhooks, and fires its triggers,
-    in the change's transaction."""
-    if _quiet.get():
-        return
-    from iki_server.webhooks import events
-    from iki_server.webhooks.services import emit
-
-    entity = Entity.objects.select_related("owner_project__team").get(pk=entity_id)
-    data = {
-        "entity": events.entity_data(entity),
-        "revision": {
-            "number": revision.number,
-            "kind": revision.kind,
-            "changed_fields": revision.changed_fields,
-            "via": revision.via,
-            "reason": revision.reason,
-        },
-        **_state_data(entity, revision),
-        "actor": events.actor_data(user),
-        "agent": agent_data(revision.agent),
-    }
-    emit(_EVENTS[RevisionKind(revision.kind)], data, project=entity.owner_project)
-    # And the project's triggers that it fires (ADR 0080).
-    from iki_server.runs import triggers
-
-    triggers.noticed(entity, revision, registered=registered)
-    triggers.source_changed(entity, revision)
-
-
-def _state_data(entity: Entity, revision: Revision) -> dict[str, Any]:
-    """For a state change, which field and between which states, with their labels."""
-    if revision.kind != RevisionKind.STATE_CHANGED:
-        return {}
-    return {"state": state_change(entity.type, revision)}
-
-
 def state_change(
     type_name: str, revision: Revision, names: FieldNames | None = None
 ) -> dict[str, Any]:
@@ -2194,30 +1814,3 @@ def state_change(
         "from": state(revision.state_from),
         "to": state(revision.state_to),
     }
-
-
-def _announce_entry(entry_id: Any, revision: Revision, user: User | None) -> None:  # noqa: ANN401 - a UUID
-    """Tells the webhooks of the projects holding an entry that its values changed (ADR
-    0115): which entry, which fields, and for a registrar's change, who. A holder's change
-    is told without who made it, as the other holders don't learn that. Its registration
-    is told as its record's creation, to the project that registered it."""
-    if _quiet.get() or revision.kind == RevisionKind.CREATED:
-        return
-    from iki_server.entities import entries
-
-    entries.announce(entry_id, revision, user)
-    from iki_server.runs import triggers
-
-    triggers.source_changed(Entity.objects.get(pk=entry_id), revision)
-
-
-def _write_history(touched: list[Part], rows: Rows, number: int) -> None:
-    """A history row for each table the revision touched, with all of that table's values."""
-    for part in touched:
-        owner = rows.owner(part)
-        assert owner is not None  # noqa: S101
-        data = {
-            name: None if f.removed else to_history(f, rows.value(part, f))
-            for name, f in part.fields.items()
-        }
-        part.history._default_manager.create(entity_id=owner.pk, revision=number, **data)

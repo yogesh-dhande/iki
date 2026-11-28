@@ -61,13 +61,8 @@ from iki_server.entities import breaches, computing, hrids, lists, registry, req
 from iki_server.entities import services as entity_services
 from iki_server.entities.dashboards import APP
 from iki_server.entities.models import Entity, ProjectLink, Revision
-from iki_server.entities.services import (
-    _set,
-    _use_files,
-    _write_list,
-    identity_lock,
-    quietly,
-)
+from iki_server.entities.pipeline import quietly, set_value, use_files, write_list
+from iki_server.entities.services import identity_lock
 from iki_server.entities.values import Shape, shape
 from iki_server.files import metadata as stated
 from iki_server.files import services as file_services
@@ -776,7 +771,7 @@ class _Writer:
                 continue
             for name, f in part.fields.items():
                 if name in values and not stored_in_list_table(f) and not f.removed:
-                    _set(instance, f, values[name])
+                    set_value(instance, f, values[name])
 
     @staticmethod
     def _extensions_and_lists(
@@ -790,7 +785,7 @@ class _Writer:
                 ext = ext or part.model(entity_id=entity_id)
                 for name, f in part.fields.items():
                     if name in values and not stored_in_list_table(f) and not f.removed:
-                        _set(ext, f, values[name])
+                        set_value(ext, f, values[name])
                 ext.save()
             for name, f in part.fields.items():
                 if not stored_in_list_table(f) or f.removed:
@@ -798,7 +793,7 @@ class _Writer:
                 if not fresh:
                     part.list_model(name)._default_manager.filter(entity_id=entity_id).delete()
                 if values.get(name):
-                    _write_list(part, f, entity_id, values[name])
+                    write_list(part, f, entity_id, values[name])
 
     def _history(
         self,
@@ -846,7 +841,7 @@ class _Writer:
             part = parts[h["table"]]
             kept = self._remap(form, h["values"])
             part.history._default_manager.create(entity_id=entity_id, revision=number, **kept)
-            _use_files(
+            use_files(
                 fields,
                 entity_id,
                 {k: v for k, v in kept.items() if k in fields},

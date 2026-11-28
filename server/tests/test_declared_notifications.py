@@ -19,8 +19,8 @@ from test_workers import keep_connection
 
 from iki_server.audit import log as audit
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import pipeline, states
 from iki_server.entities import services as entities
-from iki_server.entities import states
 from iki_server.entities.models import Entity
 from iki_server.notifications import services, watches
 from iki_server.notifications.models import Notification, NotificationRecord, NotificationSetting
@@ -422,7 +422,7 @@ def test_an_email_isnt_sent_to_someone_who_cant_read_it_any_more(lab: World) -> 
 
 
 def test_a_bulk_import_tells_nobody_record_by_record(lab: World) -> None:
-    with entities.quietly():
+    with pipeline.quietly():
         entities.create(
             lab.users["editor"],
             SAMPLE,

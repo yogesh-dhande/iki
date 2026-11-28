@@ -1309,7 +1309,7 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         from django.db import transaction
         from iki_server.accounts.models import User
         from iki_server.amounts import services as amounts
-        from iki_server.entities import holds, services, states
+        from iki_server.entities import holds, pipeline, services, states
         from iki_server.entities.models import Entity
         from iki_server.files.models import File
         from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
@@ -1348,7 +1348,8 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
             with transaction.atomic():
                 locked = Entity.objects.select_for_update().get(pk=lot.pk)
                 assert states.condition(quinn, locked, "disposition", released) is None
-                states.write(locked, disposition, "released", quinn, "")
+                change = states.plan(locked, disposition, "released", quinn, "")
+                states.write(change, pipeline.evaluate(change))
             lot.refresh_from_db()
 
         # Inotersen and M13 forward, their masses computed by a run, and an
@@ -1773,7 +1774,7 @@ def test_a_stock_keeper_makes_research_material_available_without_qa(
         from django.db import transaction
         from iki_server.accounts.models import User
         from iki_server.amounts import services as amounts
-        from iki_server.entities import services, states
+        from iki_server.entities import pipeline, services, states
         from iki_server.entities.models import Entity
         from iki_server.org import permissions
         from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
@@ -1903,7 +1904,8 @@ def test_a_stock_keeper_makes_research_material_available_without_qa(
                 locked = Entity.objects.select_for_update().get(pk=lot.pk)
                 assert states.condition(eve, locked, "disposition",
                                         disposition.states["released"]) is None
-                states.write(locked, disposition, "released", eve, "")
+                change = states.plan(locked, disposition, "released", eve, "")
+                states.write(change, pipeline.evaluate(change))
             lot.refresh_from_db()
 
         release(made)
