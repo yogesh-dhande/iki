@@ -39,7 +39,7 @@ from psycopg import sql
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import entries, identity, registry, services, unique
+from iki_server.entities import constraints, entries, identity, registry, services, unique
 from iki_server.entities.models import LIST_LABEL_INDEX, Entity, Revision, RevisionKind
 from iki_server.entities.values import (
     Invalid,
@@ -748,11 +748,11 @@ def _by_id(f: Any, value: Any, registry_id: Any) -> Any:  # noqa: ANN401 - JSON,
 
 def install_label_indexes(cursor: Any, wanted: Iterable[str] | None = None) -> list[str]:  # noqa: ANN401 - Django's cursor
     """A unique index for each list (``wanted``, by type; every list for None) on its
-    labels as :class:`UniqueValue` holds them, in lower case: so the database refuses a
-    second option of a list in a registry with a label in another case, whoever writes it.
-    Drops those no list needs. Raises :class:`unique.Clash` while a list has one twice:
-    the deploy stops, saying which. Run it once the unique values are kept
-    (:func:`unique.install`)."""
+    labels as :class:`UniqueValue` holds them (its label's rule's rows, ADR 0082), in lower
+    case: so the database refuses a second option of a list in a registry with a label in
+    another case, whoever writes it. Drops those no list needs. Raises
+    :class:`constraints.Clash` while a list has one twice: the deploy stops, saying which.
+    Run it once the rules' values are kept (:func:`constraints.install`)."""
     needed: dict[str, tuple[str, str]] = {}
     for type_name in sorted(types() if wanted is None else wanted):
         model = shape(type_name).entry_model
@@ -770,8 +770,8 @@ def install_label_indexes(cursor: Any, wanted: Iterable[str] | None = None) -> l
     clashes: list[str] = []
     for type_name, key in missing.values():
         cursor.execute(
-            "SELECT r.name, array_agg(e.hrid ORDER BY e.hrid), array_agg(u.value ORDER BY "
-            "e.hrid) FROM iki_unique_value u JOIN iki_entity e ON e.id = u.entity_id JOIN "
+            "SELECT r.name, array_agg(e.hrid ORDER BY e.hrid), array_agg(u.value::jsonb ->> 0 "
+            "ORDER BY e.hrid) FROM iki_unique_value u JOIN iki_entity e ON e.id = u.entity_id JOIN "
             "iki_registry r ON r.id = u.registry_id WHERE u.key = %s GROUP BY r.name, "
             "lower(u.value) HAVING count(*) > 1 ORDER BY 1, 2 LIMIT 10",
             [key],
@@ -780,7 +780,7 @@ def install_label_indexes(cursor: Any, wanted: Iterable[str] | None = None) -> l
             said = " and ".join(f"“{label}”" for label in labels)
             clashes.append(f"{', '.join(hrids)} of {type_name} in {registry_name} are {said}")
     if clashes:
-        raise unique.Clash(
+        raise constraints.Clash(
             "Some lab lists have a label twice in a registry, in different cases, so they "
             "can't be held once each until they don't: " + "; ".join(clashes) + ". Relabel "
             "one of each, then deploy again."

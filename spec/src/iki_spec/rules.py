@@ -935,7 +935,11 @@ class _Rules:
         for name, rule in rules.items():
             out[name] = rule
             if rule.from_field:
-                # A field's `unique: true`: its field's checks say what's wrong with it.
+                # A field's `unique: true`: its field's checks say what's wrong with it, a
+                # computed field's being unique among them (`computed-unique`).
+                f = fields.get(name)
+                if f is not None and f.cel is not None:
+                    continue
                 self.own_field(
                     name,
                     fields,
