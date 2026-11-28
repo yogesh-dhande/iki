@@ -14,10 +14,13 @@ cases you'd handle differently::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict, cast
+
+from iki.schema import ConsentStatementOut, Problem, ProblemError
 
 __all__ = [
     "ApiError",
+    "ClientProblem",
     "Conflict",
     "ConsentRequired",
     "FieldError",
@@ -71,6 +74,19 @@ class FieldError:
         return f"{where}: {self.detail}"
 
 
+class ClientProblem(TypedDict):
+    """What the SDK makes of an answer that isn't a problem, such as a proxy's error page:
+    ``unexpected_response``, with the status it came with."""
+
+    type: Literal["about:blank"]
+    title: str
+    status: int
+    detail: str
+    code: Literal["unexpected_response"]
+    errors: NotRequired[list[ProblemError]]
+    request_id: NotRequired[str]
+
+
 class ApiError(IkiError):
     """The API refused a request, and said why."""
 
@@ -82,7 +98,7 @@ class ApiError(IkiError):
         code: str = "",
         errors: tuple[FieldError, ...] = (),
         request_id: str = "",
-        problem: dict[str, Any] | None = None,
+        problem: Problem | ClientProblem | None = None,
     ) -> None:
         self.status = status
         self.detail = detail
@@ -92,8 +108,14 @@ class ApiError(IkiError):
         self.errors = errors
         #: Quote it to your administrator: it finds this request in Iki's logs.
         self.request_id = request_id
-        #: The whole problem document, as the API sent it.
-        self.problem = problem or {}
+        #: The whole problem document, as the API sent it (ADR 0290): its ``code`` says
+        #: which members it has, so a type checker narrows it by the code::
+        #:
+        #:     if error.problem["code"] == "scan_ambiguous":
+        #:         choose(error.problem["candidates"])
+        self.problem: Problem | ClientProblem = problem or ClientProblem(
+            type="about:blank", title="", status=status, detail=detail, code="unexpected_response"
+        )
         super().__init__(self._message())
 
     def _message(self) -> str:
@@ -148,14 +170,14 @@ class ConsentRequired(Conflict):
     ``consent=`` naming each API."""
 
     @property
-    def statements(self) -> list[dict[str, Any]]:
-        found = self.problem.get("consent") or []
-        return [s for s in found if isinstance(s, dict)]
+    def statements(self) -> list[ConsentStatementOut]:
+        problem = self.problem
+        return list(problem["consent"]) if problem["code"] == "consent_required" else []
 
     @property
     def apis(self) -> list[str]:
         """What ``consent=`` names, to agree to every statement."""
-        return [str(s.get("api")) for s in self.statements]
+        return [s["api"] for s in self.statements]
 
 
 class NotApproved(Conflict):
@@ -164,7 +186,8 @@ class NotApproved(Conflict):
 
     @property
     def approvers(self) -> list[str]:
-        return [str(a) for a in self.problem.get("approvers") or []]
+        problem = self.problem
+        return list(problem["approvers"]) if problem["code"] == "outside_api_not_approved" else []
 
 
 class RateLimited(ApiError):
@@ -229,7 +252,7 @@ _BY_CODE: dict[str, type[ApiError]] = {
 
 def from_response(status: int, body: Any) -> ApiError:  # noqa: ANN401 - JSON
     """The error for a response the API refused, from its problem document."""
-    problem = body if isinstance(body, dict) else {}
+    problem: dict[str, Any] = body if isinstance(body, dict) else {}
     detail = str(problem.get("detail") or problem.get("title") or f"Iki answered {status}.")
     errors = tuple(
         FieldError(
@@ -249,5 +272,5 @@ def from_response(status: int, body: Any) -> ApiError:  # noqa: ANN401 - JSON
         code=str(problem.get("code") or ""),
         errors=errors,
         request_id=str(problem.get("request_id") or ""),
-        problem=problem,
+        problem=cast("Problem", problem) if isinstance(problem.get("code"), str) else None,
     )

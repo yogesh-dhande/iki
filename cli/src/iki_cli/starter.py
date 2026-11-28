@@ -110,9 +110,10 @@ def run(args: argparse.Namespace) -> int:
                 )
     except IkiError as error:
         sys.stderr.write(f"iki starter {operation}: {error}\n")
-        if isinstance(error, ApiError) and error.code == "starter_plan_changed":
+        problem = error.problem if isinstance(error, ApiError) else None
+        if problem is not None and problem["code"] == "starter_plan_changed":
             # What applying does now: review it, then apply again with its plan.
-            _print_application(error.problem["plan"], preview=True, out=sys.stderr)
+            _print_application(problem["plan"], preview=True, out=sys.stderr)
         return 2
     except (HTTPError, ValueError) as error:
         sys.stderr.write(f"iki starter {operation}: {error}\n")

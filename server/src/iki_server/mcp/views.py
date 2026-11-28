@@ -32,7 +32,7 @@ def _challenge(request: HttpRequest, error: str | None = None) -> HttpResponse:
         "Sign in with OAuth to use Iki's MCP server."
         if error is None
         else "The access token is invalid, expired or revoked. Get a new one.",
-        code="invalid_token" if error else "unauthorized",
+        code="invalid_token" if error else "not_authenticated",
         headers={"WWW-Authenticate": bearer_challenge(request, error)},
     )
     return response(problem)

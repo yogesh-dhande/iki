@@ -495,6 +495,19 @@ your administrator. Its subclasses let you catch what you'd handle differently:
 Requests that Iki asks you to slow down for are sent again after waiting as
 long as it says.
 
+Every code, its status and the members it carries are in Iki's OpenAPI
+description (ADR 0290), and `error.problem` is typed from it: compare its
+`code`, and a type checker knows what else it holds.
+
+```python
+try:
+    iki.entities.set_state("SAM-000012", "status", "released", revision=4)
+except iki.Conflict as error:
+    problem = error.problem
+    if problem["code"] == "guard_refused":
+        print(f"{problem['guard']} refused it: {problem['detail']}")
+```
+
 ## Lists
 
 Every list the API answers is paged (ADR 0291), and every method that reads one

@@ -84,7 +84,7 @@ def _invalid(error: Invalid) -> Problem:
 
 
 def _too_many(error: collections.TooMany) -> Problem:
-    return Problem(409, str(error), code="too_many")
+    return Problem(422, str(error), code="too_many")
 
 
 @router.post("/collections", response={201: CreatedOut}, summary="Make a collection from a search")

@@ -495,7 +495,7 @@ function RunForm({
       onError: (error) => {
         const problem = problemOf(error);
         if (problem.code === "inputs_outside_project") {
-          setOutside({ body, hrids: (problem.entities ?? []).map((e) => e.hrid) });
+          setOutside({ body, hrids: problem.entities.map((e) => e.hrid) });
         }
       },
       onSuccess: ({ runs, batch: made }) => {

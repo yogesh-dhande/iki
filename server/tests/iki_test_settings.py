@@ -48,3 +48,6 @@ STORAGES = {"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.Stati
 # Serve static files straight from the apps' static/ directories.
 SERVESTATIC_USE_FINDERS = True
 SERVESTATIC_AUTOREFRESH = True
+# A problem whose code, status or members ADR 0290's catalogue doesn't declare fails the
+# test that raised it; production logs it instead.
+IKI_STRICT_PROBLEMS = True

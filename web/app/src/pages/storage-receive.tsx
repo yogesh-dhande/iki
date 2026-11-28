@@ -12,7 +12,7 @@
  * (`useRevisioned`, ADR 0300), and keeps both in the history.
  */
 
-import { ApiError, isStale, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
+import { isApiError, isStale, unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { buttonState } from "@ikisci/ui/button";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
@@ -328,7 +328,7 @@ function versionOf(receipt: Receipt, fix: Fix | undefined): string {
 
 /** Put-away positions that changed since Complete's were shown (409): shown again. */
 function isPlanChanged(error: unknown): boolean {
-  return error instanceof ApiError && error.problem.code === "moves_plan_changed";
+  return isApiError(error, "moves_plan_changed");
 }
 
 /**
@@ -1029,11 +1029,7 @@ function OpenReceipt({ receipt: initial, request }: { receipt: Receipt; request:
         void client.invalidateQueries({ queryKey: STORAGE });
       },
       onError: (error) => {
-        if (
-          error instanceof ApiError &&
-          error.problem.code === "moves_plan_changed" &&
-          error.problem.moves
-        ) {
+        if (isApiError(error, "moves_plan_changed")) {
           showPlacement(error.problem.moves);
           return;
         }

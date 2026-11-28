@@ -10,7 +10,9 @@ after changing the API.
 
 The schemas use a small part of JSON Schema, and this covers that part: objects with
 properties, maps (``additionalProperties``), arrays, enums and consts, nullable types,
-``anyOf`` and ``allOf`` of one ``$ref``. Anything else is ``Any``.
+``anyOf`` and ``oneOf`` (a union, such as ``Problem``, discriminated by its members'
+``code``: a type checker narrows it by comparing that) and ``allOf`` of one ``$ref``.
+Anything else is ``Any``.
 """
 
 from __future__ import annotations
@@ -161,8 +163,12 @@ def generate(openapi: dict[str, Any]) -> str:
     """The source of ``iki/schema.py`` for an OpenAPI document."""
     schemas: dict[str, Any] = openapi.get("components", {}).get("schemas", {})
     generator = _Generator(schemas)
-    definitions = [
-        generator.define(key) for key in sorted(schemas, key=generator.names.__getitem__)
+    ordered = sorted(schemas, key=generator.names.__getitem__)
+    # A union of schemas, such as `Problem`, is an alias that names classes when it's
+    # evaluated, so it comes after them.
+    unions = [k for k in ordered if any(c in schemas[k] for c in ("anyOf", "oneOf"))]
+    definitions = [generator.define(key) for key in ordered if key not in unions] + [
+        generator.define(key) for key in unions
     ]
     exported = ", ".join(repr(generator.names[key]) for key in sorted(schemas, key=str.lower))
     return HEADER + "\n\n\n".join(definitions) + f"\n\n\n__all__ = [{exported}]\n"

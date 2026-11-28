@@ -262,7 +262,7 @@ def test_a_fixed_list_has_a_limit(world: World, monkeypatch: pytest.MonkeyPatch)
     editor = api_as(world)
     protein(editor, world.project, "abl1", "Homo sapiens")
     protein(editor, world.project, "egfr", "Homo sapiens")
-    body = problem(make(editor, world, HUMAN, "members"), 409, "too_many")
+    body = problem(make(editor, world, HUMAN, "members"), 422, "too_many")
     assert body["detail"].startswith("Its search finds more than 1 entities")
 
 

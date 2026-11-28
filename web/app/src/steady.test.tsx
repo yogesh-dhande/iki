@@ -259,6 +259,7 @@ describe("useForm", () => {
       answers[0]?.(
         new ApiError({
           ...PROBLEM,
+          status: 422,
           code: "validation_failed",
           errors: [{ pointer: "#/name", detail: "A project is called that already." }],
         }),
