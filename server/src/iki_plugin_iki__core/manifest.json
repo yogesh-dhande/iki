@@ -7,7 +7,7 @@
     "description": "The types every Iki deployment has.",
     "license": "Apache-2.0",
     "homepage": "https://ikisci.org",
-    "iki": null,
+    "iki": ">=0.1",
     "dependencies": {},
     "settings": {},
     "types": {

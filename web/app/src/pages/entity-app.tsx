@@ -13,7 +13,7 @@ import { apiRef, entityQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { Loading, ProblemAlert } from "../ui";
 import { AppPanel } from "./app";
-import { useEntity } from "./entity";
+import { useEntity } from "./entity-header";
 import { NoSuchTab } from "./errors";
 
 export function EntityApp() {

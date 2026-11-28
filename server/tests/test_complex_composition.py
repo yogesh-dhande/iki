@@ -235,8 +235,11 @@ def test_a_dna_sequence_weighs_as_biopython_weighs_it(
         weight(bases, double_stranded=double, circular=circular, monoisotopic=True),
         abs=1e-4,
     )
+    # Biopython weighs its nucleotides with the atomic weights of 2005 (carbon 12.0107,
+    # hydrogen 1.00794), so its average is 8 ppm above CIAAW's of 2024; the formula is
+    # what the monoisotopic mass checks.
     assert composition.mass(formula, composition.AVERAGE) == pytest.approx(
-        weight(bases, double_stranded=double, circular=circular), abs=1e-2
+        weight(bases, double_stranded=double, circular=circular), rel=1e-5
     )
 
 

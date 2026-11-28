@@ -21,8 +21,25 @@
       "description": "The value is set once, when the entity is created, and never changes."
     },
     "computed": {
-      "type": "boolean",
-      "description": "Only actions set this value; people can't edit it."
+      "description": "Set by Iki, never by a person. `true`: an action's runs set it. `{cel: …}`: Iki works it out from the record's own values at every save, with a CEL expression over `record`, and no one, not even a run, sets it (ADR 0297).",
+      "oneOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "object",
+          "required": ["cel"],
+          "additionalProperties": false,
+          "properties": {
+            "cel": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1000,
+              "description": "A CEL expression over `record`, the record as it will be saved: its own values, not what its references refer to, its registry entry's, its states, `now` or `today`. It works out to the field's kind of value; one that reads an empty value or can't be worked out leaves the field empty, as in `record.mw / record.mn`."
+            }
+          }
+        }
+      ]
     },
     "reason_on_clear": {
       "type": "boolean",
@@ -89,6 +106,18 @@
   },
   "unevaluatedProperties": false,
   "$defs": {
+    "annotations": {
+      "description": "A lab's own metadata about this manifest, such as its owner, GxP classification or validation status, by name: `gxp_classification: GAMP 5 category 4`. Iki keeps them, shows a plugin's and an entity type's on their pages, and never acts on them (ADR 0293).",
+      "type": "object",
+      "maxProperties": 64,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 100,
+        "pattern": "^[a-z0-9]([a-z0-9._-]*[a-z0-9])?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)?$"
+      },
+      "additionalProperties": { "type": "string", "maxLength": 2000 }
+    },
     "fieldName": {
       "description": "Lower-case letters, digits and single underscores, starting with a letter.",
       "type": "string",

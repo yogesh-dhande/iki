@@ -19,7 +19,8 @@ from typing import Any
 
 import wasmtime
 
-from iki_spec.writers.check import ABI, ABI_VERSION
+from iki_spec.writers.abi import unsupported
+from iki_spec.writers.check import EXPORTS
 from iki_spec.writers.limits import (
     DEFAULT_LIMITS,
     FUEL_BASE,
@@ -95,15 +96,15 @@ def engine() -> wasmtime.Engine:
 
 
 def check_exports(module: wasmtime.Module) -> list[str]:
-    """What's wrong with a compiled module's imports and the types of its exports, against
-    ABI 1; empty when it's a writer."""
+    """What's wrong with a compiled module's imports and the types of its exports; empty
+    when it's a writer."""
     problems = [
         f"It imports {i.module}.{i.name}: a writer may import nothing." for i in module.imports
     ]
     exports = {e.name: e.type for e in module.exports}
     if not isinstance(exports.get("memory"), wasmtime.MemoryType):
         problems.append("It doesn't export its memory as `memory`.")
-    for name, (params, results) in ABI.items():
+    for name, (params, results) in EXPORTS.items():
         found = exports.get(name)
         if not isinstance(found, wasmtime.FuncType):
             problems.append(f"It doesn't export the function `{name}`.")
@@ -136,7 +137,8 @@ _TRAPS = {
 
 
 class Instance:
-    """One export's writer: a store of its own, capped, with nothing imported."""
+    """One export's writer: a store of its own, capped, with nothing imported. ``abi`` is
+    the ABI the module reads, one this Iki runs: its requests are built for it."""
 
     def __init__(
         self,
@@ -165,16 +167,14 @@ class Instance:
         assert isinstance(memory_export, wasmtime.Memory)  # noqa: S101 - check_exports
         self.memory = memory_export
         self.functions: dict[str, wasmtime.Func] = {}
-        for name in ABI:
+        for name in EXPORTS:
             function = exports[name]
             assert isinstance(function, wasmtime.Func)  # noqa: S101 - check_exports
             self.functions[name] = function
         self.store.set_fuel(limits.fuel_base)
-        abi = self._run("iki_abi")
-        if abi != ABI_VERSION:
-            raise WriterFailed(
-                "abi", f"It speaks ABI {abi}; this Iki runs writers of ABI {ABI_VERSION}."
-            )
+        self.abi = self._run("iki_abi")
+        if (why := unsupported(self.abi)) is not None:
+            raise WriterFailed("abi", why)
 
     def _run(self, name: str, *args: int) -> int:
         try:

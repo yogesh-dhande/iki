@@ -854,6 +854,8 @@ def receipt(suffix: str = "", body: Any = None) -> Build:
         path = suffix.format(request=found.pk, receipt=started.pk, line=line.pk)
         if body is not None and "reason" in body and "/lines/" in path:
             return path, {**body, "line_revision": line.line_revision}
+        if suffix.endswith("/put-away/placeable"):
+            return path, {"plan_revision": started.plan_revision, "box": str(_box(w).pk)}
         if body is not None and (
             suffix == "/receipts/{receipt}"
             or suffix.endswith(("/complete", "/cancel", "/put-away/preview"))
@@ -958,13 +960,22 @@ def lab_list(suffix: str = "", body: Any = None, *, at: str = "project") -> Buil
     return build
 
 
-def list_curator(w: World) -> tuple[Any, ...]:
-    from iki_server.org.models import Registry
+def registry_role(w: World) -> tuple[Any, ...]:
+    """The viewer's curation of the lab list, a registry role (ADR 0292)."""
+    from iki_server.org.models import Registry, RegistryRole
 
-    return (
-        f"/registries/{Registry.default().pk}/list-curators/{LAB_LIST}/{w.users['viewer'].pk}",
-        None,
+    grant = RegistryRole.objects.create(
+        registry=Registry.default(),
+        user=w.users["viewer"],
+        role=RegistryRole.Role.LIST_CURATOR,
+        list_type=LAB_LIST,
     )
+    return f"/registries/{Registry.default().pk}/roles/{grant.pk}", None
+
+
+def grant_registrar(w: World) -> tuple[Any, ...]:
+    path, _ = registry("/roles")(w)
+    return path, {"role": "registrar", "user": str(w.users["viewer"].pk)}
 
 
 def readers_of_entries(status: int, **overrides: int) -> dict[str, int]:
@@ -1469,6 +1480,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
     ),
     (
         "POST",
+        "/receipts/{receipt_id}/put-away/placeable",
+        receipt("/receipts/{receipt}/put-away/placeable"),
+        readers(403),
+    ),
+    (
+        "POST",
         "/receipts/{receipt_id}/complete",
         receipt("/receipts/{receipt}/complete", {"missing_rest": True}),
         readers(403),
@@ -1573,7 +1590,12 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         fixed("/signatures/certification", {"submitted_on": "2026-11-01", "reference": "QA-1"}),
         ORG_ADMIN_ONLY,
     ),
-    ("POST", "/users/{user_id}/signing/unlock", viewer("/signing/unlock"), row(403, org_admin=409)),
+    (
+        "POST",
+        "/users/{user_id}/signing/unlock",
+        viewer("/signing/unlock", {"reason": "Checked with them"}),
+        row(403, org_admin=409),
+    ),
     ("GET", "/entities/{ref}/revisions", entity("/revisions"), readers(200)),
     ("GET", "/entities/{ref}/revisions/{number}", entity("/revisions/1"), readers(200)),
     ("GET", "/entities/{ref}/provenance", entity("/provenance"), readers(200)),
@@ -2099,17 +2121,14 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         registry(body={"description": "The organization's."}),
         row(403, org_admin=200),
     ),
-    ("GET", "/registries/{registry_id}/registrars", registry("/registrars"), row(200)),
-    (
-        "PUT",
-        "/registries/{registry_id}/registrars/{user_id}",
-        lambda w: (registry(f"/registrars/{w.users['viewer'].pk}")(w)[0], None),
-        row(403, org_admin=201),
-    ),
+    # Its roles (ADR 0292): anyone who sees it sees who holds them; Org Admins grant them.
+    ("GET", "/registries/{registry_id}/roles", registry("/roles"), row(200)),
+    ("POST", "/registries/{registry_id}/roles", grant_registrar, row(403, org_admin=201)),
+    ("GET", "/registries/{registry_id}/roles/{role_id}", registry_role, row(200)),
     (
         "DELETE",
-        "/registries/{registry_id}/registrars/{user_id}",
-        lambda w: (registry(f"/registrars/{w.users['viewer'].pk}")(w)[0], None),
+        "/registries/{registry_id}/roles/{role_id}",
+        registry_role,
         row(403, org_admin=204),
     ),
     # --- Lab lists (ADR 0270): members read them; nobody here curates one ---
@@ -2166,19 +2185,6 @@ CASES: list[tuple[str, str, Build, dict[str, int]]] = [
         ),
         # It wasn't superseded, so there's nowhere to move its records.
         editors(409),
-    ),
-    ("GET", "/registries/{registry_id}/list-curators", registry("/list-curators"), row(200)),
-    (
-        "PUT",
-        "/registries/{registry_id}/list-curators/{name}/{user_id}",
-        list_curator,
-        row(403, org_admin=201),
-    ),
-    (
-        "DELETE",
-        "/registries/{registry_id}/list-curators/{name}/{user_id}",
-        list_curator,
-        row(403, org_admin=204),
     ),
     # Only its registrars list a registry's entries, and nobody here is one.
     ("GET", "/registries/{registry_id}/entries", registry("/entries"), row(403)),

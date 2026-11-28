@@ -27,7 +27,12 @@ from django.db import IntegrityError, models
 from psycopg import sql
 
 from iki_server.entities import registry
-from iki_server.entities.models import UNIQUE_CONSTRAINT, UNIQUE_IN_REGISTRY, UniqueValue
+from iki_server.entities.models import (
+    LIST_LABEL_INDEX,
+    UNIQUE_CONSTRAINT,
+    UNIQUE_IN_REGISTRY,
+    UniqueValue,
+)
 from iki_server.entities.values import Shape
 from iki_server.org.models import Project, Registry, registry_of
 from iki_spec.model import Field
@@ -40,6 +45,7 @@ __all__ = [
     "holders",
     "install",
     "is_clash",
+    "is_label_clash",
     "key",
     "link",
     "owned",
@@ -190,6 +196,13 @@ def is_clash(error: IntegrityError) -> bool:
     cause = error.__cause__
     diag = getattr(cause, "diag", None)
     return getattr(diag, "constraint_name", None) in (UNIQUE_CONSTRAINT, UNIQUE_IN_REGISTRY)
+
+
+def is_label_clash(error: IntegrityError) -> bool:
+    """Whether a database error is a lab list's label written twice in a registry, in any
+    case (ADR 0270): see :func:`iki_server.entities.lists.install_label_indexes`."""
+    diag = getattr(error.__cause__, "diag", None)
+    return str(getattr(diag, "constraint_name", None) or "").startswith(LIST_LABEL_INDEX)
 
 
 def clash_message(error: IntegrityError) -> str:

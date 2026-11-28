@@ -22,6 +22,8 @@ cat > "$work/input.json" <<'EOF'
   "command": ["python", "./scripts/properties.py"], "environment": "acme/protein.protein-tools",
   "params": {},
   "inputs": {"protein": [{"id": "p1", "hrid": "PRO-000001", "type": "acme/protein.Protein",
+                          "types": ["acme/protein.Protein", "acme/dna.Sequence",
+                                    "iki/core.Sequence", "iki/core.Entity"],
                           "schema_version": 1, "revision": 1, "values": {"sequence": "A"}}]}
 }
 EOF

@@ -12,7 +12,7 @@ import { sentToField } from "../filters";
 import { usePageTitle } from "../layout";
 import { sentToQuery } from "../requests";
 import { EntityGrid } from "./entity-grid";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 /** The project's entities: every type, its collections and saved searches. */
 export function ProjectEntities() {

@@ -67,7 +67,8 @@ record's lock, after `set_by`, with the record as it is.
 
 **Holds come first.** While a rule holds a record for review (ADR 0127), it
 can't be set to a state that locks it, whatever its guards say: 409 `refused`,
-naming the holds.
+naming the holds. Nor is it set to a state the plugins' rules reading the field
+would refuse, or hold it for (ADR 0127).
 
 **A signed state's guards are checked at every signature.** A state that
 needs electronic signatures (ADR 0126) isn't set directly: its last signature

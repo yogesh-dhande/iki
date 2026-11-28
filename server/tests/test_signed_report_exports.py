@@ -174,3 +174,99 @@ def exercise_exports() -> None:
         Signature.objects.filter(pk=issued.signature_id).update(signature=b"corrupted")
     problem(reader.get(export, format="signed-report-json"), 404, "report_not_issued")
     assert events.count() == 3
+
+
+def test_an_issued_report_still_exports_after_its_fields_are_renamed(
+    tmp_path: Path, database: str
+) -> None:
+    """A plugin's migration renames the report and its review field after issuance (ADR
+    0148). The revisions that issued it keep the names they were written with, and what was
+    signed holds the old names: the export reads both through the renames, as verifying the
+    signatures does."""
+    plugins = tmp_path / "plugins"
+    plugin = plugins / FIXTURE.name
+    shutil.copytree(FIXTURE, plugin)
+    made(FIXTURE.name, "--no-input", cwd=plugins)
+    installed = build(plugins, FIXTURE.name)
+    migrate(installed, database)
+    sync(installed, database)
+    issued = django(
+        installed,
+        database,
+        "-c",
+        "import django; django.setup(); from test_signed_report_exports import issue_one; "
+        "issue_one()",
+    )
+    assert issued.returncode == 0, issued.stdout + issued.stderr
+    before = json.loads(issued.stdout.strip().splitlines()[-1])
+
+    manifest = plugin / "types" / "signed_report.yaml"
+    manifest.write_text(
+        manifest.read_text()
+        .replace("schema_version: 1", "schema_version: 2")
+        .replace("  report: { type: json", "  findings: { type: json")
+        .replace("  review:\n", "  approval:\n")
+        .replace("report: report, review: review", "report: findings, review: approval")
+    )
+    (plugin / "plugin.yaml").write_text(
+        (plugin / "plugin.yaml").read_text().replace("1.0.0", "1.1.0")
+    )
+    made(FIXTURE.name, "--name", "rename", cwd=plugins, answers="y\ny\n")
+    installed = build(plugins, FIXTURE.name)
+    migrate(installed, database)
+    sync(installed, database)
+    after = django(
+        installed,
+        database,
+        "-c",
+        "import django; django.setup(); from test_signed_report_exports import exported_now; "
+        "exported_now()",
+    )
+    assert after.returncode == 0, after.stdout + after.stderr
+    packet = json.loads(after.stdout.strip().splitlines()[-1])
+    assert packet["report_field"] == "findings"
+    assert packet["report"] == before["report"] == {"title": "Potency", "ec50_nm": 12.5}
+    assert packet["record"] == before["record"]
+    assert packet["signatures"] == before["signatures"]
+
+
+def issue_one() -> None:
+    """A report signed through submitted, reviewed and issued; prints its JSON export."""
+    lab = build_world()
+    ready(lab)
+    roles(
+        lab,
+        editor=(f"{PLUGIN}.analyst",),
+        admin=(f"{PLUGIN}.reviewer",),
+        viewer=(f"{PLUGIN}.qa",),
+    )
+    editor = Api(lab.browser("editor"))
+    made = editor.post(
+        "/entities",
+        {
+            "type": TYPE,
+            "project": str(lab.project.pk),
+            "values": {"report": {"title": "Potency", "ec50_nm": 12.5}},
+        },
+    )
+    assert made.status_code == 201, made.content
+    ref = made.json()["id"]
+    signed(lab, "editor", ref, "submitted", field="review")
+    signed(lab, "admin", ref, "reviewed", field="review")
+    signed(lab, "viewer", ref, "issued", field="review")
+    response = Api(lab.browser("viewer")).get(
+        f"/entities/{ref}/export", format="signed-report-json"
+    )
+    assert response.status_code == 200, response.content
+    print(response.content.decode().replace("\n", ""))  # noqa: T201 - read by the test
+
+
+def exported_now() -> None:
+    """The issued report's JSON export, as its QA reads it now; printed."""
+    from iki_server.accounts.models import User
+    from iki_server.entities import exports
+
+    record = Entity.objects.get(type=TYPE)
+    qa = User.objects.get(email="viewer@example.com")
+    downloaded = exports.export(qa, record, "signed-report-json", None)
+    print(downloaded.content.decode().replace("\n", ""))  # noqa: T201 - read by the test

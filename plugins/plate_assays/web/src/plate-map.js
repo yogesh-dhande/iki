@@ -1,0 +1,275 @@
+// Iki supplies the plate and the actions its viewer can run (ADRs 0084 and 0170).
+// Well positions follow ANSI/SLAS 4-2004 §§4.1.1 and 4.2.1:
+// https://www.slas.org/SLAS/assets/File/public/standards/ANSI_SLAS_4-2004_WellPositions.pdf
+
+import * as iki from "@ikisci/component";
+
+const SHAPES = { plate_96: [8, 12], plate_384: [16, 24] };
+const ASSIGN = "iki/plate_assays.assign_dilution_series";
+const PREVIEW = "iki/plate_assays.preview_reader";
+const COMMIT = "iki/plate_assays.commit_reader";
+
+const STYLE = `
+  :host { display:block; padding:.75rem; font:14px/1.45 var(--font, system-ui, sans-serif);
+    background:var(--surface, light-dark(#fff, #1a1b1e)); color:var(--text, light-dark(#1d1f21, #e8e9eb));
+    --edge:var(--border-strong, light-dark(#d6d6d0, #3a3c41));
+    --ink:var(--accent, light-dark(#0b6e5f, #3fb8ad)); }
+  h2 { font-size:1rem; margin:0 0 .4rem; } h3 { font-size:.95rem; margin:1rem 0 .3rem; }
+  p, ul { margin:.4rem 0; }
+  .scroll { overflow-x:auto; max-width:100%; }
+  table { border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  caption { text-align:left; font-weight:600; padding:.8rem 0 .35rem; }
+  .map { border-collapse:separate; border-spacing:2px; }
+  .map th { font-size:.8rem; min-width:1.45rem; }
+  .map td { min-width:1.45rem; height:1.45rem; text-align:center; background:var(--surface-2, light-dark(#f6f6f4, #212226));
+    border:1px solid var(--edge); border-radius:50%; font-size:.8rem; font-weight:600; }
+  .map td.sample { color:var(--ink); background:var(--accent-soft, light-dark(#e3f2ed, #173a35)); }
+  .map td.control, .map td.repeated { color:var(--warning, light-dark(#8a5300, #f2b75a));
+    background:var(--warning-bg, light-dark(#fdf5e6, #2a2111)); }
+  .details { width:100%; }
+  .details :is(th,td) { text-align:left; vertical-align:top; padding:.3rem .4rem; border-bottom:1px solid var(--edge); overflow-wrap:anywhere; }
+  .details th { font-size:.86rem; }
+  .actions { display:flex; flex-wrap:wrap; gap:.5rem; }
+  button { font:inherit; padding:.25rem .7rem; border:1px solid var(--ink); color:var(--ink); background:transparent;
+    border-radius:var(--radius-sm, 6px); cursor:pointer; }
+  :is(button,.scroll):focus-visible { outline:2px solid var(--ink); outline-offset:-2px; }
+`;
+
+function node(tag, attributes, ...children) {
+  const out = document.createElement(tag);
+  for (const [name, value] of Object.entries(attributes)) out.setAttribute(name, value);
+  out.append(...children);
+  return out;
+}
+
+function scrollable(table, name) {
+  return node("div", { class: "scroll", role: "region", "aria-label": name, tabindex: "0" }, table);
+}
+
+function wellName(raw) {
+  return String(raw ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/^([A-P])0+([1-9]\d*)$/, "$1$2");
+}
+
+function assignedTo(row, refs) {
+  const ref = refs[row.sample];
+  if (row.sample) return ref ? [ref.hrid, ref.title].filter(Boolean).join(" · ") : row.sample;
+  return row.control || "Unassigned";
+}
+
+function concentration(row) {
+  return row.concentration == null
+    ? null
+    : `${row.concentration} ${row.concentration_unit ?? ""}`.trim();
+}
+
+function wellGrid(shape, assignments, refs) {
+  const [rows, cols] = shape;
+  const byWell = new Map();
+  for (const row of assignments) {
+    const key = wellName(row.well);
+    if (!byWell.has(key)) byWell.set(key, []);
+    byWell.get(key).push(row);
+  }
+  const head = node("tr", {}, node("td", {}));
+  for (let col = 1; col <= cols; col++) head.append(node("th", { scope: "col" }, String(col)));
+  const body = node("tbody", {});
+  let repeated = false;
+  for (const letter of "ABCDEFGHIJKLMNOP".slice(0, rows)) {
+    const tr = node("tr", {}, node("th", { scope: "row" }, letter));
+    for (let col = 1; col <= cols; col++) {
+      const well = letter + col;
+      const entries = byWell.get(well) ?? [];
+      let symbol = "·";
+      let kind = "unassigned";
+      let text = "Unassigned";
+      if (entries.length > 1) {
+        repeated = true;
+        [symbol, kind, text] = ["!", "repeated", "Multiple assignments"];
+      } else if (entries.length && (entries[0].sample || entries[0].control)) {
+        const row = entries[0];
+        [symbol, kind] = row.sample ? ["S", "sample"] : ["C", "control"];
+        text = `${kind} ${assignedTo(row, refs)}`;
+      }
+      const label = `${well}, ${text}`;
+      tr.append(node("td", { class: kind, "aria-label": label, title: label }, symbol));
+    }
+    body.append(tr);
+  }
+  const grid = node(
+    "table",
+    { class: "map", "aria-label": "Well positions" },
+    node("thead", {}, head),
+    body,
+  );
+  const legend =
+    "S = sample, C = control, · = unassigned" + (repeated ? ", ! = multiple assignments" : "");
+  return [node("p", {}, legend), scrollable(grid, "Plate layout")];
+}
+
+function recordTable(caption, headings, rows) {
+  const header = node("tr", {}, ...headings.map((name) => node("th", { scope: "col" }, name)));
+  const body = node("tbody", {});
+  for (const [well, ...cells] of rows) {
+    body.append(
+      node(
+        "tr",
+        {},
+        node("th", { scope: "row" }, well),
+        ...cells.map((cell) => node("td", {}, String(cell ?? "—"))),
+      ),
+    );
+  }
+  const table = node(
+    "table",
+    { class: "details" },
+    node("caption", {}, caption),
+    node("thead", {}, header),
+    body,
+  );
+  return scrollable(table, caption);
+}
+
+class PlateMap extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({ mode: "open" });
+  }
+
+  set entity(entity) {
+    this.plate = entity;
+    this.draw();
+  }
+  set place(place) {
+    this.at = place;
+    this.draw();
+  }
+
+  offer(actions, action, text) {
+    if (!this.at?.runs?.includes(action)) return;
+    const button = node("button", { type: "button" }, text);
+    button.addEventListener("click", () => {
+      iki.run(this, action);
+    });
+    actions.append(button);
+  }
+
+  draw() {
+    const values = this.plate?.values ?? {};
+    const refs = this.plate?.refs ?? {};
+    const shape = SHAPES[values.size];
+    const out = [node("style", {}, STYLE), node("h2", {}, "Plate map")];
+    if (shape) {
+      const assignments = values.assignments ?? [];
+      out.push(
+        node(
+          "p",
+          {},
+          `${shape[0] * shape[1]} wells · ${assignments.length} assignment${assignments.length === 1 ? "" : "s"}`,
+        ),
+        ...wellGrid(shape, assignments, refs),
+      );
+      if (!values.committed && this.at?.runs?.includes(ASSIGN)) {
+        const actions = node("div", { class: "actions" });
+        this.offer(actions, ASSIGN, "Assign a dilution series");
+        out.push(actions);
+      }
+      if (assignments.length) {
+        const rows = assignments.map((row) => [
+          wellName(row.well),
+          assignedTo(row, refs),
+          concentration(row),
+          row.replicate,
+        ]);
+        out.push(
+          recordTable(
+            "Well assignments",
+            ["Well", "Sample or control", "Concentration", "Replicate"],
+            rows,
+          ),
+        );
+      }
+    } else {
+      out.push(node("p", { role: "status" }, "Choose the plate size to see its layout."));
+    }
+    const preview = values.preview;
+    if (preview || values.reader_file || values.committed) {
+      out.push(node("h3", {}, "Reader measurements"));
+      const reads = values.committed_reads?.length ?? (values.committed ? 1 : 0);
+      if (reads)
+        out.push(
+          node(
+            "p",
+            { role: "status" },
+            `${reads} read${reads === 1 ? "" : "s"} committed. The layout is fixed; attach the next read's file to add another.`,
+          ),
+        );
+      if (preview?.format) {
+        const header = preview.acquisition ?? {};
+        const run = [
+          header.test_name,
+          header.test_run && `run ${header.test_run}`,
+          header.date,
+          header.time,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+        out.push(
+          node(
+            "p",
+            {},
+            `Read as ${preview.format.label}, version ${preview.format.version}.${run ? ` Export: ${run}.` : ""}`,
+          ),
+        );
+      }
+      if (preview?.issues?.length) {
+        out.push(
+          node(
+            "ul",
+            { "aria-label": "Reader preview issues" },
+            ...preview.issues.map((message) => node("li", {}, message)),
+          ),
+        );
+      }
+      if (preview?.readings?.length) {
+        const rows = preview.readings.map((r) => [
+          wellName(r.well),
+          assignedTo(r, refs),
+          concentration(r),
+          r.replicate,
+          r.channel,
+          `${r.value} ${r.unit}`,
+          r.source_row,
+        ]);
+        out.push(
+          recordTable(
+            "Mapped reader preview",
+            [
+              "Well",
+              "Sample or control",
+              "Concentration",
+              "Replicate",
+              "Channel",
+              "Reading",
+              "File row",
+            ],
+            rows,
+          ),
+        );
+      }
+      // A committed read's file isn't committed again: the next read needs its own file.
+      const done = values.committed_reads?.some((r) => r.sha256 === preview?.source?.sha256);
+      if (!values.committed || values.reader_file) {
+        const actions = node("div", { class: "actions" });
+        this.offer(actions, PREVIEW, preview ? "Refresh reader preview" : "Preview reader file");
+        if (preview?.readings?.length && !preview.issues?.length && !done)
+          this.offer(actions, COMMIT, "Commit measurements");
+        out.push(actions);
+      }
+    }
+    this.shadowRoot.replaceChildren(...out);
+  }
+}
+customElements.define("assay-plate-map", PlateMap);

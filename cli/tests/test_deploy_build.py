@@ -1,6 +1,7 @@
 import hashlib
 import json
 import platform
+import re
 import shutil
 import subprocess
 import tarfile
@@ -24,6 +25,12 @@ AUTHOR_INPUTS = (
     "tests/data/original.csv",
     "tests/data/fixture.wasm.sha256",
 )
+
+
+def errors(err: str) -> str:
+    """What a build wrote besides the warning that acme/protein's samples draw by purpose, a
+    provisional key (ADR 0293): every build of the fixtures says it."""
+    return re.sub(r"[^\n]*warning: `draw_purposes` is provisional:.*?\n\n", "", err, flags=re.S)
 
 
 def git(repo: Path, *args: str) -> str:
@@ -303,7 +310,7 @@ def test_deploy_validates_the_runtime_tree_before_emitting_artifacts(
     (directory / "tests").mkdir(parents=True)
     (directory / "environments").mkdir()
     (directory / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/assay\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/assay\nversion: 1.0.0\niki: '>=0.1'\n"
     )
     (directory / "tests/requirements.txt").write_text("")
     manifest = directory / "environments/assay.yaml"
@@ -390,7 +397,7 @@ def test_compute_is_checked_against_the_plugins(
     out = tmp_path / "o"
     (directory / "compute.yaml").write_text(COMPUTE)
     assert main(["deploy", "build", str(directory), "-o", str(out)]) == 0
-    assert capsys.readouterr().err == ""
+    assert errors(capsys.readouterr().err) == ""
     compute = json.loads((out / "compute.json").read_text())
     assert compute["bindings"]["acme/protein.protein-tools"]["templates"] == [["backend-small", 0]]
     assert compute["templates"]["backend-small"]["capacity"]["memory"] == 2 * 1024**3
@@ -453,7 +460,7 @@ def test_what_depends_on_a_detached_plugin_is_detached_too(
     text = lockfile.read_text()
     lockfile.write_text(text.replace("state: active", "state: detached", 1))
     assert main(["deploy", "build", str(directory), "-o", str(tmp_path / "o")]) == 1
-    assert capsys.readouterr().err == (
+    assert errors(capsys.readouterr().err) == (
         "error: acme/protein depends on acme/dna, which the lockfile detaches. "
         "Detach acme/protein too, or keep acme/dna active.\n"
     )
@@ -703,7 +710,7 @@ def test_a_setup_build_cant_download_from_an_outside_apis_host(
     (directory / "settings" / "prediction.yaml").write_text("weights_host: fold.models.example\n")
     capsys.readouterr()
     assert main(build) == 1
-    err = capsys.readouterr().err
+    err = errors(capsys.readouterr().err)
     assert err.startswith(
         "error: acme/prediction's alphafold-gpu setup downloads from fold.models.example, which "
         "is acme/protein.fold's host (FoldCloud, an outside API). Setup builds can't call "
@@ -870,7 +877,7 @@ def test_the_build_approves_deployment_images_for_the_installed_release(
     plugin = tmp_path / "tools"
     (plugin / "environments").mkdir(parents=True)
     (plugin / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/tools\nversion: 1.2.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/tools\nversion: 1.2.0\niki: '>=0.1'\n"
     )
     (plugin / "environments" / "tools.yaml").write_text(
         "apiVersion: iki/v1\nkind: Environment\nname: tools\ntiers: [container]\n"
@@ -915,3 +922,45 @@ def test_the_build_approves_deployment_images_for_the_installed_release(
     assert compute.image_bindings == (binding,)
     assert compute.image_binding("acme/tools.tools", "1.2.0") == (binding if matches else None)
     assert images.read_text() == (image + "\n" if matches else "")
+
+
+def test_a_deployment_settles_two_plugins_with_one_hrid_prefix(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR 0033: the build's refusal names both types and the override that settles it;
+    with the override in the lockfile, the compiled manifest carries it."""
+    for name in ("acme/assays", "globex/reagents"):
+        plugin = tmp_path / naming.short_name(name)
+        (plugin / "types").mkdir(parents=True)
+        (plugin / "plugin.yaml").write_text(
+            f"apiVersion: iki/v1\nkind: Plugin\nname: {name}\nversion: 1.0.0\niki: '>=0.1'\n"
+        )
+        (plugin / "types" / "buffer.yaml").write_text(
+            "apiVersion: iki/v1\nkind: EntityType\nname: Buffer\nschema_version: 1\n"
+            "hrid: { prefix: BUF }\nfields:\n  name: { type: string, max_length: 100 }\n"
+        )
+        assert main(["plugin", "makemigrations", str(plugin), "--no-input"]) == 0
+    directory = tmp_path / "deployment"
+    directory.mkdir()
+    lock = (
+        "apiVersion: iki/v1\nkind: PluginLock\nplugins:\n"
+        "  - {name: acme/assays, local: ../assays, state: active}\n"
+        "  - {name: globex/reagents, local: ../reagents, state: active}\n"
+    )
+    (directory / "plugins.lock.yaml").write_text(lock)
+    out = tmp_path / "out"
+    build = ["deploy", "build", str(directory), "-o", str(out), "--allow-local"]
+    capsys.readouterr()
+    assert main(build) == 1
+    err = capsys.readouterr().err
+    assert "`acme/assays.Buffer` and `globex/reagents.Buffer` both use the HRID prefix `BUF`" in err
+    assert "`hrids: { globex/reagents.Buffer: GBUF }`" in err
+
+    (directory / "plugins.lock.yaml").write_text(lock + "hrids:\n  globex/reagents.Buffer: GBUF\n")
+    assert main(build) == 0, capsys.readouterr().err
+    manifest = json.loads((out / "iki_plugin_globex__reagents" / "manifest.json").read_text())[
+        "plugin"
+    ]
+    assert manifest["types"]["globex/reagents.Buffer"]["hrid_prefix"] == "GBUF"
+    recorded = json.loads((out / "iki_installed_plugins" / "lock.json").read_text())
+    assert recorded["lock"]["hrids"] == {"globex/reagents.Buffer": "GBUF"}

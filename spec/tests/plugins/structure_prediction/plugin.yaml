@@ -2,6 +2,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/prediction
 version: 0.4.0
+iki: ">=0.1"
 dependencies:
   acme/protein:
     types:

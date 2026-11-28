@@ -401,7 +401,7 @@ def build() -> MCPServer:
     @server.tool(annotations=READ, title="List a lab list's options")
     async def list_lab_list_options(
         list_type: Annotated[
-            str, Field(description="The list's type, such as iki/lots.LotMethod.")
+            str, Field(description="The list's type, such as iki/lots.PurityMethod.")
         ],
         project: Annotated[UUID, Field(description="The project whose records pick from it.")],
         archived: Annotated[

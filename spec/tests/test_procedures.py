@@ -22,6 +22,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/qms
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst, description: Tests. }
   reviewer: { label: Reviewer, description: Reviews. }
@@ -219,6 +220,19 @@ def test_a_lab_declares_its_sop_as_a_procedure(tmp_path: Path) -> None:
     assert again.procedures == result.plugin.procedures
 
 
+def test_a_procedure_keeps_the_labs_annotations_and_ignores_x_keys(tmp_path: Path) -> None:
+    # Its SOP's document control, as the lab records it (ADR 0293).
+    notes = "annotations:\n  sop: SOP-QA-012 rev 4\nx-acme-reviewed: 2026-11-01\n"
+    result = make(tmp_path, {"procedures/gmp.yaml": GMP + notes})
+    assert codes(result) == []
+    assert result.plugin is not None
+    procedure = result.plugin.procedures["acme/qms.gmp_result_review@2"]
+    assert procedure.annotations == {"sop": "SOP-QA-012 rev 4"}
+    compiled = plugin_to_dict(result.plugin)
+    assert "x-acme-reviewed" not in str(compiled)
+    assert plugin_from_dict(compiled).procedures == result.plugin.procedures
+
+
 @pytest.mark.parametrize(
     ("change", "code"),
     [
@@ -395,7 +409,7 @@ apiVersion: iki/v1
 kind: EntityType
 name: Batch
 schema_version: 1
-hrid: { prefix: BAT }
+hrid: { prefix: BTC }
 fields:
   source: { type: enum, values: [made, bought] }
   made_by: { type: person }

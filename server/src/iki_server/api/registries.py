@@ -1,9 +1,10 @@
 """Registries and their entries (ADR 0115).
 
 - ``/registries``: the organization's identity boundaries. Org Admins add and
-  change them, choose which teams use each, and appoint their registrars.
-  Others see the registries their teams' projects may be in, and their own
-  projects' registries.
+  change them, and choose which teams use each. Others see the registries
+  their teams' projects may be in, and their own projects' registries.
+- ``/registries/{id}/roles``: who holds each registry role (ADR 0292): its
+  registrars, and its lab lists' curators. Org Admins grant and remove them.
 - ``/entries/{ref}``: a registry entry, by ID or HRID: its identity, derived
   values and facts, for anyone who can read a record of it, and for its
   registry's registrars. It never says which projects hold it; registrars
@@ -14,7 +15,7 @@
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
@@ -46,13 +47,14 @@ from iki_server.api.entities import (
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
-from iki_server.entities import access, entries, lists, services
+from iki_server.entities import access, entries, lists, registry, services
 from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, ids_in, shape, to_json
 from iki_server.org import permissions, registries
-from iki_server.org.models import Project, Registrar, Registry, Team
+from iki_server.org.models import Project, Registry, RegistryRole, Team
 from iki_server.org.permissions import Action
+from iki_server.org.services import Refused
 
 router = Router(tags=["registries"])
 
@@ -61,7 +63,7 @@ router = Router(tags=["registries"])
 
 
 class RegistryCan(Schema):
-    manage: bool = Field(description="Rename it, choose its teams, appoint its registrars.")
+    manage: bool = Field(description="Rename it, choose its teams, grant its roles.")
     curate: bool = Field(
         description="You're one of its registrars: see its entries, change their facts, "
         "supersede them."
@@ -104,12 +106,6 @@ class RegistryPatch(Schema):
     )
 
 
-class RegistrarOut(Schema):
-    user: UserOut
-    appointed_by: UserOut | None
-    appointed_at: datetime
-
-
 class RegistryFilters(PageParams):
     team: UUID | None = Field(
         None, description="Only those this team's new projects may be in, to choose one."
@@ -118,18 +114,14 @@ class RegistryFilters(PageParams):
 
 def _registries_for(user: User) -> QuerySet[Registry]:
     """The registries the user may see: all, for an Org Admin; otherwise those their teams'
-    projects may be in, their projects' own, and those they're a registrar of."""
+    projects may be in, their projects' own, and those they hold a role in."""
     Registry.default()
     if permissions.can(user, Action.REGISTRIES_MANAGE):
         return Registry.objects.all()
     teams = permissions.visible_teams(user).values("pk")
     projects = access.readable_projects(user).values("registry_id")
     return Registry.objects.filter(
-        Q(all_teams=True)
-        | Q(teams__in=teams)
-        | Q(pk__in=projects)
-        | Q(registrars__user=user)
-        | Q(list_curators__user=user)
+        Q(all_teams=True) | Q(teams__in=teams) | Q(pk__in=projects) | Q(roles__user=user)
     ).distinct()
 
 
@@ -226,46 +218,141 @@ def patch_registry(
     return _registry_out(me, changed)
 
 
+# --- Registry roles (ADR 0292) ------------------------------------------------------------------
+
+RoleName = Literal["registrar", "list_curator"]
+
+
+class RegistryRoleOut(Schema):
+    id: UUID = Field(description="The grant's: GET or DELETE /registries/{registry_id}/roles/{id}.")
+    role: RoleName = Field(
+        description="registrar: curates the registry's facts and supersedes its entries, and "
+        "curates every lab list in it. list_curator: curates one lab list (ADR 0270)."
+    )
+    list: str | None = Field(
+        description="A list curator's list, such as iki/lots.PurityMethod. Null for a role over "
+        "the whole registry."
+    )
+    user: UserOut
+    granted_by: UserOut | None
+    granted_at: datetime
+
+
+class RegistryRoleIn(Schema):
+    role: RoleName
+    list: str | None = Field(
+        None, description="The lab list, for a list curator; none for a registrar."
+    )
+    user: UUID = Field(description="The person: never a service account.")
+
+
+class RegistryRoleFilters(PageParams):
+    role: RoleName | None = None
+    list: str | None = Field(None, description="Only the curators of this lab list.")
+    user: UUID | None = Field(None, description="Only this person's roles.")
+
+
+def _role_out(grant: RegistryRole) -> dict[str, Any]:
+    return {
+        "id": grant.pk,
+        "role": grant.role,
+        "list": grant.list_type,
+        "user": grant.user,
+        "granted_by": grant.granted_by,
+        "granted_at": grant.granted_at,
+    }
+
+
+def _grant(registry: Registry, role_id: UUID) -> RegistryRole:
+    found = (
+        RegistryRole.objects.filter(registry=registry, pk=role_id)
+        .select_related("registry", "user", "granted_by")
+        .first()
+    )
+    if found is None:
+        raise Problem(404, "No such role in this registry.")
+    return found
+
+
 @router.get(
-    "/registries/{registry_id}/registrars",
-    response=list[RegistrarOut],
-    summary="A registry's registrars",
+    "/registries/{registry_id}/roles",
+    response=Page[RegistryRoleOut],
+    summary="Who holds a registry's roles",
 )
-def list_registrars(request: HttpRequest, registry_id: UUID) -> list[Registrar]:
-    """Who curates its entries' facts and supersedes them."""
+def list_registry_roles(
+    request: HttpRequest, registry_id: UUID, filters: Query[RegistryRoleFilters]
+) -> dict[str, Any]:
+    """Its registrars, and its lab lists' curators, oldest grant first. A registrar curates
+    every list besides the lists' own curators."""
     me = caller(request)
     found = _registry(me, registry_id)
-    return list(found.registrars.select_related("user", "appointed_by").order_by("user__email"))
+    rows = found.roles.select_related("user", "granted_by")
+    if filters.role is not None:
+        rows = rows.filter(role=filters.role)
+    if filters.list is not None:
+        rows = rows.filter(list_type=filters.list)
+    if filters.user is not None:
+        rows = rows.filter(user_id=filters.user)
+    result = page(rows, filters)
+    result["items"] = [_role_out(r) for r in result["items"]]
+    return result
 
 
-@router.put(
-    "/registries/{registry_id}/registrars/{user_id}",
-    response={200: RegistrarOut, 201: RegistrarOut},
-    summary="Make someone a registrar",
+@router.post(
+    "/registries/{registry_id}/roles",
+    response={200: RegistryRoleOut, 201: RegistryRoleOut},
+    summary="Give someone a registry role",
 )
-def appoint_registrar(request: HttpRequest, registry_id: UUID, user_id: UUID) -> Any:  # noqa: ANN401
-    """Org Admins appoint them, a registry at a time. Being an Org Admin doesn't make
-    someone one."""
+def grant_registry_role(
+    request: HttpRequest, registry_id: UUID, payload: RegistryRoleIn
+) -> Status[dict[str, Any]]:
+    """Org Admins grant them: a registrar, over the whole registry, or a lab list's curator,
+    a list at a time, such as a QC lead for deviation categories. 201 with the new grant,
+    or 200 with the one they hold already. Being an Org Admin doesn't make someone either."""
     me = caller(request)
     require(me, Action.REGISTRIES_MANAGE)
     found = _registry(me, registry_id)
-    created = registries.appoint(found, person(user_id), by=me)
-    row = Registrar.objects.select_related("user", "appointed_by").get(
-        registry=found, user_id=user_id
-    )
-    return Status(201 if created else 200, row)
+    try:
+        grant, created = registries.grant_role(
+            found,
+            RegistryRole.Role(payload.role),
+            person(payload.user),
+            by=me,
+            list_type=payload.list,
+        )
+    except Refused as refusal:
+        if refusal.field != "list":
+            raise
+        # The role and its list don't go together, or there's no such list.
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            code="validation_failed",
+            errors=[{"pointer": "#/list", "detail": str(refusal)}],
+        ) from None
+    return Status(201 if created else 200, _role_out(_grant(found, grant.pk)))
+
+
+@router.get(
+    "/registries/{registry_id}/roles/{role_id}",
+    response=RegistryRoleOut,
+    summary="A registry role",
+)
+def get_registry_role(request: HttpRequest, registry_id: UUID, role_id: UUID) -> dict[str, Any]:
+    me = caller(request)
+    return _role_out(_grant(_registry(me, registry_id), role_id))
 
 
 @router.delete(
-    "/registries/{registry_id}/registrars/{user_id}",
+    "/registries/{registry_id}/roles/{role_id}",
     response={204: None},
-    summary="Stop someone being a registrar",
+    summary="Take a registry role away",
 )
-def dismiss_registrar(request: HttpRequest, registry_id: UUID, user_id: UUID) -> Status[None]:
+def remove_registry_role(request: HttpRequest, registry_id: UUID, role_id: UUID) -> Status[None]:
+    """Org Admins. A curator of a list whose plugin was removed can still be removed."""
     me = caller(request)
     require(me, Action.REGISTRIES_MANAGE)
-    found = _registry(me, registry_id)
-    registries.dismiss(found, person(user_id), by=me)
+    registries.remove_role(_grant(_registry(me, registry_id), role_id), by=me)
     return Status(204, None)
 
 
@@ -331,8 +418,24 @@ class EntryRecordOut(Schema):
     project: ProjectRef
 
 
+class SupersedeAsOut(Schema):
+    type: str
+    fields: list[str] = Field(
+        description="The registry fields a registrar gives its new entry, as `values`: those "
+        "this entry's values don't fill as they are, outside what the two types share or "
+        "refined by the new type (its parts' roles). The rest come from this entry."
+    )
+
+
 class EntryCan(Schema):
     curate: bool = Field(description="Change its facts and supersede it: its registrars.")
+    supersede_as: list[SupersedeAsOut] = Field(
+        default_factory=list,
+        description="For its registrars: the other types its identity can be registered as "
+        "(ADR 0165), as POST /entries/{ref}/supersede with `type` does, by a new entry of "
+        "one that it hands its identity to. Types under one identity share entries: a "
+        "protein complex's chains registered as an antibody are that antibody.",
+    )
 
 
 class EntrySupersededOut(Schema):
@@ -396,9 +499,22 @@ def _curates(user: User, entry: Entity) -> bool:
     """Whether the user curates the entry: its registry's registrars do, and a lab list's
     option's curators (ADR 0270)."""
     assert entry.registry is not None  # noqa: S101 - entries have one
-    if lists.is_list(entry.type):
+    if registry.is_lab_list(entry.type):
         return permissions.can_curate_list(user, entry.registry, entry.type)
     return permissions.can(user, Action.REGISTRY_CURATE, entry.registry)
+
+
+def _not_an_option(entry: Entity, change: str, path: str) -> None:
+    """A lab list's option (ADR 0270) is changed on its list, under the list's checks: this
+    endpoint reads it, and says where."""
+    if registry.is_lab_list(entry.type):
+        code = lists.option_of(entry).code
+        raise Problem(
+            409,
+            f"{entry.hrid} is an option of a lab list: {change} it on its list, with "
+            f"/api/v1/lists/{entry.type}/options/{code}{path}.",
+            code="refused",
+        )
 
 
 def _entry_references(
@@ -468,7 +584,15 @@ def _entry_out(user: User, entry: Entity, curates: bool) -> dict[str, Any]:
         "records": records,
         "holders": entries.holders(entry).count() if curates else None,
         "add_to": _addable(user, entry),
-        "can": {"curate": curates and entry.superseded_by_id is None},
+        "can": {
+            "curate": curates and entry.superseded_by_id is None,
+            "supersede_as": [
+                {"type": t, "fields": entries.to_give(entry.type, t)}
+                for t in entries.registrable_as(entry)
+            ]
+            if curates and entry.superseded_by_id is None
+            else [],
+        },
     }
 
 
@@ -515,10 +639,12 @@ def patch_entry(
     if_match: HeaderEx[str | None, P(alias="If-Match")] = None,
 ) -> dict[str, Any]:
     """Its registry's registrars, with a reason. Audited, and told to every holding project:
-    who, when and why. Its identity and derived values never change: supersede it instead."""
+    who, when and why. Its identity and derived values never change: supersede it instead.
+    A lab list's option changes on its list (`/lists/{name}/options/{code}`), not here."""
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
+    _not_an_option(entry, "change", "")
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
     expected = _expected(if_match)
@@ -539,34 +665,88 @@ def patch_entry(
 
 
 class SupersedeIn(Schema):
-    replacement: str = Field(description="The entry that replaces it, by ID or HRID.")
+    replacement: str | None = Field(
+        None,
+        description="The entry that replaces it, by ID or HRID: one of its type, or of "
+        "another type under its identity (ADR 0165). Give this or `type`.",
+    )
+    type: str | None = Field(
+        None,
+        description="Register its identity as this type instead (ADR 0165), one of "
+        "`can.supersede_as`: a new entry, which it's superseded by and hands its identity "
+        "to. Give this or `replacement`.",
+    )
+    values: dict[str, Any] = Field(
+        default_factory=dict,
+        description="With `type`: the new entry's values, in place of the superseded "
+        "entry's, which it has for the fields the two types share: the new type's facts, "
+        "say, or its parts' roles as the new type names them. Its identity stays the same.",
+    )
     reason: str = Field(min_length=1, max_length=2000, description="Why: its holders are told it.")
 
 
 @router.post("/entries/{ref}/supersede", response=EntryOut, summary="Supersede a registry entry")
 def supersede_entry(request: HttpRequest, ref: str, payload: SupersedeIn) -> dict[str, Any]:
-    """Its registry's registrars replace a mistaken entry with another of its type in the
-    registry, for good. Each holding project's Admins, and whoever added its record, are
-    told, to move their records to the replacement."""
+    """Its registry's registrars replace a mistaken entry with another in the registry, for
+    good: one of its type, or of another type under its identity; or with a new entry of its
+    identity as another type (``type``, ADR 0165). Each holding project's Admins, and
+    whoever added its record, are told, to move their records to the replacement. A lab
+    list's option is superseded on its list (`/lists/{name}/options/{code}/supersede`), not
+    here, either way."""
     me = caller(request)
     entry, curates = _entry(me, ref)
     assert entry.registry is not None  # noqa: S101
+    _not_an_option(entry, "supersede", "/supersede")
     if not curates:
         require(me, Action.REGISTRY_CURATE, entry.registry)
-    replacement, _ = _entry(me, payload.replacement)
+    if (payload.replacement is None) == (payload.type is None):
+        raise Problem(
+            422,
+            "It can’t be superseded so.",
+            errors=[
+                {
+                    "pointer": "#/replacement",
+                    "detail": "Give the entry that replaces it, or the type to register it as.",
+                }
+            ],
+        )
+    if payload.values and payload.type is None:
+        raise Problem(
+            422,
+            "It can’t be superseded so.",
+            errors=[
+                {
+                    "pointer": "#/values",
+                    "detail": "An entry that replaces it has values of its own: give values "
+                    "only with `type`.",
+                }
+            ],
+        )
     try:
-        entries.supersede(me, entry, replacement, reason=payload.reason)
+        if payload.type is not None:
+            entries.supersede_as(me, entry, payload.type, payload.values, reason=payload.reason)
+        else:
+            assert payload.replacement is not None  # noqa: S101 - checked above
+            replacement, _ = _entry(me, payload.replacement)
+            entries.supersede(me, entry, replacement, reason=payload.reason)
     except Invalid as error:
         raise Problem(
             422,
             "It can’t be superseded so.",
             errors=[
-                {"pointer": f"#/{name}", "detail": " ".join(messages)}
+                {"pointer": _pointer(name), "detail": " ".join(messages)}
                 for name, messages in error.errors.items()
             ],
         ) from None
     fresh = Entity.objects.select_related("registry").get(pk=entry.pk)
     return _entry_out(me, fresh, True)
+
+
+def _pointer(name: str) -> str:
+    """Where in a supersession's or a move's body an error is: its own fields, or a value."""
+    if name in ("reason", "replacement", "type", "values"):
+        return f"#/{name}"
+    return f"#/values/{name}" if name else "#/values"
 
 
 @router.get(
@@ -585,7 +765,7 @@ def list_entry_revisions(
     entry, curates = _entry(me, ref)
     # A lab list's option is curated in the open (ADR 0270): every reader is told who
     # changed it, when and why, as no project's work is in it.
-    curates = curates or lists.is_list(entry.type)
+    curates = curates or registry.is_lab_list(entry.type)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     names = FieldNames.for_type(entry.type, entry=True)
     revisions = trail.applied(
@@ -636,7 +816,7 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     names = FieldNames.for_type(entry.type, entry=True)
     told = (
         {**_revision(revision, _runs_of(me, [revision]), names=names), "entry": True}
-        if curates or lists.is_list(entry.type) or services.discloses(revision, readable)
+        if curates or registry.is_lab_list(entry.type) or services.discloses(revision, readable)
         else undisclosed(revision, names)
     )
     return {
@@ -688,6 +868,11 @@ def add_entry_record(
 
 class MoveIn(Schema):
     reason: str = Field(min_length=1, max_length=2000, description="Why the holder is moving it.")
+    values: dict[str, Any] = Field(
+        default_factory=dict,
+        description="For a replacement of another type (ADR 0165): the new record's own "
+        "values, beside those it carries from this one (`entry.superseded.carries`).",
+    )
 
 
 class MovedOut(EntityOut):
@@ -707,22 +892,32 @@ def move_entity(
 ) -> dict[str, Any]:
     """An Editor of its project. It keeps its data, history and runs; the project's own
     records that refer to the superseded entry are changed to refer to the new one, each a
-    revision with the reason. Refused if the project has a record of the new one already."""
+    revision with the reason. Refused if the project has a record of the new one already.
+
+    A record can't change its type, so to a replacement of another type (ADR 0165) it's the
+    project's new record of the replacement that's returned: with this one's values for the
+    fields the two types share and ``values``, while this one is archived, keeping its
+    history, signatures and runs."""
     me = caller(request)
     record = _find(me, ref)
     assert record.owner_project_id is not None  # noqa: S101 - records have projects
     project(me, record.owner_project_id, Action.PROJECT_EDIT)
     try:
-        moved = entries.move(me, record, reason=payload.reason)
+        moved = entries.move(me, record, reason=payload.reason, values=payload.values)
     except Invalid as error:
+        problem = _invalid(error)
+        if getattr(error, "broken", ()):
+            # Its new entry's values break its type's rules (ADR 0127), each named.
+            raise problem from None
         raise Problem(
             422,
             "It can’t be moved as requested.",
+            code=problem.code,
             errors=[
-                {"pointer": f"#/{name}", "detail": " ".join(messages)}
+                {"pointer": _pointer(name), "detail": " ".join(messages)}
                 for name, messages in error.errors.items()
             ],
         ) from None
     refs, _ = _lookup(me, {"ref": {e.pk for e in moved.repointed}, "file": set()})
-    out = _one(me, Entity.objects.select_related("created_by").get(pk=record.pk), response)
+    out = _one(me, Entity.objects.select_related("created_by").get(pk=moved.record.pk), response)
     return {**out, "repointed": [refs[e.pk] for e in moved.repointed if e.pk in refs]}

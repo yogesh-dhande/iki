@@ -12,7 +12,7 @@ from test_bundle_imports import world as world
 
 from iki_server.entities import lists, services
 from iki_server.entities.models import Entity
-from iki_server.org.models import Registrar, Registry
+from iki_server.org.models import Registry, RegistryRole
 
 pytestmark = pytest.mark.django_db
 
@@ -51,7 +51,9 @@ def test_a_record_names_the_option_of_its_code_here(world: World, tmp_path: Path
 def test_an_option_the_list_hasnt_got_is_a_conflict(world: World, tmp_path: Path) -> None:
     def made_there() -> list[Any]:
         # Where the bundle comes from, the list has an option this one hasn't.
-        Registrar.objects.create(registry=Registry.default(), user=world.users["admin"])
+        RegistryRole.objects.create(
+            registry=Registry.default(), user=world.users["admin"], role="registrar"
+        )
         hplc = lists.add(
             world.users["admin"],
             Registry.default(),

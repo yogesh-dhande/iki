@@ -50,7 +50,7 @@ def test_unread_references_are_explicit_instead_of_passing_a_null_check() -> Non
     batch = registry.types()[BATCH]
     check = batch.rules["protein_not_bsl3"]
     proposed = {check.name: check}
-    rows = [Record("1", "BAT-1", "p1", None, None, {"protein": "A"})]
+    rows = [Record("1", "BTC-1", "p1", None, None, {"protein": "A"})]
     assert preflight_rules.reference_ids(batch.fields, proposed, rows) == {"A"}
     [unknown] = preflight_rules.row_findings(batch.fields, proposed, rows)
     assert unknown.blocking and unknown.kind == "unchecked"

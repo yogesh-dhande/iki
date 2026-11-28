@@ -24,6 +24,17 @@ rest of CH2 and CH3 regions" IgG4's. The IGHG3 alleles whose hinges are
 shorter than IGHG3*01's are ENA's translations of IMGT's entries for them
 (data/ighg3_alleles.fasta): IGHG3*03 (X16110, hinge exons H1, H3 and H4) and IGHG3*04
 (X99549, H1 and H4), as IMGT's alignment of the IGHG3 alleles has them.
+
+Old World monkeys' constant regions are NCBI's and RCSB PDB's (data/macaque_ighc.fasta,
+downloaded on 2026-11-27): IMGT's rhesus macaque IGHC genes as its annotation of the IGH
+locus translates them (BK063715: DBA12923 to DBA12930; Nguefack Ngoune et al., Vaccines
+10:394, 2022), which are the macaque references; other rhesus alleles of IGHG1 to IGHG4
+(QJB76125 to QJB76128, MT043318 and on, a full-length transcript survey); a cynomolgus
+macaque's IgG heavy chain cDNA (AAA18103, L13307; Lewis et al., Dev Comp Immunol
+17:549-560, 1993); a baboon's IgG1 (AAM93486; Attanasio et al., Immunogenetics
+54:556-561, 2002); an African green monkey's IgG1 (WEL32152); and two rhesus Fabs' heavy
+chains from the PDB, 9ZRZ chain A (a rhesus CH1, then a His tag) and 12QD chain H (rhesus
+variable domains on a human IgG1 CH1).
 """
 
 import importlib
@@ -40,7 +51,8 @@ import pytest
 import yaml
 from first_party_dependencies import FIRST_PARTY, PLUGINS
 
-from iki_spec import rules
+from iki_spec import builtin, rules
+from iki_spec.action_tests import fields_of
 from iki_spec.validate import load_plugin
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "plugins" / "antibody" / "scripts"
@@ -74,6 +86,7 @@ def fasta(name: str) -> dict[str, str]:
 FUSIONS = fasta("fc_fusions_and_bispecifics.fasta")
 ECULIZUMAB = fasta("eculizumab_pmda.fasta")
 IGHG3 = fasta("ighg3_alleles.fasta")
+MACAQUE = fasta("macaque_ighc.fasta")
 UNIPROT = {
     header.split("|")[1]: sequence for header, sequence in fasta("ighc_uniprot.fasta").items()
 }
@@ -186,6 +199,134 @@ def test_a_mouse_constant_region_isnt_called_a_human_one(accession: str) -> None
     assert found.isotypes == ()
     assert found.matches[0].identity < 0.7
     assert found.describe().startswith("matches no human constant region: the nearest is ")
+
+
+#: Each macaque reference's NCBI protein, and its isotype.
+RHESUS = {
+    "DBA12925.1": "igg1",
+    "DBA12926.1": "igg2",
+    "DBA12927.1": "igg3",
+    "DBA12928.1": "igg4",
+    "DBA12930.1": "iga",
+    "DBA12923.1": "igm",
+    "DBA12929.1": "ige",
+    "DBA12924.1": "igd",
+}
+#: Old World monkeys' constant regions that aren't the references: other rhesus alleles, a
+#: cynomolgus macaque's, a baboon's and an African green monkey's, with the isotype each
+#: entry names (a baboon's and an African green monkey's aren't read as a macaque's).
+MONKEYS = {
+    "QJB76125.1": "igg1",
+    "QJB76126.1": "igg2",
+    "QJB76127.1": "igg3",
+    "QJB76128.1": "igg4",
+    "AAA18103.1": "igg1",
+    "AAM93486.1": None,
+    "WEL32152.1": None,
+}
+
+
+def monkey(accession: str) -> str:
+    """An Old World monkey's constant region: after its variable domain, if it has one."""
+    sequence = MACAQUE[accession]
+    end = re.search(r"WG[QKER]G[TSAV]\w{6}", sequence)
+    return sequence[end.end() :] if end is not None and end.start() < 160 else sequence
+
+
+@pytest.mark.parametrize("accession", list(RHESUS))
+def test_each_macaque_reference_is_imgts_rhesus_allele_as_ncbi_has_it(accession: str) -> None:
+    isotype = RHESUS[accession]
+    gene, accessions, protein, domains = constant_regions.MACAQUE_REFERENCES[isotype]
+    assert (protein, accessions) == (accession, ("BK063715",))
+    assert gene.startswith("IGH" + isotype[2:].upper())  # IGHG1*03 for igg1, IGHA*22 for iga
+    assert "".join(s for _, s in domains) == MACAQUE[accession]
+    names = [name for name, _ in domains]
+    assert names[0] == "CH1" and names[-1] in ("CH3", "CH4")
+    assert ("hinge" in names) == (isotype not in ("igm", "ige"))
+    # It's its own isotype, as a macaque's, and no human one.
+    assert constant_regions.call(MACAQUE[accession], "macaque").isotypes == (isotype,)
+    found = constant_regions.call(MACAQUE[accession])
+    assert found.isotypes == () and found.nearer == "macaque", found.describe()
+
+
+@pytest.mark.parametrize("accession", [*RHESUS, *MONKEYS, "9ZRZ_1"])
+def test_an_old_world_monkeys_constant_region_isnt_called_a_human_one(accession: str) -> None:
+    """A macaque's, a baboon's or an African green monkey's IgG1, IgG4 or IgM is 90-91%
+    identical to the nearest human one, and a rhesus Fab's CH1 93%: each is nearer a
+    macaque reference, whole and as a Fab's CH1 with the start of its hinge."""
+    region = monkey(accession)
+    for part in (region, region[:103]):
+        found = constant_regions.call(part)
+        assert found.isotypes == (), found.describe()
+        assert found.nearer == "macaque" or found.undetermined, found.describe()
+    found = constant_regions.call(region)
+    assert found.describe().startswith("is nearer a macaque constant region than any human one: ")
+
+
+def test_a_rhesus_igg1_was_as_identical_to_a_human_one_as_a_threshold_allows() -> None:
+    """Why identity alone can't say a constant region is human: a rhesus IgG1 and IgM are
+    over 90% identical to human ones, and a rhesus Fab's CH1 over 93%, while a heavily
+    engineered human Fc is under 96%."""
+    nearest = {a: constant_regions.call(monkey(a)).matches[0] for a in ("DBA12925.1", "DBA12923.1")}
+    assert all(0.90 < m.identity < constant_regions.MIN_IDENTITY["human"] for m in nearest.values())
+    fab = constant_regions.call(monkey("9ZRZ_1")[:103]).matches[0]
+    assert fab.identity > constant_regions.MIN_IDENTITY["human"]
+    igg1 = reference("igg1")
+    eu = {pos: igg1[pos - 118] for pos in range(118, 118 + len(igg1))}
+    # IGHG1*03's G1m3 allotype, knob-into-hole's hole with Y349C, LALA-PG, YTE and
+    # H435R/Y436F: 15 changes.
+    changes = {
+        214: "R",
+        356: "E",
+        358: "M",
+        349: "C",
+        366: "S",
+        368: "A",
+        407: "V",
+        234: "A",
+        235: "A",
+        329: "G",
+        252: "Y",
+        254: "T",
+        256: "E",
+        435: "R",
+        436: "F",
+    }
+    assert all(eu[pos] != new for pos, new in changes.items())
+    engineered = "".join(changes.get(pos, residue) for pos, residue in eu.items())
+    found = constant_regions.call(engineered)
+    assert found.isotypes == ("igg1",)
+    assert constant_regions.MIN_IDENTITY["human"] < found.matches[0].identity < 0.96
+    assert found.rival is not None and found.rival.cost - found.matches[0].cost >= 20
+
+
+@pytest.mark.parametrize("accession", [a for a, isotype in MONKEYS.items() if isotype])
+def test_a_macaques_isotype_is_read_off_the_macaque_references(accession: str) -> None:
+    """Other rhesus alleles, and a cynomolgus macaque's IgG1 (98.5% identical to IMGT's
+    rhesus IGHG1*03), are each the isotype their entry names, as a macaque's."""
+    found = constant_regions.call(monkey(accession), "macaque")
+    assert found.isotypes == (MONKEYS[accession],), found.describe()
+    assert found.species == "macaque" and found.nearer is None
+    assert "identical to IMGT's rhesus macaque IGHG" in found.describe()
+
+
+@pytest.mark.parametrize("kegg", ["D02597", "D03257", "D09575", "D10316", "D11380"])
+def test_a_human_constant_region_is_nearer_a_human_reference_than_a_macaque_one(
+    kegg: str,
+) -> None:
+    for part in (constant(HEAVY[kegg]), constant(HEAVY[kegg])[:103]):
+        found = constant_regions.call(part)
+        assert found.isotypes and found.rival is not None
+        assert found.rival.cost - min(m.cost for m in found.matches) >= 7
+        assert constant_regions.call(part, "macaque").nearer == "human"
+
+
+def test_a_constant_regions_species_is_its_own_not_its_variable_domains() -> None:
+    """12QD's Fab has a rhesus macaque's variable domains on a human IgG1's CH1, residue for
+    residue: its constant region is human."""
+    found = constant_regions.call(monkey("12QD_2"))
+    assert found.isotypes == ("igg1",)
+    assert found.matches[0].differences == 0
 
 
 # --- assemble -----------------------------------------------------------------------------
@@ -709,16 +850,137 @@ def test_only_a_chain_whose_ch3_pairs_is_two_copies(tmp_path: Path) -> None:
 
 def test_an_igm_is_one_subunit_of_its_pentamer(tmp_path: Path) -> None:
     """Human IgM's secreted constant region (UniProt P01871-1) makes one subunit, two heavy
-    and two light chains; its pentamer, with a J chain, or hexamer is a protein complex."""
+    and two light chains, unless it's given as a polymer."""
     code, _, output = assemble(tmp_path, UNIPROT["P01871-1"], format="other")
     assert code == 0
     made = output["creates"][0]["values"]
     assert made["isotype"] == "igm" and made["components"][0]["copies"] == 2
     assert any(
         m["text"].startswith("An IgM is secreted as a pentamer, 10 heavy chains, 10 light chains")
-        and "iki/complex.ProteinComplex" in m["text"]
+        and m["text"].endswith("choose other and give 5 subunits, with its J chain, or 6.")
         for m in output["messages"]
     )
+
+
+#: Human J chain, mature (UniProt P01591, without its signal peptide, residues 1-22).
+J_CHAIN = "".join(fasta("jchain_uniprot.fasta").values())[22:]
+
+
+def polymer(
+    tmp_path: Path, heavy_constant: str, j_chain: bool, **params: Any
+) -> tuple[int, str, dict[str, Any]]:
+    """Runs `assemble` on trastuzumab's VH on `heavy_constant`, its light chain and, if
+    `j_chain`, the human J chain."""
+    heavy = chain("heavy", VH + heavy_constant, "H", len(VH))
+    joining = {"id": "j", "hrid": "j", "values": {"name": "J chain", "sequence": J_CHAIN}}
+    inputs = {
+        "heavy_chain": [heavy],
+        "light_chain": [chain("light", LIGHT, "K", 107)],
+        **({"j_chain": [joining]} if j_chain else {}),
+    }
+    (tmp_path / "input.json").write_text(json.dumps({"params": params, "inputs": inputs}))
+    output = tmp_path / "output.json"
+    output.unlink(missing_ok=True)
+    result = subprocess.run(  # noqa: S603 - our own script
+        [sys.executable, str(SCRIPTS / "antibodies.py"), "assemble"],
+        env={
+            "PATH": os.environ["PATH"],
+            "IKI_INPUT": str(tmp_path / "input.json"),
+            "IKI_OUTPUT": str(output),
+        },
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    found = json.loads(output.read_text()) if output.exists() else {}
+    return result.returncode, result.stdout, found
+
+
+def test_an_igm_pentamer_is_ten_of_each_chain_and_its_j_chain(tmp_path: Path) -> None:
+    """An IgM pentamer is five subunits, 10 heavy and 10 light chains, and a J chain; a
+    hexamer six, 12 of each, without one (Hiramoto et al., 2018; Wiersma et al., 1998)."""
+    igm = UNIPROT["P01871-1"]
+    code, stdout, output = polymer(tmp_path, igm, True, format="other", subunits=5)
+    assert code == 0, stdout
+    made = output["creates"][0]
+    parts = {(c["role"], c["part"], c["copies"]) for c in made["values"]["components"]}
+    assert parts == {("heavy", "heavy", 10), ("light", "light", 10), ("j_chain", "j", 1)}
+    assert made["derived_from"] == ["heavy", "light", "j"]
+    assert made["values"]["isotype"] == "igm" and made["values"]["bond_map"] == "incomplete"
+    texts = [m["text"] for m in output["messages"]]
+    said = "Its chains make an IgM pentamer: 5 subunits, 10 heavy and 10 light chains"
+    assert f"{said}, and its J chain." in texts
+    assert any("as is its J chain, whose own bonds aren't given either" in t for t in texts)
+    code, _, output = polymer(tmp_path, igm, False, format="other", subunits=6)
+    assert code == 0
+    copies = {c["role"]: c["copies"] for c in output["creates"][0]["values"]["components"]}
+    assert copies == {"heavy": 12, "light": 12}
+    # A pentamer may be made without its J chain; a hexamer has none.
+    assert polymer(tmp_path, igm, False, format="other", subunits=5)[0] == 0
+    code, stdout, _ = polymer(tmp_path, igm, True, format="other", subunits=6)
+    assert code == 1 and "An IgM hexamer has no J chain" in stdout
+
+
+def test_an_iga_dimer_is_four_of_each_chain_and_its_j_chain(tmp_path: Path) -> None:
+    iga = UNIPROT["P01876-1"]
+    code, stdout, output = polymer(tmp_path, iga, True, format="other", subunits=2)
+    assert code == 0, stdout
+    copies = {c["role"]: c["copies"] for c in output["creates"][0]["values"]["components"]}
+    assert copies == {"heavy": 4, "light": 4, "j_chain": 1}
+    assert output["creates"][0]["values"]["isotype"] == "iga1"
+
+
+def test_only_an_igm_or_iga_is_a_polymer_and_a_j_chain_joins_one(tmp_path: Path) -> None:
+    igm, igg1 = UNIPROT["P01871-1"], constant(HEAVY["D03257"])
+    code, stdout, _ = polymer(tmp_path, igg1, False, format="other", subunits=5)
+    assert code == 1 and "Only an IgM's or an IgA's subunits make a polymer" in stdout
+    code, stdout, _ = polymer(tmp_path, igm, False, format="other", subunits=2)
+    assert code == 1 and "An IgM has 1 or 5 or 6 subunits, not 2." in stdout
+    code, stdout, _ = polymer(tmp_path, igm, True, format="other")
+    assert code == 1 and "A J chain joins a polymer's subunits" in stdout
+    code, stdout, _ = polymer(tmp_path, igm, False, subunits=5)
+    assert code == 1 and "is format other: choose other." in stdout
+    code, stdout, _ = polymer(tmp_path, igm, False, format="other", subunits=5, copies=2)
+    assert code == 1 and "leave copies out" in stdout
+
+
+def test_a_j_chain_is_held_to_a_polymer_at_every_save() -> None:
+    plugin = PLUGINS / "antibody"
+    loaded = load_plugin(plugin, dependencies=FIRST_PARTY[plugin])
+    assert loaded.plugin is not None, loaded.problems
+    antibody = loaded.plugin.types["iki/antibody.Antibody"]
+    # Its own fields and iki/core.Complex's, whose components are its chains.
+    types = {**builtin.core_plugin().types, **loaded.plugin.types}
+    schema = rules.rule_variables(
+        rules.record_schema(antibody.label, fields_of(antibody, types), None)
+    )
+    rule = antibody.rules["a_j_chain_joins_a_polymer"]
+    assert rule.check is not None and rule.when is not None
+
+    def record(isotype: str, copies: int, j: int = 1, form: str = "other") -> dict[str, Any]:
+        parts = [
+            {"part": "h", "role": "heavy", "copies": copies},
+            {"part": "l", "role": "light", "copies": copies},
+            {"part": "j", "role": "j_chain", "copies": j},
+        ]
+        return {"format": form, "isotype": isotype, "components": parts}
+
+    cases = [
+        (record("igm", 10), True),
+        (record("iga1", 4), True),
+        (record("igm", 12), False),  # a hexamer has no J chain
+        (record("igg1", 10), False),
+        (record("igm", 2), False),  # one subunit
+        (record("igm", 10, j=2), False),
+        (record("igm", 10, form="igg"), False),
+    ]
+    for values, wanted in cases:
+        sources = [(rule.check, rules.CONDITION), (rule.when, rules.CONDITION)]
+        (outcomes,) = rules.evaluate(schema, sources, [{"record": values}])
+        assert outcomes[1].value is True
+        assert (outcomes[0].value is True) == wanted, values
 
 
 def test_a_mouse_igg2a_is_recorded_as_its_species_names_it(tmp_path: Path) -> None:
@@ -761,6 +1023,66 @@ def test_a_human_constant_region_is_human_and_no_other_species(tmp_path: Path) -
     assert code == 1
 
 
+def test_a_rhesus_constant_region_isnt_registered_as_a_human_one(tmp_path: Path) -> None:
+    """A rhesus IgG1 (IMGT's IGHG1*03) was registered as human IgG1: it's 90.7% identical
+    to IGHG1*01. It's nearer the rhesus reference, so its species and isotype are left out
+    unless its species is given, and given as macaque, its isotype is read off it."""
+    rhesus = MACAQUE["DBA12925.1"]
+    code, _, output = assemble(tmp_path, rhesus)
+    assert code == 0
+    values = output["creates"][0]["values"]
+    assert "isotype" not in values and "constant_species" not in values
+    said = output["messages"][0]
+    assert said["level"] == "warning"
+    assert "is nearer a macaque constant region than any human one" in said["text"]
+    assert said["text"].endswith(
+        "give macaque for a rhesus or cynomolgus macaque's, and its isotype is read off the chain."
+    )
+    code, _, output = assemble(tmp_path, rhesus, constant_species="macaque")
+    assert code == 0
+    values = output["creates"][0]["values"]
+    assert (values["isotype"], values["constant_species"]) == ("igg1", "macaque")
+    assert output["messages"][0]["text"].startswith(
+        "Its isotype is igg1, from its heavy chain: heavy's constant region is IgG1's, 100.0% "
+        "identical to IMGT's rhesus macaque IGHG1*03 (BK063715)"
+    )
+    # A human subclass's disulfides aren't placed between a macaque's chains.
+    assert values["bond_map"] == "incomplete"
+    assert all((b["part"], b["copy"]) == (b["partner"], b["partner_copy"]) for b in values["bonds"])
+    code, stdout, _ = assemble(tmp_path, rhesus, constant_species="human")
+    assert code == 1
+    assert "so it isn't a human constant region: give macaque, or check the chain." in stdout
+    code, stdout, _ = assemble(tmp_path, rhesus, isotype="igg1")
+    assert code == 1
+    assert "Give its constant region species with its isotype, igg1: macaque for a" in stdout
+    code, stdout, _ = assemble(tmp_path, rhesus, isotype="igg2", constant_species="macaque")
+    assert code == 1
+    assert "It isn't IgG2's" in stdout
+    code, stdout, _ = assemble(tmp_path, rhesus, constant_species="mouse")
+    assert code == 1
+    assert "so it isn't a mouse constant region: give macaque" in stdout
+
+
+def test_a_macaques_igg2_and_iga_are_recorded_as_a_macaque_names_them(tmp_path: Path) -> None:
+    """A rhesus IgG2's constant region is nearest human IgG1's, and a macaque has one IgA:
+    neither could be recorded before."""
+    for accession, isotype in (("QJB76126.1", "igg2"), ("DBA12930.1", "iga")):
+        form = "igg" if isotype == "igg2" else "other"
+        code, stdout, output = assemble(
+            tmp_path, monkey(accession), format=form, constant_species="macaque"
+        )
+        assert code == 0, stdout
+        values = output["creates"][0]["values"]
+        assert (values["isotype"], values["constant_species"]) == (isotype, "macaque")
+
+
+def test_a_human_constant_region_isnt_a_macaques(tmp_path: Path) -> None:
+    human = constant(HEAVY["D03257"])  # trastuzumab's IgG1
+    code, stdout, _ = assemble(tmp_path, human, constant_species="macaque")
+    assert code == 1
+    assert "so it isn't a macaque constant region: leave the species out, or check" in stdout
+
+
 def test_the_species_rule_holds_at_every_save() -> None:
     plugin = PLUGINS / "antibody"
     loaded = load_plugin(plugin, dependencies=FIRST_PARTY[plugin])
@@ -777,6 +1099,10 @@ def test_the_species_rule_holds_at_every_save() -> None:
         ({"format": "igg", "isotype": "igm", "constant_species": "rabbit"}, [False, True]),
         ({"format": "fab", "isotype": "igd", "constant_species": "rabbit"}, [True, False]),
         ({"format": "igg", "isotype": "igg1", "constant_species": None}, [True, True]),
+        ({"format": "igg", "isotype": "igg4", "constant_species": "macaque"}, [True, True]),
+        ({"format": "other", "isotype": "iga", "constant_species": "macaque"}, [True, True]),
+        ({"format": "other", "isotype": "iga1", "constant_species": "macaque"}, [True, False]),
+        ({"format": "igg", "isotype": "igg2a", "constant_species": "macaque"}, [True, False]),
     ]
     for record, wanted in cases:
         found = []

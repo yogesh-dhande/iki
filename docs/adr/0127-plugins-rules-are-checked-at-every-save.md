@@ -1,6 +1,6 @@
 # 0127. Plugins' rules are checked at every save, and a rule can hold a record for review
 
-- Status: Accepted
+- Status: Accepted (amended by [0297](0297-a-value-worked-out-from-a-records-own-values-is-a-computed-field.md): computed values are worked out at every save, before the rules)
 - Clarified 2026-11-27: a rule and a guard reading the same expression treat an empty value oppositely, documented side by side, with a validator warning
 - Date: 2026-11-18
 - Refines: [0035](0035-entity-revisions-provenance-and-edit-rules.md),
@@ -84,6 +84,21 @@ passes, as SQL's CHECK does with NULL, so an optional field isn't made
 required by a rule about its value. A save that breaks rules is refused with
 422 `validation_failed`, and each error names its `rule` and points at its
 fields: `{"pointer": "#/values/purity", "detail": "…", "rule": "…", "hold": false}`.
+
+A record's registry entry (ADR 0115) is part of what its rules read, so a change
+to the entry's values (a holder setting one the entry lacked, a registrar
+changing a fact) is checked against every record of it, by the rules reading
+what changed. A registrar's change that breaks a rule reading the entry's values
+alone is refused, as every record of it would break it. The other records aren't
+the changer's project's, and the changer isn't told of them, so for them, as at a
+deploy, a rule that holds holds the record for the change's reason, and any other
+is reported as a breach.
+
+Setting a state field (ADR 0125) is a write of its value, so the rules reading
+the field are checked as an edit of it checks them. One that refuses refuses
+the change, and the record's state controls say why. One that holds asks for
+the change's reason and holds the record for it, though not for a state that
+locks it, which a held record can't take (ADR 0128), nor for a signed state.
 
 **A rule can hold, not refuse** (`hold: {reviewed_by: [lab roles]}`), for
 `check` rules only. A save that breaks only rules that hold is refused with

@@ -50,7 +50,7 @@ labels and liquid classes to ASCII.
 ## How it runs
 
 The writer is Rust, in `writers/tecan-worklist`, built against Iki's `iki-writer`
-SDK (ADR 0230). Iki runs it in its export sandbox, which has no network, no secrets
+SDK (ADR 0230), the version its `Cargo.lock` pins with its checksum. Iki runs it in its export sandbox, which has no network, no secrets
 and no files. Each export gets a fresh process holding only the records the person
 exporting can read. The plugin tracks the module's SHA-256 in
 `writers/tecan-worklist.wasm.sha256`. Your deployment's image build rebuilds the
@@ -68,8 +68,8 @@ module from this source and refuses to install it unless the digest matches.
    tests natively:
 
    ```sh
-   cd writers/tecan-worklist
-   cargo test --config "patch.crates-io.iki-writer.path=\"$IKI_CHECKOUT/worker/crates/iki-writer\""
+   sh "$IKI_CHECKOUT/worker/crates/iki-writer/build-writer.sh" fetch writers/tecan-worklist
+   sh "$IKI_CHECKOUT/worker/crates/iki-writer/build-writer.sh" test writers/tecan-worklist
    ```
 
 4. Build the module the way your deployment's image will, and write its digest. This
@@ -82,13 +82,15 @@ module from this source and refuses to install it unless the digest matches.
    ```
 
    Commit the digest file with the change to the Rust, so a reviewer sees both. Never
-   commit the `.wasm`.
+   commit the `.wasm`. The file also says what the module was built with (the source,
+   the `iki-writer` the lock pins, the writer builder and the build script), so if a
+   deployment's build makes another module, it says which of them differs.
 
 5. After renaming a fresh copy, delete the example's `migrations/` and generate your
    own with `iki plugin makemigrations .`. Then pin the plugin in your deployment's
    `plugins.lock.yaml` and turn on the chart's export sandbox (`sandbox.enabled`).
 
 A site without access to crates.io can vendor the writer's crates
-(`cargo vendor --versioned-dirs`) into the crate, or build with
+(`build-writer.sh vendor writers/tecan-worklist`) into the crate, or build with
 `IKI_CARGO_MIRROR` pointing at a registry mirror. Both give the same module, so the
 digest doesn't change.

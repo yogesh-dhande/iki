@@ -3,16 +3,20 @@ each project keeps its own record of it. What another project knows never leaks:
 registration tells only that the identity exists and its ID, an entry's ID grants
 nothing, registry facts change only by registrars, and registries are kept apart."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 from api_client import Api, problem
+from django.db import IntegrityError, transaction
 from org_world import World, build_world, post
 
+from iki_server.accounts import service_accounts
 from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity
 from iki_server.notifications import services as notifications
 from iki_server.notifications.models import Notification
+from iki_server.org import permissions
 from iki_server.org.models import (
     OrgRole,
     OrgRoleAssignment,
@@ -20,7 +24,9 @@ from iki_server.org.models import (
     ProjectMembership,
     ProjectRole,
     Registry,
+    RegistryRole,
 )
+from iki_server.org.permissions import Action
 from iki_server.webhooks.models import Delivery, Webhook
 
 pytestmark = pytest.mark.django_db
@@ -28,6 +34,27 @@ pytestmark = pytest.mark.django_db
 PROTEIN = "acme/protein.Protein"
 #: Haemoglobin alpha's first residues.
 SEQUENCE = "MVLSPADKTNVKAAWGKVGAHAGEYGAEALERMF"
+#: Two types of complex under iki/core.Complex's identity (ADR 0165): a lab's generic one,
+#: of any parts in any roles, and its bispecific antibodies, of heavy and light chains.
+MULTIMER = "acme/protein.Multimer"
+BISPECIFIC = "acme/protein.Bispecific"
+
+
+def _fasta(name: str) -> dict[str, str]:
+    found: dict[str, str] = {}
+    header = ""
+    for line in (Path(__file__).parent / "data" / name).read_text().splitlines():
+        if line.startswith(">"):
+            header = line[1:].split()[0]
+            found[header] = ""
+        else:
+            found[header] += line.strip()
+    return found
+
+
+#: Emicizumab's chains (KEGG DRUG D10821): its two heavy chains, and the light chain both
+#: its arms share.
+EMICIZUMAB = {k: v for k, v in _fasta("fc_fusions_and_bispecifics.fasta").items() if "D10821" in k}
 
 
 @pytest.fixture
@@ -59,7 +86,9 @@ def registrar(world: World, principal: str = "auditor") -> Api:
     admin = api_as(world, "org_admin")
     main = Registry.default()
     user = world.users[principal]
-    assert admin.put(f"/registries/{main.pk}/registrars/{user.pk}").status_code in (200, 201)
+    body = {"role": "registrar", "user": str(user.pk)}
+    granted = admin.post(f"/registries/{main.pk}/roles", body)
+    assert granted.status_code in (200, 201), granted.json()
     return api_as(world, principal)
 
 
@@ -429,6 +458,450 @@ def test_a_registrar_supersedes_and_holders_move_their_records(
     assert revision["reason"] == event.data["reason"]
 
 
+# --- Registering as another type (ADR 0165) ----------------------------------------------------
+
+
+def chains(api: Api, project: Project) -> tuple[str, str, str]:
+    """Emicizumab's chains in the project, as their entries' IDs: its two heavy chains and
+    its light chain."""
+    made = [
+        create(api, project, {"sequence": EMICIZUMAB[name]}).json()["entry"]["id"]
+        for name in ("D10821-H1", "D10821-H2", "D10821-L")
+    ]
+    return made[0], made[1], made[2]
+
+
+def parts(chain: tuple[str, str, str], roles: tuple[str, str, str]) -> list[dict[str, Any]]:
+    """Emicizumab's parts and copies, in these roles: one of each heavy chain, and two of
+    the light chain."""
+    heavy, other, light = chain
+    return [
+        {"part": heavy, "copies": 1, "role": roles[0]},
+        {"part": other, "copies": 1, "role": roles[1]},
+        {"part": light, "copies": 2, "role": roles[2]},
+    ]
+
+
+#: How a lab's generic complexes name emicizumab's chains, and how a bispecific does.
+GENERIC = ("chain_a", "chain_b", "chain_c")
+ANTIBODY = ("heavy", "heavy", "light")
+
+
+def errors(response: Any) -> dict[str, str]:
+    body = problem(response, 422, "validation_failed")
+    return {e["pointer"]: e["detail"] for e in body["errors"]}
+
+
+def test_a_registrar_registers_an_entry_again_as_another_type_of_its_identity(
+    world: World, rival: Project
+) -> None:
+    """Emicizumab's chains first registered as a lab's generic multimer, by a project's
+    import, say: the registry's registrars register them as the bispecific they are, and
+    each holding project moves its record there, with the values the two types share."""
+    editor, outsider = api_as(world, "editor"), api_as(world, "outsider")
+    mine, theirs = chains(editor, world.project), chains(outsider, rival)
+    assert mine == theirs
+    multimer = create(
+        editor,
+        world.project,
+        {
+            "name": "Emicizumab",
+            "components": parts(mine, GENERIC),
+            "description": "Bridges factor IXa and factor X, for hemophilia A",
+        },
+        MULTIMER,
+    ).json()
+    held = create(
+        outsider, rival, {"name": "ACE910", "components": parts(theirs, GENERIC)}, MULTIMER
+    ).json()
+    assert held["entry"]["id"] == multimer["entry"]["id"]
+    entry = multimer["entry"]["id"]
+    collection = create(
+        editor,
+        world.project,
+        {"name": "Hemophilia A bispecifics", "members": [entry]},
+        "iki/core.Collection",
+    ).json()
+    # Registering it as a bispecific names what it's registered as.
+    again = create(editor, world.project, {"components": parts(mine, ANTIBODY)}, BISPECIFIC)
+    assert errors(again) == {
+        "#/type": f"This is registered already, as a {MULTIMER} ({multimer['hrid']}): "
+        "register it as one."
+    }
+    curator = registrar(world)
+    assert curator.get(f"/entries/{entry}").json()["can"]["supersede_as"] == [
+        {"type": BISPECIFIC, "fields": ["components", "arms"]}
+    ]
+    assert editor.get(f"/entries/{entry}").json()["can"]["supersede_as"] == []
+    url = f"/entries/{multimer['hrid']}/supersede"
+    reason = "Its chains are emicizumab's: the lab registers bispecifics as one"
+    arms = [
+        {"heavy": mine[0], "light": mine[2], "target": "F9A"},
+        {"heavy": mine[1], "light": mine[2], "target": "F10"},
+    ]
+    as_bispecific = {"components": parts(mine, ANTIBODY), "arms": arms}
+    # Only a registrar does it.
+    problem(
+        editor.post(url, {"type": BISPECIFIC, "values": as_bispecific, "reason": reason}),
+        403,
+        "forbidden",
+    )
+    # As a type under its identity, with entities of its own, other than its own.
+    for wrong, detail in (
+        (PROTEIN, f"must be a iki/core.Complex, as {multimer['hrid']} is."),
+        ("iki/core.Complex", "iki/core.Complex is abstract: choose one of its subtypes."),
+        (MULTIMER, f"{multimer['hrid']} is a {MULTIMER} already."),
+        ("acme/protein.Nothing", "There's no entity type acme/protein.Nothing."),
+    ):
+        assert errors(curator.post(url, {"type": wrong, "reason": reason})) == {"#/type": detail}
+    # A bispecific's parts take its roles, so the multimer's are refused until they're given.
+    assert errors(curator.post(url, {"type": BISPECIFIC, "reason": reason})) == {
+        **{
+            f"#/values/components/{i}/role": "isn't one of its roles: heavy, light, linker."
+            for i in range(3)
+        },
+        "#/values/components": "needs at least 1 heavy row, and has 0. needs at least 1 light "
+        "row, and has 0.",
+    }
+    # Its identity is the same: another copy of the light chain is another molecule.
+    other = parts(mine, ANTIBODY)
+    other[2]["copies"] = 1
+    assert errors(
+        curator.post(url, {"type": BISPECIFIC, "values": {"components": other}, "reason": reason})
+    ) == {
+        "#/values/components": f"must be {multimer['hrid']}'s: an entry registered as another "
+        "type has the same identity."
+    }
+    # An entry has no record's fields; the new type's are checked as a registration's are.
+    assert errors(
+        curator.post(
+            url,
+            {"type": BISPECIFIC, "values": {**as_bispecific, "name": "E"}, "reason": reason},
+        )
+    ) == {"#/values/name": f"{BISPECIFIC}'s entries have no field `name`."}
+    assert "#/values/arms/0/target" in errors(
+        curator.post(
+            url,
+            {
+                "type": BISPECIFIC,
+                "values": {**as_bispecific, "arms": [{**arms[0], "target": "factor IXa"}]},
+                "reason": reason,
+            },
+        )
+    )
+    # An existing entry or a type, and a reason.
+    assert "#/replacement" in errors(
+        curator.post(url, {"type": BISPECIFIC, "replacement": PROTEIN, "reason": reason})
+    )
+    assert "#/values" in errors(
+        curator.post(
+            url, {"replacement": multimer["hrid"], "values": {"arms": arms}, "reason": reason}
+        )
+    )
+    assert errors(
+        curator.post(url, {"type": BISPECIFIC, "values": as_bispecific, "reason": "  "})
+    ) == {"#/reason": "Say why: its holders are told."}
+    assert not AuditEvent.objects.filter(action="entry.superseded").exists()
+    assert Entity.objects.get(pk=entry).superseded_by_id is None
+
+    done = curator.post(url, {"type": BISPECIFIC, "values": as_bispecific, "reason": reason})
+    assert done.status_code == 200, done.content
+    superseded = done.json()["superseded"]
+    assert superseded["by"]["type"] == BISPECIFIC and superseded["by"]["hrid"].startswith("BSP-")
+    assert superseded["reason"] == reason and done.json()["can"]["supersede_as"] == []
+    new = curator.get(f"/entries/{superseded['by_id']}").json()
+    assert new["type"] == BISPECIFIC and new["revision"] == 1
+    assert [c["role"] for c in new["values"]["components"]] == list(ANTIBODY)
+    assert new["values"]["arms"] == arms
+    (created,) = curator.get(f"/entries/{new['id']}/revisions").json()["items"]
+    assert created["kind"] == "created" and created["reason"] == reason
+    # The old entry keeps its ID and values; its identity is the new entry's.
+    old = Entity.objects.get(pk=entry)
+    replacement = Entity.objects.get(pk=new["id"])
+    assert old.identity_hash is None and replacement.identity_hash
+    assert old.superseded_by_id == replacement.pk
+    assert curator.get(f"/entries/{entry}").json()["values"]["components"] == parts(mine, GENERIC)
+    event = AuditEvent.objects.get(action="entry.superseded", target_id=entry)
+    assert event.data["replacement"] == {
+        "id": new["id"],
+        "hrid": new["hrid"],
+        "type": BISPECIFIC,
+    }
+    assert event.data["registered"] is True and event.data["reason"] == reason
+    told = Notification.objects.filter(kind="registry.entry_superseded")
+    assert {n.recipient_id for n in told} >= {world.users["editor"].pk, world.users["outsider"].pk}
+    # Registering the identity finds the new entry: as a multimer, it says what it is now.
+    assert errors(
+        create(editor, world.project, {"components": parts(mine, GENERIC)}, MULTIMER)
+    ) == {
+        "#/type": f"This is registered already, as a {BISPECIFIC} ({new['hrid']}): register "
+        "it as one."
+    }
+
+    # A holder moves its record: it can't become a bispecific's, so it's the project's new
+    # record of it, with what the two types' records share, and the old one is archived.
+    ref = f"/entities/{multimer['id']}"
+    record = editor.get(ref).json()
+    assert record["entry"]["superseded"]["held"] is False
+    carries = record["entry"]["superseded"]["carries"]
+    assert set(carries) == {"name", "description"}
+    assert "components" not in carries and "arms" not in carries
+    assert errors(
+        editor.post(
+            f"{ref}/move",
+            {"reason": "Moved with the registry", "values": {"components": as_bispecific}},
+        )
+    ) == {
+        "#/values/components": f"is {new['hrid']}'s registry entry's: the record has its own "
+        "fields."
+    }
+    moved = editor.post(f"{ref}/move", {"reason": "Moved with the registry"})
+    assert moved.status_code == 200, moved.content
+    body = moved.json()
+    assert body["id"] != multimer["id"] and body["hrid"] == new["hrid"]
+    assert body["type"] == BISPECIFIC and body["entry"]["id"] == new["id"]
+    assert body["values"]["name"] == "Emicizumab"
+    assert body["values"]["description"] == "Bridges factor IXa and factor X, for hemophilia A"
+    assert [r["hrid"] for r in body["repointed"]] == [collection["hrid"]]
+    assert editor.get(f"/entities/{collection['id']}").json()["values"]["members"] == [new["id"]]
+    (first,) = editor.get(f"/entities/{body['id']}/revisions").json()["items"]
+    assert first["kind"] == "created" and first["reason"] == "Moved with the registry"
+    # The old record keeps its ID, values and history, archived.
+    kept = editor.get(ref).json()
+    assert kept["archived"] and kept["hrid"] == multimer["hrid"]
+    assert kept["entry"]["superseded"]["held"] is True
+    assert kept["values"]["components"] == parts(mine, GENERIC)
+    kinds = [r["kind"] for r in editor.get(f"{ref}/revisions").json()["items"]]
+    assert kinds == ["archived", "created"]
+    event = AuditEvent.objects.get(action="entity.moved", target_id=multimer["id"])
+    assert event.data["record"] == {"id": body["id"], "type": BISPECIFIC}
+    assert event.data["to"] == {"id": new["id"], "hrid": new["hrid"]}
+
+    # The rival moves its own, once it isn't locked.
+    there = f"/entities/{held['id']}"
+    Entity.objects.filter(pk=held["id"]).update(locked_by=["review"])
+    problem(outsider.post(f"{there}/move", {"reason": "Moved with the registry"}), 409, "refused")
+    assert outsider.get(there).json()["entry"]["id"] == entry
+    Entity.objects.filter(pk=held["id"]).update(locked_by=[])
+    theirs_moved = outsider.post(f"{there}/move", {"reason": "Moved with the registry"})
+    assert theirs_moved.status_code == 200, theirs_moved.content
+    assert theirs_moved.json()["values"]["name"] == "ACE910"
+    assert theirs_moved.json()["entry"]["id"] == new["id"]
+    assert set(
+        Entity.objects.filter(entry_id=new["id"]).values_list("owner_project", flat=True)
+    ) == {
+        world.project.pk,
+        rival.pk,
+    }
+
+
+def test_what_two_types_share_goes_with_the_identity_and_its_unique_values(
+    world: World,
+) -> None:
+    """Vector Laboratories' biotinylated goat anti-rabbit IgG (BA-1000, RRID:AB_2313606)
+    registered as a primary antibody by mistake: the registrar registers it as the
+    secondary antibody it is, with its RRID, a unique fact of what every reagent has; the
+    project's new record has its LIMS ID, unique in the project, and the old one can't have
+    it back."""
+    editor = api_as(world, "editor")
+    reagent = {"vendor": "Vector Laboratories", "catalog_number": "BA-1000"}
+    wrong = create(
+        editor,
+        world.project,
+        {**reagent, "rrid": "AB_2313606", "host": "goat", "lims_id": "AB-0412"},
+        "acme/protein.PrimaryAntibody",
+    ).json()
+    curator = registrar(world)
+    (option,) = curator.get(f"/entries/{wrong['hrid']}").json()["can"]["supersede_as"]
+    # Its host is a primary's field, not one every reagent has: the registrar gives it.
+    assert option == {
+        "type": "acme/protein.SecondaryAntibody",
+        "fields": ["raised_against", "host"],
+    }
+    done = curator.post(
+        f"/entries/{wrong['hrid']}/supersede",
+        {
+            "type": "acme/protein.SecondaryAntibody",
+            "values": {"raised_against": "rabbit", "host": "goat"},
+            "reason": "BA-1000 is a goat anti-rabbit IgG: a secondary antibody",
+        },
+    )
+    assert done.status_code == 200, done.content
+    by = done.json()["superseded"]["by"]
+    assert by["hrid"].startswith("SAB-")
+    new = curator.get(f"/entries/{by['hrid']}").json()["values"]
+    assert new == {
+        **reagent,
+        "rrid": "AB_2313606",
+        "raised_against": "rabbit",
+        "host": "goat",
+    }
+    # Its RRID is the new entry's: no other entry may have it, and the old one keeps it,
+    # as its history does.
+    assert curator.get(f"/entries/{wrong['hrid']}").json()["values"]["rrid"] == "AB_2313606"
+    other = create(
+        editor,
+        world.project,
+        {"vendor": "Vector Laboratories", "catalog_number": "BA-9200", "rrid": "AB_2313606"},
+        "acme/protein.SecondaryAntibody",
+    )
+    assert "#/values/rrid" in errors(other)
+    ref = f"/entities/{wrong['id']}"
+    moved = editor.post(f"{ref}/move", {"reason": "Registered as a secondary"})
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["values"]["lims_id"] == "AB-0412"
+    # The LIMS ID is the new record's: the old one can't be restored with it.
+    kept = editor.get(ref).json()
+    restored = editor.patch(
+        ref,
+        {"archived": False, "reason": "Moved by mistake"},
+        headers={"If-Match": f'"{kept["revision"]}"'},
+    )
+    detail = problem(restored, 409, "refused")["detail"]
+    assert "LIMS ID" in detail and by["hrid"] in detail
+    assert editor.get(ref).json()["archived"] is True
+    clash = create(
+        editor,
+        world.project,
+        {"vendor": "Abcam", "catalog_number": "ab6721", "lims_id": "AB-0412"},
+        "acme/protein.SecondaryAntibody",
+    )
+    assert errors(clash) == {
+        "#/values/lims_id": f"is {by['hrid']}’s already: no two entities in a project share it."
+    }
+
+
+def test_a_move_to_another_type_stops_at_what_cant_refer_to_it(world: World) -> None:
+    """A binding measurement is of a bispecific: if the bispecific was registered wrongly,
+    and is a generic multimer, the measurement can't refer to it, and the move says so."""
+    editor = api_as(world, "editor")
+    mine = chains(editor, world.project)
+    bispecific = create(
+        editor,
+        world.project,
+        {"name": "Emicizumab", "components": parts(mine, ANTIBODY)},
+        BISPECIFIC,
+    ).json()
+    binding = create(
+        editor,
+        world.project,
+        {"bispecific": bispecific["entry"]["id"], "target": "F9A", "kd": 1.58},
+        "acme/protein.Binding",
+    ).json()
+    curator = registrar(world)
+    done = curator.post(
+        f"/entries/{bispecific['hrid']}/supersede",
+        {"type": MULTIMER, "reason": "A research reagent, not one of the lab's bispecifics"},
+    )
+    assert done.status_code == 200, done.content
+    replacement = done.json()["superseded"]["by"]
+    ref = f"/entities/{bispecific['id']}"
+    stuck = problem(editor.post(f"{ref}/move", {"reason": "Moved"}), 409, "refused")
+    assert f"{binding['hrid']}'s Bispecific must be a {BISPECIFIC}" in stuck["detail"]
+    assert editor.get(ref).json()["archived"] is False
+    # Archived, it keeps its reference, and the record moves.
+    archived = editor.patch(
+        f"/entities/{binding['id']}",
+        {"archived": True, "reason": "Measured against the wrong molecule"},
+        headers={"If-Match": f'"{binding["revision"]}"'},
+    )
+    assert archived.status_code == 200, archived.content
+    moved = editor.post(f"{ref}/move", {"reason": "Moved"})
+    assert moved.status_code == 200, moved.content
+    assert moved.json()["type"] == MULTIMER and moved.json()["hrid"] == replacement["hrid"]
+    kept = editor.get(f"/entities/{binding['id']}").json()
+    assert kept["values"]["bispecific"] == bispecific["entry"]["id"]
+
+
+def test_a_mistaken_entry_is_superseded_by_another_type_of_its_kind(world: World) -> None:
+    """A multimer registered with a copy of the light chain too few is the lab's bispecific,
+    registered right: an entry of another type under the same identity replaces it."""
+    editor = api_as(world, "editor")
+    mine = chains(editor, world.project)
+    short = parts(mine, GENERIC)
+    short[2]["copies"] = 1
+    wrong = create(editor, world.project, {"components": short}, MULTIMER).json()
+    right = create(editor, world.project, {"components": parts(mine, ANTIBODY)}, BISPECIFIC).json()
+    curator = registrar(world)
+    done = curator.post(
+        f"/entries/{wrong['hrid']}/supersede",
+        {"replacement": right["hrid"], "reason": "Emicizumab has two copies of its light chain"},
+    )
+    assert done.status_code == 200, done.content
+    assert done.json()["superseded"]["by"]["hrid"] == right["hrid"]
+    # Its identity stays its own: registering it is refused, naming the replacement.
+    again = problem(create(editor, world.project, {"components": short}, MULTIMER), 409, "refused")
+    assert right["hrid"] in again["detail"]
+    # The project holds the replacement already: it archives one of the two.
+    problem(editor.post(f"/entities/{wrong['id']}/move", {"reason": "Moved"}), 409, "refused")
+
+
+@pytest.mark.parametrize("hold", [False, True], ids=["refuses", "holds"])
+def test_a_move_to_another_type_keeps_the_new_types_rules(
+    world: World, monkeypatch: pytest.MonkeyPatch, hold: bool
+) -> None:
+    """The project's new record of the replacement is saved as any new record is (ADR
+    0127): a rule it breaks refuses the move, leaving the old record as it was, and one
+    that holds holds the new record for the move's reason."""
+    from iki_server.entities import checking
+    from iki_server.entities.models import RuleHold
+    from iki_spec.model import Rule
+
+    rule = Rule(
+        name="says_what_it_bridges",
+        label="Says what it bridges",
+        plugin="acme/protein",
+        check="record.description != null",
+        message="Say which two targets it bridges.",
+        hold=("acme/protein.qa",) if hold else (),
+        reads=("description",),
+    )
+    checks, every = checking.checks_of, checking.rules_of
+    monkeypatch.setattr(
+        checking, "checks_of", lambda t: (*checks(t), rule) if t == BISPECIFIC else checks(t)
+    )
+    monkeypatch.setattr(
+        checking, "rules_of", lambda t: (*every(t), rule) if t == BISPECIFIC else every(t)
+    )
+    editor = api_as(world, "editor")
+    mine = chains(editor, world.project)
+    multimer = create(
+        editor, world.project, {"name": "Emicizumab", "components": parts(mine, GENERIC)}, MULTIMER
+    ).json()
+    arms = [
+        {"heavy": mine[0], "light": mine[2], "target": "F9A"},
+        {"heavy": mine[1], "light": mine[2], "target": "F10"},
+    ]
+    done = registrar(world).post(
+        f"/entries/{multimer['hrid']}/supersede",
+        {
+            "type": BISPECIFIC,
+            "values": {"components": parts(mine, ANTIBODY), "arms": arms},
+            "reason": "Its chains are emicizumab's",
+        },
+    )
+    assert done.status_code == 200, done.content
+    moved = editor.post(f"/entities/{multimer['id']}/move", {"reason": "Moved with the registry"})
+    if not hold:
+        body = problem(moved, 422, "validation_failed")
+        assert body["errors"] == [
+            {
+                "pointer": "#/values/description",
+                "detail": "Say which two targets it bridges.",
+                "rule": "says_what_it_bridges",
+                "hold": False,
+            }
+        ]
+        kept = editor.get(f"/entities/{multimer['id']}").json()
+        assert not kept["archived"] and kept["entry"]["id"] == multimer["entry"]["id"]
+        assert not Entity.objects.filter(type=BISPECIFIC, registry_id__isnull=True).exists()
+        return
+    assert moved.status_code == 200, moved.content
+    [held] = RuleHold.objects.filter(entity_id=moved.json()["id"])
+    assert (held.rule, held.reason) == ("says_what_it_bridges", "Moved with the registry")
+    assert held.held_by == world.users["editor"]
+
+
 # --- Several projects, several registries ------------------------------------------------------
 
 
@@ -510,6 +983,111 @@ def test_a_projects_registry_is_fixed_once_it_has_entities(world: World) -> None
 # --- The Org Admin's pages ---------------------------------------------------------------------
 
 
+# --- Registry roles (ADR 0292) -------------------------------------------------------------------
+
+METHOD = "acme/protein.PurificationMethod"
+
+
+def test_org_admins_grant_registry_roles_one_grant_at_a_time(world: World) -> None:
+    """A registrar's role covers the registry; a list curator's, one list. Each is one grant,
+    with its own ID, granted again without change, and taken away by its ID."""
+    admin = api_as(world, "org_admin")
+    main = Registry.default()
+    roles = f"/registries/{main.pk}/roles"
+    auditor, editor = world.users["auditor"], world.users["editor"]
+    made = admin.post(roles, {"role": "registrar", "user": str(auditor.pk)})
+    assert made.status_code == 201, made.content
+    grant = made.json()
+    assert (grant["role"], grant["list"], grant["user"]["id"], grant["granted_by"]["id"]) == (
+        "registrar",
+        None,
+        str(auditor.pk),
+        str(world.users["org_admin"].pk),
+    )
+    again = admin.post(roles, {"role": "registrar", "user": str(auditor.pk)})
+    assert (again.status_code, again.json()["id"]) == (200, grant["id"])
+    curator = admin.post(roles, {"role": "list_curator", "list": METHOD, "user": str(editor.pk)})
+    assert curator.status_code == 201, curator.content
+    # The same person may hold both, in their scopes.
+    both = admin.post(roles, {"role": "list_curator", "list": METHOD, "user": str(auditor.pk)})
+    assert both.status_code == 201, both.content
+
+    # Anyone who sees the registry sees who holds its roles, a page at a time, oldest first.
+    reader = api_as(world, "viewer")
+    listed = reader.get(roles).json()
+    assert [(r["role"], r["list"], r["user"]["id"]) for r in listed["items"]] == [
+        ("registrar", None, str(auditor.pk)),
+        ("list_curator", METHOD, str(editor.pk)),
+        ("list_curator", METHOD, str(auditor.pk)),
+    ]
+    assert listed["next_cursor"] is None
+    first = reader.get(roles, limit=2).json()
+    rest = reader.get(roles, limit=2, cursor=first["next_cursor"]).json()
+    assert [r["id"] for r in first["items"] + rest["items"]] == [r["id"] for r in listed["items"]]
+    assert rest["next_cursor"] is None
+    by_role = reader.get(roles, role="registrar").json()["items"]
+    assert [r["id"] for r in by_role] == [grant["id"]]
+    by_list = reader.get(roles, list=METHOD).json()["items"]
+    assert {r["user"]["id"] for r in by_list} == {str(editor.pk), str(auditor.pk)}
+    by_user = reader.get(roles, user=str(auditor.pk)).json()["items"]
+    assert [r["role"] for r in by_user] == ["registrar", "list_curator"]
+    assert reader.get(f"{roles}/{grant['id']}").json() == grant
+
+    # A role and its scope go together; the list must be a lab list; the person, a person.
+    for role, chosen in (
+        ("registrar", METHOD),
+        ("list_curator", None),
+        ("list_curator", PROTEIN),
+        ("list_curator", "acme/protein.Nothing"),
+    ):
+        body = {"role": role, "list": chosen, "user": str(editor.pk)}
+        refused = problem(admin.post(roles, body), 422, "validation_failed")
+        assert [e["pointer"] for e in refused["errors"]] == ["#/list"], body
+    inactive = admin.post(roles, {"role": "registrar", "user": str(world.users["inactive"].pk)})
+    assert "is deactivated" in problem(inactive, 409, "refused")["detail"]
+    robot = service_accounts.create("Plate robot", "", by=world.users["org_admin"])
+    robotic = admin.post(roles, {"role": "registrar", "user": str(robot.pk)})
+    assert "service account can't be one" in problem(robotic, 409, "refused")["detail"]
+    problem(admin.post(roles, {"role": "owner", "user": str(editor.pk)}), 422, "validation_failed")
+
+    # Taken away by its ID, once; another registry's grant isn't this one's.
+    other = admin.post("/registries", {"name": "Client A", "all_teams": True}).json()
+    assert admin.delete(f"/registries/{other['id']}/roles/{grant['id']}").status_code == 404
+    assert admin.delete(f"{roles}/{grant['id']}").status_code == 204
+    problem(admin.delete(f"{roles}/{grant['id']}"), 404, "not_found")
+    assert not permissions.can(auditor, Action.REGISTRY_CURATE, main)
+    granted = AuditEvent.objects.filter(action="registry.role_granted").order_by("id")
+    assert [e.data for e in granted] == [
+        {"role": "registrar", "list": None, "user": str(auditor.pk), "email": auditor.email},
+        {"role": "list_curator", "list": METHOD, "user": str(editor.pk), "email": editor.email},
+        {"role": "list_curator", "list": METHOD, "user": str(auditor.pk), "email": auditor.email},
+    ]
+    removed = AuditEvent.objects.get(action="registry.role_removed")
+    assert (removed.target_id, removed.data) == (
+        str(main.pk),
+        {"role": "registrar", "list": None, "user": str(auditor.pk), "email": auditor.email},
+    )
+
+
+def test_a_registry_role_is_held_once_in_its_scope(world: World) -> None:
+    """The database holds the rules: a registrar's role has no list, a curator's has one,
+    and each is held once."""
+    main = Registry.default()
+    user = world.users["editor"]
+    RegistryRole.objects.create(registry=main, user=user, role="registrar")
+    RegistryRole.objects.create(registry=main, user=user, role="list_curator", list_type=METHOD)
+    for values in (
+        {"role": "registrar"},
+        {"role": "list_curator", "list_type": METHOD},
+        {"role": "registrar", "list_type": METHOD},
+        {"role": "list_curator", "list_type": None},
+        {"role": "list_curator", "list_type": ""},
+        {"role": "owner"},
+    ):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            RegistryRole.objects.create(registry=main, user=user, **values)
+
+
 def test_org_admins_add_registries_and_appoint_registrars_on_their_pages(world: World) -> None:
     admin = world.browser("org_admin")
     listed = admin.get("/admin/registries/").content.decode()
@@ -528,13 +1106,23 @@ def test_org_admins_add_registries_and_appoint_registrars_on_their_pages(world: 
     page = f"/admin/registries/{client.pk}/"
     appointed = post(admin, page, {"action": "appoint", "person": "auditor@example.com"})
     assert appointed.status_code == 302, appointed.content.decode()[:2000]
-    assert client.registrars.filter(user=world.users["auditor"]).exists()
+    grant = client.roles.get(user=world.users["auditor"])
+    assert (grant.role, grant.list_type, grant.granted_by) == (
+        "registrar",
+        None,
+        world.users["org_admin"],
+    )
     shown = admin.get(page).content.decode()
     assert "auditor@example.com" in shown
     assert "Remove Auditor as a registrar" in shown
-    dismissed = post(admin, page, {"action": "dismiss", "user": str(world.users["auditor"].pk)})
+    assert f'name="role" value="{grant.pk}"' in shown
+    dismissed = post(admin, page, {"action": "remove", "role": str(grant.pk)})
     assert dismissed.status_code == 302
-    assert not client.registrars.exists()
+    assert not client.roles.exists()
+    # A grant of another registry's isn't this page's to remove.
+    other = Registry.default().roles.create(user=world.users["editor"], role="registrar")
+    assert post(admin, page, {"action": "remove", "role": str(other.pk)}).status_code == 404
+    assert post(admin, page, {"action": "remove", "role": "not-a-grant"}).status_code == 404
     saved = post(admin, page, {"action": "save", "name": "Client A (CRO)", "all_teams": "on"})
     assert saved.status_code == 302
     client.refresh_from_db()
@@ -545,8 +1133,8 @@ def test_org_admins_add_registries_and_appoint_registrars_on_their_pages(world: 
     assert {
         "registry.created",
         "registry.updated",
-        "registry.registrar_appointed",
-        "registry.registrar_removed",
+        "registry.role_granted",
+        "registry.role_removed",
     } <= actions
     # Nobody else sees these pages.
     for who in ("admin", "auditor", "editor"):

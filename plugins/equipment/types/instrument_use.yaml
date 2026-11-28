@@ -4,9 +4,11 @@ kind: EntityType
 name: InstrumentUse
 label: Instrument use
 label_plural: Instrument uses
-schema_version: 2
+schema_version: 3
 hrid: { prefix: EQU }
-description: The measured result and precise calibration evidence at the time it was produced.
+description: >-
+  The measured result and precise calibration evidence at the time it was produced: covered
+  by a passing calibration, or not covered, with why, when it was measured after a failed one.
 fields:
   key:
     { type: string, max_length: 64, computed: true, immutable: true, unique: true, indexed: true }
@@ -20,18 +22,42 @@ fields:
     immutable: true
     description: The project record the run read, even when the result reference resolves to a registry entry.
   result_revision: { type: int, min: 1, computed: true, immutable: true }
-  calibration: { type: ref, to: EquipmentService, required: true, immutable: true }
+  calibration:
+    type: ref
+    to: EquipmentService
+    required: true
+    immutable: true
+    label: Calibration in force
+    description: The signed calibration in force when it was measured, passing or failed.
   calibration_revision: { type: int, min: 1, computed: true, immutable: true }
   measurement_at: { type: datetime, required: true, immutable: true, indexed: true }
+  covered:
+    type: bool
+    computed: true
+    immutable: true
+    indexed: true
+    label: Covered by calibration
+    description: >-
+      Whether a passing calibration covered the measurement. A use measured after a signed
+      failed calibration, or while the instrument was marked Failed, isn't covered.
+  not_covered_because:
+    type: string
+    max_length: 400
+    computed: true
+    immutable: true
+    label: Why it isn't covered
+    description: Such as "Plate reader 2 failed calibration on 2026-03-01."
 rules:
   pinned_use:
     label: The action pinned the evidence
     check: >-
       record.key != null && record.result_record_id != null &&
-      record.result_revision != null && record.calibration_revision != null
+      record.result_revision != null && record.calibration_revision != null &&
+      record.covered != null
     message: Record the instrument use with the action so the result and calibration revisions are pinned.
   valid_for_measurement:
     label: Calibration covers this instrument and time
+    when: record.covered == true
     check: >-
       record.calibration.instrument == record.instrument.id && record.calibration.kind == "calibration" &&
       record.calibration.outcome == "in_tolerance" && record.calibration.review in ["signed_off", "released"] &&
@@ -39,5 +65,27 @@ rules:
       record.measurement_at < record.calibration.valid_until && record.measurement_at <= now
     message: Select a signed passing calibration for this instrument whose validity covers the measurement.
     fields: [calibration, instrument, measurement_at]
+  not_covered_says_why:
+    label: A use no calibration covers says why
+    description: >-
+      Measured after a signed failed calibration, at or after its suspected onset, or with
+      the instrument marked Failed (ADR 0194). It's recorded, never refused: its result
+      needs a disposition.
+    when: record.covered == false
+    check: >-
+      record.not_covered_because != null && size(record.not_covered_because) > 0 &&
+      record.calibration.instrument == record.instrument.id && record.calibration.kind == "calibration" &&
+      record.calibration.review in ["signed_off", "released"] && record.measurement_at <= now &&
+      (record.calibration.outcome != "out_of_tolerance" ||
+        record.calibration.suspect_since <= record.measurement_at)
+    message: >-
+      A use that isn't covered names this instrument's signed calibration in force, measured
+      no earlier than a failed one's suspected onset, and says why it isn't covered.
+    fields: [calibration, instrument, measurement_at]
+  covered_says_nothing_against:
+    label: A covered use has no reason it isn't
+    when: record.covered == true
+    check: record.not_covered_because == null
+    message: A use a passing calibration covers has no reason it isn't covered.
 display:
   title: "Measurement {{ measurement_at }}"

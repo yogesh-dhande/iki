@@ -25,7 +25,8 @@ a time, so people can see why it's there.
 """
 
 # The walks are SQL built here: every value in them is a literal checked to be a UUID, a
-# name or a number (_uuid, _uuids, _texts, int), so nothing a caller sends is in them.
+# name or a number (_uuid, _texts, int), or the access service's own query with its values
+# written in by the database driver (Reader), so nothing a caller sends is in them.
 # ruff: noqa: S608, S611
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ import re
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import Any
 
 from django.core import signing
@@ -41,9 +43,10 @@ from django.db import connection
 from django.db.models import Q
 from django.db.models.expressions import RawSQL
 
-from iki_server.entities import access, registry
-from iki_server.entities.values import shape, subtypes
+from iki_server.entities import access
+from iki_server.entities.values import subtypes
 from iki_server.graph.models import EdgeKind
+from iki_server.org.models import Project
 
 __all__ = [
     "DEFAULT_DEPTH",
@@ -69,16 +72,8 @@ KINDS: tuple[str, ...] = tuple(k for k in EdgeKind.values if k != EdgeKind.RECOR
 #: How far a walk goes, at most and when it isn't said.
 MAX_DEPTH = 30
 DEFAULT_DEPTH = 10
-#: The type whose entities show others (ADR 0110): readable only with all they show.
-VIEW = "iki/core.View"
 
 _NAME = re.compile(r"^[A-Za-z0-9_/.:#-]{1,200}$")
-
-
-def _uuids(values: Iterable[Any]) -> str:
-    """A uuid[] literal: each value is checked to be a UUID, so nothing else gets in."""
-    items = ",".join(f"'{uuid.UUID(str(v))}'" for v in values)
-    return f"ARRAY[{items}]::uuid[]"
 
 
 def _uuid(value: Any) -> str:  # noqa: ANN401 - a UUID or its text
@@ -95,47 +90,43 @@ def _texts(values: Iterable[str]) -> str:
     return f"ARRAY[{','.join(items)}]::text[]"
 
 
+#: Stands for the entity a walk checks, in the access predicate's SQL, till it's named.
+_CHECKED = "iki_graph_checked_entity"
+
+
 @dataclass(frozen=True)
 class Reader:
-    """What someone can read, as the walk's SQL checks it: the projects they read, and the
-    table of views' targets, since a view is readable only with everything it shows."""
+    """What someone can read, as the walk's SQL checks it: the projects they read."""
 
     projects: tuple[uuid.UUID, ...]
-    views: tuple[str, ...] = ()
-    view_items: str = ""
+
+    @cached_property
+    def _predicate(self) -> str:
+        """The access service's own predicate (:func:`access.readable_in`), as SQL with its
+        values written in, for the entity ``_CHECKED`` stands for: so a walk reads what
+        every other reader does (a view, only with everything it shows; a registry entry,
+        through a record of it or as its registry's list's option), and never what a purge
+        tombstoned (ADR 0092)."""
+        projects = Project.objects.filter(pk__in=self.projects).values("pk")
+        found = access.readable_in(projects).filter(pk=RawSQL(_CHECKED, ())).values("pk")
+        statement, params = found.query.sql_with_params()
+        # PostgreSQL's operations write the values in as the driver would send them.
+        ops: Any = connection.ops
+        out = str(ops.compose_sql(statement, params))
+        # Its values are UUIDs and names, so nothing in it reads as a parameter.
+        if "%" in out or out.count(_CHECKED) != 1:
+            raise ValueError("The readable entities' SQL can't be made part of a walk.")
+        return out
 
     def readable(self, expr: str) -> str:
-        """SQL: the entity with ID ``expr`` is readable: a record linked into one of their
-        projects (a view, only with everything it shows), or an entry with such a record;
-        never one a purge tombstoned (ADR 0092)."""
-        p = _uuids(self.projects)
-        view = ""
-        if self.view_items:
-            view = (
-                f" AND (x.type <> ALL({_texts(self.views)}) OR NOT EXISTS (SELECT 1 FROM "
-                f'"{self.view_items}" i WHERE i.entity_id = x.id AND NOT EXISTS (SELECT 1 FROM '
-                "iki_entity_project l2 WHERE l2.entity_id = i.item_id AND "
-                f"l2.project_id = ANY({p})) AND NOT EXISTS (SELECT 1 FROM iki_entity r2 JOIN "
-                "iki_entity_project l3 ON l3.entity_id = r2.id WHERE r2.entry_id = i.item_id AND "
-                f"l3.project_id = ANY({p}))))"
-            )
-        return (
-            f"EXISTS (SELECT 1 FROM iki_entity x WHERE x.id = {expr} AND x.purged_at IS NULL "
-            "AND ("
-            "(x.registry_id IS NULL AND EXISTS (SELECT 1 FROM iki_entity_project l WHERE "
-            f"l.entity_id = x.id AND l.project_id = ANY({p})){view}) OR (x.registry_id IS NOT "
-            "NULL AND EXISTS (SELECT 1 FROM iki_entity r JOIN iki_entity_project l ON "
-            "l.entity_id = r.id WHERE r.entry_id = x.id AND r.purged_at IS NULL AND "
-            f"l.project_id = ANY({p})))))"
-        )
+        """SQL: the entity with ID ``expr`` is readable."""
+        if not self.projects:
+            return "false"
+        return f"EXISTS ({self._predicate.replace(_CHECKED, expr)})"
 
 
 def reader(user: Any) -> Reader:  # noqa: ANN401 - User or AnonymousUser
-    projects = tuple(access.readable_projects(user).values_list("pk", flat=True))
-    if VIEW not in registry.types():
-        return Reader(projects)
-    items = shape(VIEW).part_of("targets").list_model("targets")._meta.db_table
-    return Reader(projects, tuple(sorted(subtypes(VIEW))), items)
+    return Reader(tuple(access.readable_projects(user).values_list("pk", flat=True)))
 
 
 @dataclass(frozen=True)
@@ -420,7 +411,7 @@ def related(
     r = reader(user)
     if project not in r.projects:
         return []
-    mine = Reader((project,), r.views, r.view_items)
+    mine = Reader((project,))
     wanted = Query(q.root, q.direction, q.depth, q.kinds, q.types, archived=False)
     with search.time_limit(), connection.cursor() as cursor:
         cursor.execute(

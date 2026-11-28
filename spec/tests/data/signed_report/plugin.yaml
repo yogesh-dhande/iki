@@ -2,6 +2,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/signed_reports
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst }
   reviewer: { label: Reviewer }

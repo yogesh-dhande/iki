@@ -19,7 +19,7 @@ from typing import Any
 from django.db import models
 from psycopg import sql
 
-from iki_spec.model import Field
+from iki_spec.model import Field, stored_in_list_table
 
 __all__ = ["TRIGGER_PREFIX", "Table", "install", "tables"]
 
@@ -58,7 +58,6 @@ def tables(
     parts: Iterable[tuple[str, type[models.Model], Mapping[str, Field]]],
 ) -> list[Table]:
     """The tables of these (plugin, model, fields) that hold references."""
-    from iki_server.entities.values import is_list_table
     from iki_spec import naming
 
     out: dict[str, Table] = {}
@@ -70,7 +69,7 @@ def tables(
             if f.type == "ref":
                 column = model._meta.get_field(f.name).column  # type: ignore[union-attr]
                 columns.append((str(column), f.name))
-            elif is_list_table(f) and f.items is not None and f.items.type in ("ref", "row"):
+            elif stored_in_list_table(f) and f.items is not None and f.items.type in ("ref", "row"):
                 from django.apps import apps
 
                 items = apps.get_model(
