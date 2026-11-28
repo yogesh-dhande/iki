@@ -227,7 +227,7 @@ def _calculations(entity_type: str) -> Iterator[tuple[Trigger, Action, frozenset
             or not services.is_a(entity_type, spec.type)
         ):
             continue
-        action = catalog.action(f"{spec.plugin}.{spec.action}")
+        action = catalog.action(spec.action)
         if action is None or not any(u.input == spec.input for u in action.updates):
             continue
         put = action.inputs.get(spec.input)
