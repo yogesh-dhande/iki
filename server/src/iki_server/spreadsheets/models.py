@@ -120,6 +120,9 @@ class SpreadsheetImport(models.Model):
     sheet = models.CharField(max_length=100, blank=True, default="")
     #: The row its columns' headers are in, from 1; 0 when it has none.
     header_row = models.PositiveIntegerField(default=1)
+    #: That row's text, a cell a column, read from the workbook at its full width when
+    #: the row is chosen: a sheet's sample holds only its first rows and columns.
+    headers = models.JSONField(default=list)
     #: The rows imported, from ``first_row`` to ``last_row`` (its last, if none).
     first_row = models.PositiveIntegerField(default=2)
     last_row = models.PositiveIntegerField(null=True, blank=True)

@@ -28,6 +28,7 @@ import writer_modules as wat
 from api_client import Api
 from django.test import override_settings
 from org_world import World, build_world
+from structlog.testing import capture_logs
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import exports, plugin_writers, record_exports, services
@@ -35,6 +36,9 @@ from iki_server.org.models import Project, ProjectMembership, ProjectRole
 from iki_server.tasks.backend import Retry
 from iki_spec import writer_sandbox
 from iki_spec.model import PluginExport
+from iki_spec.writers import abi as writer_abi
+from iki_spec.writers import protocol
+from iki_spec.writers.protocol import Answer
 
 pytestmark = pytest.mark.django_db
 
@@ -346,7 +350,8 @@ def test_a_writer_is_given_the_same_request_for_a_revision_after_a_later_edit(
     viewer = world.users["viewer"]
     before = exports.gather(viewer, moved, 1, export_, chosen)
     assert isinstance(before.record, plugin_writers.PluginRecord)
-    assert set(before.record.request) == {
+    request = writer_abi.encoder(1).record(before.record.gathered)
+    assert set(request) == {
         "hrid",
         "id",
         "name",
@@ -360,7 +365,7 @@ def test_a_writer_is_given_the_same_request_for_a_revision_after_a_later_edit(
     moved.refresh_from_db()
     after = exports.gather(viewer, moved, 1, export_, chosen)
     assert isinstance(after.record, plugin_writers.PluginRecord)
-    assert after.record.request == before.record.request
+    assert writer_abi.encoder(1).record(after.record.gathered) == request
     assert after.name == before.name
 
 
@@ -393,6 +398,114 @@ def test_a_writer_that_fails_fails_the_export_and_is_counted(
     assert not AuditEvent.objects.filter(
         action__in=["entity.exported", "entities.exported"]
     ).exists()
+
+
+def test_a_writer_that_fails_partway_names_the_record_it_failed_on(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trap on the second of three records fails the export saying which record, and
+    the log has its ID (ADR 0230)."""
+    source, assay = plate(world, "Src"), plate(world, "Dst")
+    picked = [transfer(world, source, assay, source_well=w) for w in ("A1", "B1", "C1")]
+    real = protocol.Session.call
+    calls: list[str] = []
+
+    def trapping_on_the_second(session: protocol.Session, entry: str, request: bytes) -> Any:
+        if entry == "record":
+            calls.append(entry)
+            if len(calls) == 2:
+                raise protocol.SessionFailed("panicked", "The writer failed: it stopped.")
+        return real(session, entry, request)
+
+    monkeypatch.setattr(protocol.Session, "call", trapping_on_the_second)
+    with capture_logs() as logged:
+        made = (
+            api_as(world)
+            .post("/entity-exports", {"format": WRITER, "entities": [t.hrid for t in picked]})
+            .json()
+        )
+    assert made["state"] == "failed", made
+    assert f"failed on {picked[1].hrid}" in made["error"]
+    assert picked[0].hrid not in made["error"] and picked[2].hrid not in made["error"]
+    failed = [e for e in logged if e["event"] == "writer_failed"]
+    assert [(e["record"], e["hrid"], e["code"]) for e in failed] == [
+        (str(picked[1].pk), picked[1].hrid, "panicked")
+    ]
+
+
+def test_a_deployments_writer_limits_reach_the_sandbox(world: World) -> None:
+    """ADR 0230: the deployment's limits go in each export's header, so its writer's file
+    is held to them: here, an output limit lowered below the worklist's size."""
+    moved = transfer(world, plate(world, "Src"), plate(world, "Dst"))
+    with override_settings(IKI_EXPORT_LIMITS={"max_output": 8}):
+        response = export(api_as(world), moved)
+    assert response.status_code == 422, response.content
+    assert response.json()["code"] == "writer_failed"
+    assert "over the limit of 8 bytes" in response.json()["detail"]
+    assert export(api_as(world), moved).status_code == 200
+
+
+class _Sandbox:
+    """A sandbox whose module reads ``abi``: it keeps each request it's sent."""
+
+    def __init__(self, abi: int) -> None:
+        self.abi = abi
+        self.sent: list[tuple[str, bytes]] = []
+        self.session = self
+
+    def open(self, header: Any) -> int:
+        return self.abi
+
+    def call(self, entry: str, request: bytes) -> Answer:
+        self.sent.append((entry, request))
+        return Answer(0, b"", [], 0)
+
+    def close(self) -> None: ...
+
+
+def test_each_request_is_built_for_the_abi_its_module_reads(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With a second ABI that gives records a field the first doesn't, a module of each
+    gets its own ABI's requests, and a file says which ABI wrote it."""
+
+    class Abi2(writer_abi.Abi1):
+        abi = 2
+
+        def record(self, record: writer_abi.Record) -> dict[str, Any]:
+            return {**super().record(record), "project": "Kinase panel"}
+
+    monkeypatch.setitem(writer_abi.ENCODERS, 2, Abi2())
+    monkeypatch.setattr(writer_abi, "NEWEST", 2)
+    moved = transfer(world, plate(world, "Src"), plate(world, "Dst"))
+    writer = plugin_writers.find(WRITER)
+    assert writer is not None
+    found = exports.format_of(moved.type, WRITER)
+    assert found is not None
+    export_, chosen = found
+    assert isinstance(export_, PluginExport)
+    gathered = exports.gather(world.users["viewer"], moved, 1, export_, chosen).record
+    assert isinstance(gathered, plugin_writers.PluginRecord)
+    sent = {}
+    for abi in (1, 2):
+        sandbox = _Sandbox(abi)
+        monkeypatch.setattr(plugin_writers, "_connect", lambda *_, sandbox=sandbox: sandbox)
+        file = plugin_writers.PluginWriter(writer)
+        file.begin(1)
+        file.record(gathered)
+        file.end()
+        assert file.identity["abi"] == str(abi)
+        sent[abi] = dict(sandbox.sent)
+    assert sent[1]["begin"].startswith(b'{"abi":1,') and sent[2]["begin"].startswith(b'{"abi":2,')
+    assert b'"project"' not in sent[1]["record"]
+    assert sent[2]["record"].replace(b',"project":"Kinase panel"', b"") == sent[1]["record"]
+    assert sent[1]["end"] == sent[2]["end"] == b"{}"
+
+    # A module whose ABI this server doesn't run is the sandbox's to refuse; if it
+    # doesn't, the server writes nothing.
+    monkeypatch.setattr(plugin_writers, "_connect", lambda *_: _Sandbox(3))
+    with pytest.raises(plugin_writers.SandboxUnavailable, match="newer than this Iki runs"):
+        plugin_writers.PluginWriter(writer).begin(1)
 
 
 def test_without_a_sandbox_a_plugins_format_is_503(world: World) -> None:

@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/sequencing
-version: 0.3.0
+version: 0.3.1
 title: Sequencing runs
 description: Trace FASTQ files from a sequencing run to their libraries and samples, and summarize read quality on Iki compute.
 license: Apache-2.0

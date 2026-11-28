@@ -119,7 +119,11 @@ given with `--key`. An import checks each signature before writing anything,
 and refuses a bundle with one that doesn't verify. It keeps the source's key
 as trusted for what came with that import, and the signatures still verify
 where they land, with the people and registry entries their records name as
-they are there.
+they are there. Only a deployment's own keys sign as it: a bundle that names
+a key as the importing deployment's can't be imported. Each key a bundle
+brings that isn't trusted yet, its source's own or another deployment's
+that the source vouches for, is in the import's plan before anyone applies
+it, and trusting it is in the audit log (`bundle.signing_key_trusted`).
 
 **The organization certifies first (§11.100(c)).** Nobody signs until an Org
 Admin records the organization's certification letter to the FDA (when it was

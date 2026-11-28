@@ -23,6 +23,12 @@ Each column of the alignment gives at most one residue, as Geneious calls a cons
 - A row's own ambiguity code counts as an equal share of each residue it stands for,
   as Geneious counts one: R as half an A and half a G, N as a quarter of each base, X
   as a twentieth of each standard amino acid.
+- An X (or N) that its row's header narrows counts as a share of only what it could be.
+  The protein plugin's read mapper writes AAN, which is K or N and has no letter of its
+  own, as X, and ends that read's header `possible=21:KN`: column 21 (from 1) is K or N.
+  That X counts as half a K and half an N, as the alignment viewer shows it, not as a
+  twentieth of every residue. A header's last word is read this way only if it's such a
+  list, and each column it names holds the X or N it narrows.
 - A column that no row observes (where reads don't reach) is N (or X) inside the
   consensus, so the stretches either side stay apart and in place, and is left out at
   either end of a linear one: nothing there was observed. A circular one has no ends.
@@ -108,13 +114,33 @@ def first_word(header: str) -> str:
     return re.sub(r"/\d+-\d+$", "", word)
 
 
+#: A header's last word saying what its row's X (or N) could be: `possible=21:KN,60:*CW`.
+POSSIBLE = re.compile(r"(?:^|\s)possible=(\d+:[A-Z*]+(?:,\d+:[A-Z*]+)*)\s*$")
+
+
+def narrowed(header: str, row: str, codes: dict[str, str]) -> dict[int, str]:
+    """Each column (from 0) where the header says what the row's unknown could be, and
+    what: only at an X (or N), and only residues with letters of their own."""
+    said = POSSIBLE.search(header)
+    if said is None:
+        return {}
+    unknown = "N" if codes is BASES else "X"
+    found: dict[int, str] = {}
+    for each in said[1].split(","):
+        column, residues = each.split(":")
+        at = int(column) - 1
+        if 0 <= at < len(row) and row[at] == unknown and all(codes.get(r) == r for r in residues):
+            found[at] = "".join(sorted(set(residues)))
+    return found
+
+
 def called(
     counts: Counter[str], codes: dict[str, str], threshold: Fraction, ambiguity: bool
 ) -> str:
-    """The column's residue from what its rows have, as the module says."""
+    """The column's residue from what its rows have, as the module says: each count is of
+    rows with one set of residues they could be, written as those residues."""
     shares: dict[str, Fraction] = {}
-    for letter, count in counts.items():
-        stands = codes[letter]
+    for stands, count in counts.items():
         for residue in stands:
             shares[residue] = shares.get(residue, Fraction(0)) + Fraction(count, len(stands))
     total = sum(shares.values(), Fraction(0))
@@ -184,12 +210,22 @@ def consensus(run: dict[str, Any], alphabet: str) -> dict[str, Any]:
                 f"{first_word(header) or 'a row'} has {row[odd]!r} at column {odd + 1}, "
                 f"not {kind}."
             )
+    # Where a row's header narrows its X (or N): the column, and what each such row has.
+    narrowing: dict[int, list[str]] = {}
+    for header, row in rows:
+        for at, could in narrowed(header, row, codes).items():
+            narrowing.setdefault(at, []).append(could)
     calls: list[str | None] = []  # a residue, None for a column no row observes
     dropped = ambiguous = 0
-    for column in zip(*(row for _, row in rows), strict=True):
-        counts = Counter(c for c in column if c not in (GAP, UNSEEN))
-        if nucleotide and "U" in counts:
-            counts["T"] += counts.pop("U")
+    for at, column in enumerate(zip(*(row for _, row in rows), strict=True)):
+        letters = Counter(c for c in column if c not in (GAP, UNSEEN))
+        if nucleotide and "U" in letters:
+            letters["T"] += letters.pop("U")
+        counts = Counter({codes[letter]: n for letter, n in letters.items()})
+        for could in narrowing.get(at, ()):
+            counts[codes[unknown]] -= 1
+            counts[could] += 1
+        counts = +counts
         gaps = sum(1 for c in column if c == GAP)
         residues = sum(counts.values())
         if not residues and not gaps:

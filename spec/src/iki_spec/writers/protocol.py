@@ -3,8 +3,10 @@
 A frame is a 4-byte big-endian length and that many bytes. An export is:
 
 1. the server's header, JSON: ``{"writer", "sha256", "memory", "deadline"}`` (and, for a
-   local child only, ``"path"``, the module's file); the child answers ``{"ready": true}``,
-   or ``{"error": {"code", "message"}}`` and exits;
+   local child only, ``"path"``, the module's file); the child answers
+   ``{"ready": true, "abi"}``, the ABI the module reads (one this Iki runs, so the server
+   builds each request for it, :mod:`iki_spec.writers.abi`), or
+   ``{"error": {"code", "message"}}`` and exits;
 2. for each call, a JSON frame ``{"call": "begin" | "record" | "end"}`` and the request's
    bytes, canonical JSON, in a frame of their own; the child answers
    ``{"status", "notes", "fuel"}`` and the bytes the call adds, in a frame of their own, or
@@ -122,8 +124,9 @@ class Session:
         self._in = reader
         self._out = writer
 
-    def open(self, header: Mapping[str, Any]) -> None:
-        """Sends the header. Raises :class:`Unavailable` when the process can't run it."""
+    def open(self, header: Mapping[str, Any]) -> int:
+        """Sends the header; returns the ABI the module reads. Raises :class:`Unavailable`
+        when the process can't run it."""
         try:
             write_json(self._out, header)
             answer = read_json(self._in)
@@ -132,7 +135,10 @@ class Session:
                 "sandbox_unavailable", f"The sandbox didn't answer: {error}"
             ) from None
         if answer.get("ready") is True:
-            return
+            abi = answer.get("abi")
+            if not isinstance(abi, int) or isinstance(abi, bool):
+                raise Unavailable("sandbox_unavailable", "The sandbox didn't say the ABI.")
+            return abi
         why = answer.get("error") or answer.get("failed") or {}
         raise Unavailable(
             str(why.get("code") or "sandbox_unavailable"),

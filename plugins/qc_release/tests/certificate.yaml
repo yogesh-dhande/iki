@@ -26,6 +26,9 @@ inputs:
         lot:
           - type: iki/lots.GenericLot
             values: { lot_number: SYNTHETIC-NACL-01 }
+        material:
+          - type: iki/core.Sequence
+            values: { name: Sodium chloride }
         specification:
           - values:
               schedule: 00000000-0000-7000-8003-000000000099
@@ -39,8 +42,8 @@ inputs:
                     attribute: NaCl assay,
                     method: USP Sodium Chloride assay (2015),
                     unit: "% NaCl, dried basis",
-                    lower: 99.0,
-                    upper: 100.5,
+                    lower: "99.0",
+                    upper: "100.5",
                   }
   tests:
     - values:
@@ -51,8 +54,10 @@ inputs:
         method: USP Sodium Chloride assay (2015)
         unit: "% NaCl, dried basis"
         value: 98.9
-        lower: 99.0
-        upper: 100.5
+        reported: "98.9"
+        rounding: limit_places
+        lower: "99.0"
+        upper: "100.5"
         outcome: oos
         observed_by: 00000000-0000-7000-8005-000000000001
     - values:
@@ -63,16 +68,18 @@ inputs:
         method: USP Sodium Chloride assay (2015)
         unit: "% NaCl, dried basis"
         value: 99.8
-        lower: 99.0
-        upper: 100.5
+        reported: "99.8"
+        rounding: limit_places
+        lower: "99.0"
+        upper: "100.5"
         outcome: pass
-        repeat_of: 00000000-0000-7000-8003-000000000004
+        repeat_of: 00000000-0000-7000-8003-000000000005
         observed_by: 00000000-0000-7000-8005-000000000001
   investigations:
     - type: iki/qc_release.QCOOSInvestigation
       values:
         case: 00000000-0000-7000-8003-000000000001
-        test: 00000000-0000-7000-8003-000000000004
+        test: 00000000-0000-7000-8003-000000000005
         review: released
         resolution: invalidated
         findings: Synthetic laboratory error verified in the original bench record.
@@ -97,8 +104,9 @@ expect:
             format: iki/coa/v2
             title: Certificate of analysis
             issuer: "Synthetic Example Chemicals, 1 Example Way · +1 555 0100"
+            material: { name: Sodium chloride }
             lot: { lot_number: SYNTHETIC-NACL-01 }
-            results: [{ value: 99.8 }]
+            results: [{ lower: "99.0", upper: "100.5", reported: "99.8", rounding: limit_places }]
             issue: { state: released }
           report:
             format: iki/coa-evidence/v1
@@ -112,7 +120,7 @@ expect:
                   revision: 1,
                   value: 99.8,
                   outcome: pass,
-                  repeat_of: 00000000-0000-7000-8003-000000000004,
+                  repeat_of: 00000000-0000-7000-8003-000000000005,
                 }
             investigations:
               - {
@@ -156,7 +164,7 @@ inputs:
                     attribute: Synthetic result,
                     method: Synthetic method,
                     unit: arbitrary,
-                    lower: 1,
+                    lower: "1",
                   }
   tests:
     - values:
@@ -167,7 +175,9 @@ inputs:
         method: Synthetic method
         unit: arbitrary
         value: 2
-        lower: 1
+        reported: "2"
+        rounding: limit_places
+        lower: "1"
         outcome: pass
         observed_by: 00000000-0000-7000-8005-000000000001
 expect: { error: every attempt }
@@ -185,7 +195,7 @@ inputs:
       values:
         review_flow: research
         review: signed_off
-        coa_digest: 01405d83ff227703ff9eb3efe7ac751ef0276dc00ef436a88b14ac32530ab0c8
+        coa_digest: 09f390d8bc77a42ee6d87abcebaf6cac5075e0713877488054a7d52ca324fbdc
         coa:
           format: iki/coa/v2
           title: Research certificate of analysis
@@ -202,9 +212,10 @@ inputs:
             - attribute: NaCl assay
               method: USP Sodium Chloride assay (2015)
               unit: "% NaCl, dried basis"
-              lower: 99.1
-              upper: 100.5
-              value: 99.8
+              lower: "99.1"
+              upper: "100.5"
+              rounding: limit_places
+              reported: "99.8"
               result: pass
           issue: { state: issued }
         report:
@@ -215,9 +226,9 @@ expect:
     creates:
       - type: iki/qc_release.CertificateOfAnalysis
         values:
-          digest: 01405d83ff227703ff9eb3efe7ac751ef0276dc00ef436a88b14ac32530ab0c8
+          digest: 09f390d8bc77a42ee6d87abcebaf6cac5075e0713877488054a7d52ca324fbdc
           review_flow: research
-          coa: { title: Research certificate of analysis, results: [{ value: 99.8 }] }
+          coa: { title: Research certificate of analysis, results: [{ reported: "99.8" }] }
 ---
 apiVersion: iki/v1
 kind: ActionTest

@@ -71,6 +71,19 @@ The chart sets it for backend workers, and the provisioner for persistent
 pods. A worker that can't make the machine clean stops, rather than take
 another job.
 
+**Nothing a job started outlives its command while the worker reads its
+outputs.** Where the worker is its container's first process, it stops
+every other process as soon as the command exits, before it opens
+`output.json`, a result or an artifact. One that won't stop fails the
+attempt, and the worker takes no more jobs.
+
+**The registration token isn't in the worker's environment while jobs
+run.** It registers any number of workers for its tier, and a process can
+always read its own starting environment. A worker started with
+`IKI_REGISTRATION_TOKEN` starts itself again in its own place, with the
+same arguments, without it in its environment, and hands it over on stdin.
+Updating itself (ADR 0060) hands it over the same way.
+
 ## Consequences
 
 - Persistent actions on a warm pod start in about the time it takes to

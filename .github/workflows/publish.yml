@@ -139,6 +139,8 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # A published release, not necessarily the last: an older revision rebuilds with the
+      # weights it pinned.
       - name: Check ImmuneBuilder weights pin
         if: matrix.image == 'iki-antibody-structure-tools'
         run: bash scripts/ci/check-immunebuilder-weights.sh

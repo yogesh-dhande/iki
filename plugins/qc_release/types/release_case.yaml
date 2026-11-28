@@ -2,16 +2,23 @@ apiVersion: iki/v1
 kind: EntityType
 name: ReleaseCase
 label: Lot release case
-schema_version: 2
+schema_version: 3
 hrid: { prefix: QRC }
 description: One cycle of a lot's tests against the specification in force on its testing date, in one specification context.
 fields:
   lot: { type: ref, to: iki/lots.Lot, computed: true, immutable: true }
   lot_revision: { type: int, min: 1, computed: true, immutable: true }
   lot_number: { type: string, max_length: 100, computed: true, immutable: true }
+  material:
+    type: ref
+    to: iki/core.Entity
+    computed: true
+    immutable: true
+    description: The material the lot is of and the specification is for, which its certificate names.
   schedule: { type: ref, to: SpecificationSchedule, computed: true, immutable: true }
   schedule_revision: { type: int, min: 1, computed: true, immutable: true }
   context: { type: string, max_length: 120, computed: true, immutable: true }
+  grade: { type: string, max_length: 120, computed: true, immutable: true }
   cycle:
     type: int
     min: 1
@@ -68,7 +75,7 @@ rules:
     label: The release case pins the effective specification
     check: >-
       record.lot != null && record.lot_revision != null && record.lot_number != null &&
-      record.schedule != null && record.schedule_revision != null &&
+      record.material != null && record.schedule != null && record.schedule_revision != null &&
       record.specification != null && record.specification_revision != null &&
       record.version != null && record.testing_on != null && record.review_flow != null &&
       record.attempts != null && record.sealed != null && record.cycle != null &&

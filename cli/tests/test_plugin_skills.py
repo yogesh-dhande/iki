@@ -161,3 +161,26 @@ def test_upgrade_skill_sends_the_built_candidate(
     assert auth == "Bearer fixture-token"
     assert manifest["plugin"]["name"] == "acme/example"
     assert not list(tmp_path.glob("iki-skill-preflight.*"))
+
+
+def test_upgrade_skill_says_a_candidate_that_doesnt_build_is_an_input_error(
+    template: Path, tmp_path: Path
+) -> None:
+    """Exit 1 is for a report to review; a build that fails has none, so it's 2 (SKILL.md),
+    and nothing is sent to the deployment."""
+    types = template / "types"
+    broken = next(types.glob("*.yaml"))
+    broken.write_text(broken.read_text(encoding="utf-8") + "\nfields: [not, a, mapping]\n")
+    checked = run_skill(
+        template,
+        "iki-upgrade-plugin/scripts/build-and-preflight.sh",
+        "acme/example",
+        ".",
+        IKI_URL="http://127.0.0.1:9",
+        IKI_TOKEN="fixture-token",
+        TMPDIR=str(tmp_path),
+    )
+    assert checked.returncode == 2, checked.stdout + checked.stderr
+    assert checked.stdout == ""
+    assert "didn't build, so it wasn't preflighted" in checked.stderr
+    assert not list(tmp_path.glob("iki-skill-preflight.*"))

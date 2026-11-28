@@ -64,7 +64,7 @@ from iki_server.entities.sequence_files import (
     protein_fasta,
 )
 from iki_server.entities.services import values_at
-from iki_server.entities.values import shape, to_json
+from iki_server.entities.values import reference_ids, shape, to_json
 from iki_spec import titles
 from iki_spec.model import (
     AnyExport,
@@ -76,6 +76,7 @@ from iki_spec.model import (
     ReportExport,
 )
 from iki_spec.model import Field as SpecField
+from iki_spec.writers import abi as writer_abi
 
 __all__ = [
     "FORMATS",
@@ -240,9 +241,9 @@ def writer(file_format: str, *, background: bool = False) -> Writer:
         raise Unexportable(f"No installed plugin writes {file_format}.", "no_export")
     return PluginWriter(
         found,
-        deadline=plugin_writers.BACKGROUND_DEADLINE
+        deadline=plugin_writers.background_deadline()
         if background
-        else plugin_writers.INLINE_DEADLINE,
+        else plugin_writers.inline_deadline(),
     )
 
 
@@ -517,11 +518,21 @@ def _downloaded_as(gathered: Gathered, *, latest: bool) -> str:
 # --- What a record's files are written from ------------------------------------------------------
 
 
-def _at(entity: Entity, number: int) -> tuple[dict[str, Any], str, Any]:
-    """Its values at revision ``number`` as JSON, its title then, and when it was made."""
+def _at(
+    entity: Entity, number: int, *, reader: User | None = None
+) -> tuple[dict[str, Any], str, Any]:
+    """Its values at revision ``number`` as JSON, its title then, and when it was made.
+    With a ``reader``, each reference to a record they can't read is ``"unreadable"``, as
+    the API gives it (ADR 0067): what's written never names what its reader can't read."""
     form = shape(entity.type)
     fields = form.fields()
-    values = {n: to_json(fields[n], v) for n, v in values_at(entity, number).items() if n in fields}
+    raw = {n: v for n, v in values_at(entity, number).items() if n in fields}
+    readable = (
+        access.readable_reference_ids(reader, reference_ids(fields, raw))
+        if reader is not None
+        else None
+    )
+    values = {n: to_json(fields[n], v, readable_refs=readable) for n, v in raw.items()}
     entity_type = registry.types()[entity.type]
     title = titles.render(registry.display_title(entity_type), values, entity.hrid, fields)
     when = (
@@ -561,7 +572,9 @@ def _plugin_record(
                 withheld.append(role_name)
                 continue
             read.add(target.entity.pk)
-            their, their_title, _ = _at(target.entity, target.revision)
+            # The record it refers to, one step deep: what that refers to in turn is given
+            # only where its reader can read it.
+            their, their_title, _ = _at(target.entity, target.revision, reader=user)
             roles[role_name] = {
                 "fields": their,
                 "hrid": target.entity.hrid,
@@ -578,22 +591,17 @@ def _plugin_record(
                 f"{entity.hrid}'s {field_name} can't be given in {role.unit}: {error}",
                 "writer_refused",
             ) from None
-    request = plugin_writers.request_of(
-        entity_id=entity.pk,
-        hrid=entity.hrid,
-        name=title,
-        type_name=entity.type,
-        revision=number,
-        revised_at=when,
-        roles=roles,
-        withheld=withheld,
-    )
     return PluginRecord(
-        hrid=entity.hrid,
-        name=title,
-        revision=number,
-        revised_at=when,
-        request=request,
+        writer_abi.Record(
+            id=entity.pk,
+            hrid=entity.hrid,
+            name=title,
+            type=entity.type,
+            revision=number,
+            revised_at=when,
+            roles=roles,
+            withheld=tuple(withheld),
+        )
     )
 
 

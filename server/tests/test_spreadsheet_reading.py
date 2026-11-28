@@ -93,6 +93,19 @@ def test_cells_are_where_the_sheet_has_them(tmp_path: Path) -> None:
     assert sheet.rows == 3
 
 
+def test_a_row_is_read_whole_past_the_sample(tmp_path: Path) -> None:
+    """A header row is read at its full width, wherever it is: the sample keeps only the
+    first 30 rows' first 60 columns, to show."""
+    reads = [f"A280 t{n}" for n in range(1, 65)]
+    rows = [*[[f"Read {n}"] for n in range(1, 33)], [*reads, "Label", "Purity (%)"]]
+    book = opened(tmp_path, xlsx(("Export", rows)))
+    (sheet,) = book.describe()
+    assert len(sheet.sample) == 30 and (sheet.rows, sheet.columns) == (33, 66)
+    assert book.row_text("Export", 33)[64:] == ["Label", "Purity (%)"]
+    assert book.row_text("Export", 1) == ["Read 1"]
+    assert book.row_text("Export", 34) == book.row_text("Export", 0) == []
+
+
 def test_hidden_sheets_say_so(tmp_path: Path) -> None:
     book = opened(tmp_path, xlsx(("Lists", [["a"]]), ("Inventory", INVENTORY), hidden=["Lists"]))
     assert [(s.name, s.hidden) for s in book.describe()] == [
@@ -388,9 +401,9 @@ def test_headers_are_compared_without_case_punctuation_or_unit() -> None:
     assert mapping.key("Conc. (mg/mL)") == "conc"
     assert mapping.key("Due on") == mapping.key("due_on") == "dueon"
     assert mapping.letter(0) == "A" and mapping.letter(27) == "AB"
-    sample = [["Label", "", "Purity"]]
-    assert mapping.headers_of(sample, 1, 4) == ["Label", "Column B", "Purity", "Column D"]
-    assert mapping.headers_of(sample, 0, 2) == ["Column A", "Column B"]
+    row = ["Label", "", "Purity"]
+    assert mapping.headers_of(row, 4) == ["Label", "Column B", "Purity", "Column D"]
+    assert mapping.headers_of([], 2) == ["Column A", "Column B"]
 
 
 def test_a_saved_mapping_maps_a_sheet_whose_columns_moved() -> None:
