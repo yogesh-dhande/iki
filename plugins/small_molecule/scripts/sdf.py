@@ -471,9 +471,15 @@ def _named(record: Record, name_field: str) -> str:
 
 
 def _creates(
-    record: Record, name: str, file_id: str, parent: bool, batches: bool
+    record: Record,
+    name: str,
+    file_id: str,
+    parent: bool,
+    batches: bool,
+    suppliers: dict[str, str] | None = None,
 ) -> tuple[list[dict[str, Any]], Registered, list[str]]:
-    """What a record registers: its compound, and with batches its batch; its
+    """What a record registers: its compound, and with batches its batch and the supplier
+    it names, the first time the file names it (``suppliers`` keeps their keys); its
     standardised structure; and the SD fields it left out."""
     compound, batch, left = field_values(record, batches)
     registered = standardise(structure(record), parent)
@@ -519,12 +525,28 @@ def _creates(
     if withheld:
         record.warnings.append(withheld)
     rest = {k: v for k, v in batch.items() if k not in MATERIAL}
+    made_too: list[dict[str, Any]] = []
+    if "supplier" in rest:
+        # A supplier is a registry entry (iki/inventory.Supplier), by its name: one the
+        # registry has already is the project's, and one the file names again is the same.
+        suppliers = {} if suppliers is None else suppliers
+        supplier = rest["supplier"]
+        if supplier not in suppliers:
+            suppliers[supplier] = f"supplier-{len(suppliers) + 1}"
+            made_too.append(
+                {
+                    "type": "iki/inventory.Supplier",
+                    "key": suppliers[supplier],
+                    "values": {"name": supplier},
+                }
+            )
+        rest["supplier"] = {"$create": suppliers[supplier]}
     lot = {
         "type": "iki/small_molecule.CompoundBatch",
         "values": {"compound": {"$create": key}, **named, **batch_values(registered), **rest},
         "origin": origin,
     }
-    return [{**made, "key": key}, lot], registered, left
+    return [*made_too, {**made, "key": key}, lot], registered, left
 
 
 def import_file(run: dict[str, Any]) -> dict[str, Any]:
@@ -538,6 +560,7 @@ def import_file(run: dict[str, Any]) -> dict[str, Any]:
     size = max(int(given.get("size") or 0), 1)
     limit = MAX_RECORDS_WITH_BATCHES if batches else MAX_RECORDS
     creates = Creates(inline=batches)
+    suppliers: dict[str, str] = {}
     messages = Messages()
     problems: list[str] = []
     left_out: dict[str, int] = {}
@@ -556,7 +579,7 @@ def import_file(run: dict[str, Any]) -> dict[str, Any]:
         name = _named(record, name_field)
         named_missing += bool(name_field) and not name
         try:
-            made, registered, left = _creates(record, name, file_id, parent, batches)
+            made, registered, left = _creates(record, name, file_id, parent, batches, suppliers)
         except UnreadableError as why:
             problems.append(f"{label(record, name)}: {why}.")
             if skip:

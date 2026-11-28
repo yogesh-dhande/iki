@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('iki__small_molecule', '0002_compoundbatch_name'),
+        ('iki__small_molecule', '0001_initial'),
         ('iki_entities', '0002_history_append_only'),
         ('iki_entities', '0004_search'),
         ('iki_entities', '0021_released_review_revision'),

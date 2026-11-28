@@ -1,7 +1,7 @@
 # Inventory
 
 `iki/inventory` is the storage plugin for Freezer, Shelf, Rack, Box, and the
-containers they hold. Its manifest has no plugin dependencies. Ownership is
+containers they hold, and the registry of the suppliers material comes from. Its manifest has no plugin dependencies. Ownership is
 described in [ADR 0211](../../docs/adr/0211-lots-inventory-samples-and-requests.md).
 
 ## Describe your storage
@@ -48,6 +48,18 @@ storage: { barcode: barcode, confirm: [draw] } # leave confirm off to draw witho
 
 A lab whose racks number their slots another way declares a Rack subtype with
 its own `storage.grid` labels and order. [Layouts and containers](../../docs/adr/0260-a-labs-storage-layout-and-containers-are-its-own.md)
+
+## Suppliers
+
+A **Supplier** is a company, culture collection or lab that material is bought or
+received from, registered once for every project in the registry by its name, such as
+Sigma-Aldrich, ATCC or a contract manufacturer. A lot, a reagent's catalogue pack, a
+compound batch and a cell line's catalogue entry each name one, so one search by
+supplier finds them all, whichever project they're in. Name it as its catalogue and
+certificates do, and a culture collection as Cellosaurus does (ATCC, DSMZ), so a cell
+line import can check its catalogue number. Imports that read a supplier's name, such as
+an SDF file's Supplier field, register it the same way. Whether a supplier is approved
+for GMP material is the lab's own procedure, which its own plugin adds.
 
 ## Holds
 
