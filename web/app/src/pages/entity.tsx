@@ -29,6 +29,7 @@ import {
   entityQuery,
   formatSize,
   hasIdentity,
+  inSentence,
   originsQuery,
   makingQuery,
   bundleOriginsQuery,
@@ -37,6 +38,7 @@ import {
   quantity,
   recordSearch,
   revisionQuery,
+  typeLabel,
   typesQuery,
   valueText,
   type Entity,
@@ -82,6 +84,9 @@ interface MovedState {
   from: string;
   to: string;
   repointed: Ref[];
+  /** To an entry of another type (ADR 0165): the type's label. The move made the
+   * project's record of it and archived the one it was moved from. */
+  across?: string;
 }
 
 declare module "@tanstack/react-router" {
@@ -713,13 +718,18 @@ function ImportedFrom({ origin }: { origin: Origin }) {
   );
 }
 
+const AND = new Intl.ListFormat("en", { type: "conjunction" });
+
 /** A registrar replaced the record's entry (ADR 0115): what with, and for Editors, moving
- * the record there. */
+ * the record there. An entry of another type of its identity (ADR 0165) can't be this
+ * record's: a move there makes the project's record of it, with what the two types'
+ * records share, and archives this one. */
 function Superseded({ entity }: { entity: Entity }) {
   const entry = entity.entry;
   const by = entry?.superseded;
   const navigate = useNavigate();
   const client = useQueryClient();
+  const types = useQuery(typesQuery).data;
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState("");
   const [missing, setMissing] = useState(false);
@@ -745,7 +755,18 @@ function Superseded({ entity }: { entity: Entity }) {
     setMissing(false);
     move.reset();
   };
-  const movable = entity.can.edit && !entity.archived;
+  const carries = by.carries ?? null;
+  const target = types?.find((t) => t.name === by.by.type);
+  const kind = inSentence(target?.label ?? typeLabel(types, by.by.type));
+  const carried = (carries ?? []).map((name) =>
+    inSentence(target?.fields.find((f) => f.name === name)?.label ?? name),
+  );
+  const movable = entity.can.edit && !entity.archived && !by.held;
+  const theirs = (
+    <Link to="/entities/$ref/" params={{ ref: by.by.hrid }} search={recordSearch(entity)}>
+      {project}’s record of {by.by.hrid}
+    </Link>
+  );
   return (
     <div className="alert alert-warning" role="note" aria-labelledby="superseded-title">
       <h2 className="section-title" id="superseded-title">
@@ -754,13 +775,27 @@ function Superseded({ entity }: { entity: Entity }) {
       <p>
         A registrar of the {entry.registry.name} registry replaced it on <Time value={by.at} />: “
         {by.reason}”. It can’t be registered again.
+        {carries ? ` ${by.by.hrid} is its identity registered as ${aOrAn(kind)} ${kind}.` : null}
       </p>
       <p>
-        {movable
-          ? `Move ${project}’s record to ${by.by.hrid}, so its data is under the right ID.`
-          : entity.archived
-            ? `This record is archived, so it keeps ${entry.hrid}. Restore it to move it to ${by.by.hrid}.`
-            : `An Editor in ${project} can move this record to ${by.by.hrid}.`}
+        {by.held && entity.archived ? (
+          <>
+            {theirs} took this one’s place. This one keeps its values and history under {entry.hrid}
+            .
+          </>
+        ) : by.held ? (
+          <>
+            {project} has a record of {by.by.hrid} already, so this one can’t move there: {theirs}.
+          </>
+        ) : movable && carries ? (
+          `Move ${project}’s record to ${by.by.hrid}, so its data is under the right ID. A record can’t change its type, so the move makes ${project}’s record of the ${kind} and archives this one.`
+        ) : movable ? (
+          `Move ${project}’s record to ${by.by.hrid}, so its data is under the right ID.`
+        ) : entity.archived ? (
+          `This record is archived, so it keeps ${entry.hrid}. Restore it to move it to ${by.by.hrid}.`
+        ) : (
+          `An Editor in ${project} can move this record to ${by.by.hrid}.`
+        )}
       </p>
       {movable ? (
         <div className="actions">
@@ -795,19 +830,37 @@ function Superseded({ entity }: { entity: Entity }) {
                 search: recordSearch(moved),
                 state: (prev) => ({
                   ...prev,
-                  moved: { from: entry.hrid, to: moved.hrid, repointed: moved.repointed },
+                  moved: {
+                    from: entry.hrid,
+                    to: moved.hrid,
+                    repointed: moved.repointed,
+                    ...(carries ? { across: kind } : {}),
+                  },
                 }),
               }).then(() => client.invalidateQueries({ queryKey: ENTITIES }));
             },
           });
         }}
       >
-        <p>
-          {project}’s record keeps its values, history and runs, and holds {by.by.hrid} instead of{" "}
-          {entry.hrid}. {project}’s own records that refer to {entry.hrid} will refer to{" "}
-          {by.by.hrid}, each as a new revision with your reason, even where the reference can’t
-          otherwise change.
-        </p>
+        {carries ? (
+          <p>
+            {by.by.hrid} is {aOrAn(kind)} {kind}, and a record can’t change its type. This makes{" "}
+            {project}’s record of {by.by.hrid}
+            {carried.length
+              ? `, with this record’s ${AND.format(carried)}`
+              : ", which has none of this record’s values, as the two types’ records share none"}
+            , and archives this one, which keeps its values, history and runs under {entry.hrid}.{" "}
+            {project}’s own records that refer to {entry.hrid} will refer to {by.by.hrid}, each as a
+            new revision with your reason, even where the reference can’t otherwise change.
+          </p>
+        ) : (
+          <p>
+            {project}’s record keeps its values, history and runs, and holds {by.by.hrid} instead of{" "}
+            {entry.hrid}. {project}’s own records that refer to {entry.hrid} will refer to{" "}
+            {by.by.hrid}, each as a new revision with your reason, even where the reference can’t
+            otherwise change.
+          </p>
+        )}
         <p>This can’t be undone. Other projects move their own records.</p>
         <TextField
           label="Reason"
@@ -826,6 +879,10 @@ function Superseded({ entity }: { entity: Entity }) {
   );
 }
 
+function aOrAn(word: string): string {
+  return /^[aeiou]/i.test(word) ? "an" : "a";
+}
+
 /** After a move: the record holds the new entry, and which of the project's records were
  * changed to refer to it. */
 function MovedNote({ moved, entity }: { moved: MovedState; entity: Entity }) {
@@ -835,7 +892,9 @@ function MovedNote({ moved, entity }: { moved: MovedState; entity: Entity }) {
   return (
     <div className="alert alert-success" role="status">
       <p>
-        Moved to {moved.to}: {project}’s record holds it now instead of {moved.from}.
+        {moved.across
+          ? `Moved to ${moved.to}: this is ${project}’s record of it, a new ${moved.across} record with what the two types’ records share. Its record of ${moved.from} is archived.`
+          : `Moved to ${moved.to}: ${project}’s record holds it now instead of ${moved.from}.`}
       </p>
       {moved.repointed.length ? (
         <>

@@ -48,19 +48,12 @@ PLATE = (
 
 
 def clean(page: Any) -> None:
-    """assert_clean, with axe in Chromium and WebKit: Playwright's Firefox crashes its
-    content process when axe runs on a file's page once a viewer has drawn the file. It
-    isn't the preview's markup (taking it out of the page leaves the crash), nor its worker,
-    its reads from the store or its code's loading, each tried alone on a file's page that
-    axe passes in Firefox. axe checks the DOM, which is the same in every engine; Firefox
-    still checks the policy and errors."""
-    assert_clean(page, axe_in_firefox=False)
+    """axe and the page's errors, as on every page."""
+    assert_clean(page)
 
 
 def no_errors(page: Any) -> None:
-    """No CSP violations or errors since the page opened. axe runs once a test, before it
-    finds anything by role and name: in Firefox, Playwright's role engine and then axe
-    crash the page (see assert_clean)."""
+    """No CSP violations or errors since the page opened."""
     assert page.evaluate("window.__cspViolations") == [], page.url
     assert PAGE_ERRORS[page] == [], page.url
 

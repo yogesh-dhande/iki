@@ -30,24 +30,11 @@ export type Schemas = components["schemas"];
 /** The REST API version this client speaks, matching the server's `/api/v1` prefix. */
 export const API_VERSION = "v1";
 
-/** An RFC 9457 problem: how every error under `/api/` is described. */
-export interface Problem {
-  type: string;
-  title: string;
-  status: number;
-  detail: string;
-  /** Stable, for programs: `validation_failed`, `refused`, `insufficient_scope`, … */
-  code: string;
-  /** For `validation_failed` and `hold_reason_required`: which fields, and why. A plugin's
-   * rule's (ADR 0127) names the `rule`, and whether it would `hold` the record, rather
-   * than refuse, given a `hold_reason`. */
-  errors?: {
-    detail: string;
-    pointer?: string;
-    parameter?: string;
-    rule?: string;
-    hold?: boolean;
-  }[];
+type ProblemDocument = Schemas["Problem"];
+
+/** An RFC 9457 problem: how every error under `/api/` is described. Its members are the
+ * OpenAPI document's `Problem` (ADR 0027); the rest are what particular codes carry. */
+export interface Problem extends ProblemDocument {
   /** Readable alternatives when a scan needs an explicit choice (`scan_ambiguous`). */
   candidates?: Schemas["ScanCandidateOut"][];
   /** Zero-based index of the scan that needs a choice in a submitted rack. */

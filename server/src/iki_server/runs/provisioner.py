@@ -60,7 +60,7 @@ from iki_server.runs.kubernetes import (
     job_manifest,
     secret_manifest,
 )
-from iki_server.runs.models import Job, JobState, Launch, LaunchState, not_waiting_for_scan
+from iki_server.runs.models import HELD, Job, JobState, Launch, LaunchState, not_waiting_for_scan
 from iki_spec.compute import Template
 from iki_spec.model import Resources, action_from_dict
 
@@ -391,7 +391,7 @@ def warm(provisioners: tuple[str, ...] = PROVISIONERS) -> dict[GroupKey, Group]:
 def _free(provisioners: tuple[str, ...]) -> QuerySet[Launch]:
     """Machines that can take a job now or once they start: one starting, or a persistent
     one with nothing to do."""
-    held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=queue.HELD)
+    held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=HELD)
     ever = Job.objects.filter(worker__launch=OuterRef("pk"))
     return (
         Launch.objects.exclude(state=LaunchState.ENDED)
@@ -754,7 +754,7 @@ def whose(launch: Launch) -> dict[str, str | None]:
     one's for all its life, a persistent one's while it holds the job."""
     jobs = Job.objects.filter(worker__launch=launch, packed_into__isnull=True)
     if not launch.once:
-        jobs = jobs.filter(state__in=queue.HELD)
+        jobs = jobs.filter(state__in=HELD)
     job = (
         jobs.exclude(started_at=None).select_related("run__project").order_by("-started_at").first()
     )
@@ -879,7 +879,7 @@ def stop_idle(
     """Stops persistent machines with nothing to do that aren't needed: ones started before
     their template, or how Iki starts run pods, changed, and ones idle for their template's
     ``idle_shutdown`` beyond its ``min_warm``. Returns how many."""
-    held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=queue.HELD)
+    held = Job.objects.filter(worker__launch=OuterRef("pk"), state__in=HELD)
     last = (
         Job.objects.filter(worker__launch=OuterRef("pk"), finished_at__isnull=False)
         .order_by("-finished_at")

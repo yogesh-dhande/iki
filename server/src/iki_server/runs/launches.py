@@ -204,7 +204,7 @@ def stop_if_idle(launch: Launch, reason: str, message: str) -> bool:
     """Ends a persistent machine's launch if its worker has no job, as :func:`end` does.
     Returns whether it did. A lease locks the launch too, so the worker can't take a job
     while this decides."""
-    from iki_server.runs.queue import HELD
+    from iki_server.runs.models import HELD
 
     with transaction.atomic():
         locked = Launch.objects.select_for_update().get(pk=launch.pk)

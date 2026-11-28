@@ -1056,7 +1056,14 @@ export function MoveDialog({
             />
           ) : null}
           {planned ? (
-            <div className="table-scroll">
+            // A narrow dialog scrolls the plan across, by keyboard too.
+            <div
+              className="table-scroll"
+              // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region
+              tabIndex={0}
+              role="group"
+              aria-label="What moving them does"
+            >
               <table className="table move-plan">
                 <caption>What moving them does</caption>
                 <thead>

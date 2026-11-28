@@ -231,11 +231,25 @@ class ImportOutside(Schema):
     first: list[OutsideRef] = Field(description=f"The first {imports.OUTSIDE_SHOWN}.")
 
 
+class ImportSigningKey(Schema):
+    key: str = Field(description="The Ed25519 public key, as signatures name it.")
+    deployment: str = Field(description="The deployment it signs for, as the bundle says.")
+    source: bool = Field(
+        description="Whether that's the deployment the bundle is from; otherwise one it vouches "
+        "for."
+    )
+
+
 class ImportPlan(Schema):
     counts: ImportCounts
     types: list[ImportType]
     files: ImportFiles
     outside: ImportOutside
+    signing_keys: list[ImportSigningKey] = Field(
+        description="The signing keys it brings that this deployment doesn't trust yet: "
+        "importing trusts each for the signatures it brings, and records it in the audit log. "
+        "None can sign for this deployment.",
+    )
     problems: list[str] = Field(description="What keeps it from being applied.")
     applicable: bool = Field(description="Whether it can be applied as planned.")
 

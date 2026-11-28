@@ -272,7 +272,10 @@ A record's request is:
 - **Values are given as the API gives them,** at the record's revision.
 - **A reference role holds the referenced record's fields, one step deep.**
   The referenced record is read as it was while this revision was the
-  record's latest, as ADR 0171 reads a plasmid's sequence.
+  record's latest, as ADR 0171 reads a plasmid's sequence. Its own
+  references are as the API gives them to the requester: each to a record
+  they can't read is `"unreadable"`, so the writer is never given an ID they
+  couldn't see.
 - **A reference the requester can't read is left out and named in
   `withheld`.** Iki adds its own note for it, so the file is never silently
   short. A writer that can't do without it refuses the record, as the Tecan
@@ -315,6 +318,11 @@ behind most of this year's advisories.
 | concurrent exports per pod | 4                                      | `busy`, then 503 with `Retry-After`    |
 
 A deployment may lower any of these, and may raise fuel and the wall clock.
+The chart's `sandbox.limits` sets them (2026-11-27): the server reads them as
+`IKI_EXPORT_*` settings and sends any that differ from Iki's in each
+export's header, the child refuses a header that raises a limit other than
+fuel, and the launcher's `--max-deadline` is the longest deadline the server
+gives.
 A plugin may ask only for less memory than the cap. Fuel is deterministic:
 the same call runs out at the same instruction on every host. The wall
 clock is a backstop for the host side, and it can only fail an export. It

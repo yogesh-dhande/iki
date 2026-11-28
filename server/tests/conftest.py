@@ -119,6 +119,42 @@ def _watch_browser_click_stability(
     finish(request.config.rootpath, request.node.nodeid, browser.browser_type.name, records)
 
 
+#: Firefox before 163 writes through a null pointer, crashing the page's content process, when
+#: an element's reflected ARIA element property (`ariaLabelledByElements`, say) is read in one
+#: JavaScript world after another has read it unchanged (Mozilla bug 2090055). Playwright's
+#: locators and expectations read it in their own world; axe, run by `page.evaluate`, reads it
+#: in the page's. So the page's world goes without it, as in a browser that doesn't reflect
+#: them: axe then reads the attributes, which the app sets (it never sets these properties).
+ONE_WORLD_READS_ARIA_ELEMENTS = """
+for (const name of [
+  "ariaLabelledByElements", "ariaDescribedByElements", "ariaOwnsElements",
+  "ariaControlsElements", "ariaFlowToElements", "ariaDetailsElements",
+  "ariaErrorMessageElements",
+]) {
+  delete Element.prototype[name];
+}
+"""
+
+
+@pytest.fixture(autouse=True)
+def _firefox_reads_aria_elements_in_one_world(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if "browser" not in request.fixturenames:
+        return
+    browser: Browser = request.getfixturevalue("browser")
+    if browser.browser_type.name != "firefox":
+        return
+    new_context = browser.new_context
+
+    def one_world(**options: Any) -> "BrowserContext":
+        context = new_context(**options)
+        context.add_init_script(ONE_WORLD_READS_ARIA_ELEMENTS)
+        return context
+
+    monkeypatch.setattr(browser, "new_context", one_world)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--scale",

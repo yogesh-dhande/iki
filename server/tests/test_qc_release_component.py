@@ -24,8 +24,9 @@ SODIUM_CHLORIDE: dict[str, Any] = {
     "attribute": "Sodium chloride, dried basis",
     "method": "USP Sodium Chloride Assay",
     "unit": "%",
-    "lower": 99.0,
-    "upper": 100.5,
+    "lower": "99.0",
+    "upper": "100.5",
+    "rounding": "limit_places",
 }
 REPORT: dict[str, Any] = {
     "format": "iki/coa-evidence/v1",
@@ -47,7 +48,9 @@ REPORT: dict[str, Any] = {
             "id": "test-failed",
             "hrid": "QRT-000001",
             "revision": 1,
-            "value": 98.8,
+            # Rounded to the limits' tenths before it's compared (USP General Notices 7.20).
+            "value": 98.84,
+            "reported": "98.8",
             "outcome": "oos",
         },
         # Run under the open investigation's plan: it informs it and replaces nothing.
@@ -57,6 +60,7 @@ REPORT: dict[str, Any] = {
             "hrid": "QRT-000003",
             "revision": 1,
             "value": 98.6,
+            "reported": "98.6",
             "outcome": "oos",
             "purpose": "investigational",
             "investigation": "investigation",
@@ -68,6 +72,7 @@ REPORT: dict[str, Any] = {
             "hrid": "QRT-000002",
             "revision": 1,
             "value": 99.1,
+            "reported": "99.1",
             "outcome": "pass",
             "repeat_of": "test-failed",
         },
@@ -105,6 +110,7 @@ COA: dict[str, Any] = {
     "title": "Research certificate of analysis",
     "intended_use": "For research use. Issued on one reviewer's sign-off, not released by a "
     "quality unit.",
+    "material": {"name": "Sodium chloride", "hrid": "CMP-000001", "grade": "USP"},
     "lot": {"lot_number": "Synthetic lot A", "hrid": "GLOT-000001", "revision": 3},
     "specification": {
         "context": "Release",
@@ -115,7 +121,7 @@ COA: dict[str, Any] = {
         "source": USP,
     },
     "testing_on": "2026-11-22",
-    "results": [{**SODIUM_CHLORIDE, "value": 99.1}],
+    "results": [{**SODIUM_CHLORIDE, "reported": "99.1"}],
     "issue": {"state": "issued"},
 }
 
@@ -160,10 +166,12 @@ def test_certificate_preserves_the_original_result_and_investigation(
         expect(page.get_by_role("heading", level=2)).to_have_text("Certificate record")
         expect(page.get_by_role("status")).to_have_text("Certificate record awaiting signatures")
         expect(page.get_by_text("USP 2015 · QSV-000001 · revision 2")).to_be_visible()
-        expect(page.get_by_text("98.8 %")).to_be_visible()
+        failed = page.get_by_role("listitem").filter(has_text="QRT-000001")
+        expect(failed.get_by_text("98.84 %", exact=True)).to_be_visible()
+        expect(failed.get_by_text("98.8 %", exact=True)).to_be_visible()
         expect(page.get_by_text("Out of specification")).to_have_count(2)
         expect(page.get_by_text("QOI-000001 · revision 5", exact=True)).to_be_visible()
-        expect(page.get_by_text("99.1 %")).to_be_visible()
+        expect(page.get_by_text("99.1 %").first).to_be_visible()
         retest = page.get_by_role("listitem").filter(has_text="QRT-000003")
         expect(retest.get_by_text("QOI-000001 · revision 5 · plan revision 2")).to_be_visible()
         expect(page.get_by_text(REPORT["investigations"][0]["plan"])).to_be_visible()
@@ -209,8 +217,12 @@ def test_a_certificate_states_its_final_results_apart_from_its_evidence(
         expect(results).to_be_visible()
         # A certificate of analysis holds no evidence to show.
         expect(page.get_by_role("heading", name="Evidence")).to_have_count(0)
+        # It names the material and its grade (ICH Q7 §11.41), and states the limits as
+        # the specification does, to their last significant place.
+        expect(page.get_by_text("Sodium chloride · USP", exact=True)).to_be_visible()
+        expect(page.get_by_text("rounded to its limits' last place")).to_be_visible()
         stated = page.get_by_role("listitem").filter(has_text="99.1 %").first
-        expect(stated.get_by_text("99–100.5 %")).to_be_visible()
+        expect(stated.get_by_text("99.0–100.5 %")).to_be_visible()
         accessible(page)
         page.evaluate(
             "values => { document.querySelector('release-certificate').entity = {values}; }",

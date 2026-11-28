@@ -18,6 +18,12 @@ PREFIX = "iki/equipment."
 Record = dict[str, Any]
 
 
+def equipments(record: dict[str, Any]) -> bool:
+    """Whether a run input's record is one of this plugin's, or of a lab's subtype of one:
+    an instrument or its calibration, use or maintenance, never a measured result."""
+    return any(name.startswith(PREFIX) for name in record["types"])
+
+
 def timestamp(value: str) -> datetime:
     """Use UTC for comparisons and keep fractional seconds for the idempotence key."""
     if not RFC3339.fullmatch(value):
@@ -64,7 +70,7 @@ def record_use(run: Record) -> list[Record]:
         raise ValueError("Select a signed passing calibration for this instrument.")
     if not timestamp(criteria["performed_at"]) <= reading_time < timestamp(criteria["valid_until"]):
         raise ValueError("The selected calibration does not cover the measurement time.")
-    if result["type"].startswith(PREFIX) or result["id"] == instrument["id"]:
+    if equipments(result) or result["id"] == instrument["id"]:
         raise ValueError("Select the actual measured result.")
     at = reading_time.isoformat()
     return [
@@ -197,7 +203,7 @@ def open_case(run: Record) -> list[Record]:
         raise ValueError(
             "Select a signed out-of-tolerance calibration that says when the fault began."
         )
-    if result["type"].startswith(PREFIX) or result["id"] == values["instrument"]:
+    if equipments(result) or result["id"] == values["instrument"]:
         raise ValueError("Select the actual measured result.")
     reading_time = timestamp(run["params"]["measurement_at"])
     if reading_time < timestamp(values["suspect_since"]):

@@ -139,13 +139,17 @@ def test_iki_spec_carries_the_writer_sdk_from_its_checkout(tmp_path: Path) -> No
     crate = tmp_path / "worker" / "crates" / "iki-writer"
     (crate / "src").mkdir(parents=True)
     (crate / "Cargo.toml").write_text('[package]\nname = "iki-writer"\n')
+    (crate / "Cargo.lock").write_text("version = 4\n")
+    (crate / "iki-writer.crate.sha256").write_text(f"{'0' * 64}  iki-writer-0.1.0.crate\n")
     (crate / "build-writer.sh").write_text("#!/bin/sh\n")
     (crate / "src" / "lib.rs").write_text("//! The SDK.\n")
     (crate / "target").mkdir()
     sdk = backend().ensure_writer_sdk(project)
     assert sorted(p.relative_to(sdk).as_posix() for p in sdk.rglob("*") if p.is_file()) == [
+        "Cargo.lock",
         "Cargo.toml",
         "build-writer.sh",
+        "iki-writer.crate.sha256",
         "src/lib.rs",
     ]
     outside = tmp_path / "sdist" / "iki_spec-0.1.0"

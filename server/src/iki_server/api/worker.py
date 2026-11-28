@@ -51,6 +51,7 @@ from iki_server.runs import (
     checkpoints,
     input_files,
     launches,
+    leases,
     queue,
     setups,
     slurm,
@@ -162,9 +163,8 @@ def _out_of_scope(request: HttpRequest, exc: queue.OutOfScope) -> HttpResponse:
     )
 
 
-@api.exception_handler(setups.Stale)
-@api.exception_handler(queue.Stale)
-def _stale(request: HttpRequest, exc: queue.Stale | setups.Stale) -> HttpResponse:
+@api.exception_handler(leases.Stale)
+def _stale(request: HttpRequest, exc: leases.Stale) -> HttpResponse:
     return response(
         Problem(
             409,
@@ -319,7 +319,7 @@ def register(request: HttpRequest, payload: RegisterIn) -> Any:  # noqa: ANN401
             "id": worker.pk,
             "tier": worker.tier,
             "token": token,
-            "heartbeat_every": int(queue.HEARTBEAT_EVERY.total_seconds()),
+            "heartbeat_every": int(leases.HEARTBEAT_EVERY.total_seconds()),
             "slurm_cluster": worker.slurm_cluster,
         },
     )
@@ -630,7 +630,7 @@ def logs(request: HttpRequest, job_id: UUID, payload: LogIn) -> dict[str, int]:
         end = queue.append_log(
             _worker(request), job_id, payload.lease_token, payload.offset, payload.text
         )
-    except queue.LogGap as gap:
+    except leases.LogGap as gap:
         raise Problem(
             409,
             str(gap),
@@ -731,7 +731,7 @@ def setup_logs(request: HttpRequest, setup_id: UUID, payload: LogIn) -> dict[str
         end = setups.append_log(
             _worker(request), setup_id, payload.lease_token, payload.offset, payload.text
         )
-    except setups.LogGap as gap:
+    except leases.LogGap as gap:
         raise Problem(
             409,
             str(gap),
@@ -1076,7 +1076,7 @@ async def watch(request: HttpRequest, job_id: UUID) -> HttpResponseBase:
     while True:
         try:
             cancelled = await db(queue.cancel_requested, worker, job_id, token)
-        except queue.Stale as stale:
+        except leases.Stale as stale:
             return _stale(request, stale)
         left = deadline - loop_time()
         if cancelled or left <= 0 or waker.closing.is_set():

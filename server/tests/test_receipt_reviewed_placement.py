@@ -3,9 +3,11 @@
 from typing import Any
 
 import pytest
-from api_client import Api, seen
+from api_client import Api, problem, seen
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from test_receipt_observation_history import change, read
-from test_requests import Lab
+from test_requests import Lab, _member
 from test_storage import box, contents, errors, moved, sent_with_tubes, tube
 from test_storage import lab as lab
 
@@ -13,6 +15,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.entities import services as entities
 from iki_server.entities.models import Entity, ProjectLink
 from iki_server.notifications.models import Notification
+from iki_server.org.models import Project, ProjectRole
 from iki_server.storage.models import Event, Place
 
 pytestmark = pytest.mark.django_db
@@ -240,3 +243,107 @@ def test_next_free_receipt_placement_requires_the_current_reviewed_plan(lab: Lab
     done = api.post(path + "/complete", body, headers=reviewed)
     assert done.status_code == 200, done.content
     assert done.json()["lines"][0]["put_away"]["position"] == "A2"
+
+
+def test_the_put_away_backlog_reads_a_page_at_a_time_longest_held_first(lab: Lab) -> None:
+    """A core with a long backlog opens Storage on one page of it, not the whole queue."""
+    api = lab.api("tech")
+    request, tubes = sent_with_tubes(lab, 5)
+    opened = change(api, "POST", f"/entities/{request['id']}/receipts", status=201)
+    path = f"/receipts/{opened['id']}"
+    for line in opened["lines"]:
+        change(api, "POST", path + "/scan", code=line["code"])
+    receipt = change(api, "PATCH", path, read(api, path), handed_over_by="Courier 104")
+    change(
+        api,
+        "POST",
+        path + "/complete",
+        receipt,
+        keep_in_custody=[line["id"] for line in opened["lines"]],
+    )
+    held = Place.objects.filter(entity_id__in=[t["id"] for t in tubes])
+    expected = [str(p.pk) for p in held.order_by("custody_since", "pk")]
+    assert len(expected) == 5
+
+    queue = "/storage/awaiting-put-away"
+    walked: list[str] = []
+    cursor: str | None = None
+    while True:
+        response = api.get(queue, limit=2, **({"cursor": cursor} if cursor else {}))
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert len(body["items"]) <= 2
+        walked += [row["id"] for row in body["items"]]
+        cursor = body["next_cursor"]
+        if cursor is None:
+            break
+    assert walked == expected
+
+    # Reading a page costs the same however many rows it holds: nothing is read per row.
+    def queries(limit: int) -> int:
+        with CaptureQueriesContext(connection) as captured:
+            assert api.get(queue, limit=limit).status_code == 200
+        return len(captured)
+
+    assert queries(1) == queries(5)
+    assert api.get(queue, limit=101).status_code == 422
+
+
+def test_receiving_says_which_tubes_a_box_can_take_before_a_well_is_chosen(lab: Lab) -> None:
+    """A technician who edits two projects scans a box in the one the tubes aren't linked to:
+    each tube is refused there before completing, by the same check completing makes."""
+    api = lab.api("tech")
+    stores = Project.objects.create(team=lab.world.team, name="Cold Room", description="Boxes")
+    _member(stores, lab.users["tech"], ProjectRole.EDITOR)
+    elsewhere = box(api, stores, "Cold room shelf", 1, 4)
+    here = box(api, lab.core, "Receiving", 1, 4)
+    request, tubes = sent_with_tubes(lab, 2)
+    opened = change(api, "POST", f"/entities/{request['id']}/receipts", status=201)
+    path = f"/receipts/{opened['id']}"
+    first, second = (line["id"] for line in opened["lines"])
+    change(api, "POST", path + "/scan", code="RC000")
+    receipt = change(api, "POST", path + "/scan", code="RC001")["receipt"]
+    receipt = change(api, "PATCH", path, receipt, handed_over_by="Courier 104")
+
+    def placeable(to: Any) -> dict[str, str | None]:
+        checked = api.post(
+            path + "/put-away/placeable", {"box": to["id"]}, headers=seen(receipt["revision"])
+        )
+        assert checked.status_code == 200, checked.content
+        return {row["line"]: row["problem"] for row in checked.json()}
+
+    assert placeable(here) == {first: None, second: None}
+    refused = placeable(elsewhere)
+    assert set(refused) == {first, second}
+    for line, made in ((first, tubes[0]), (second, tubes[1])):
+        assert refused[line] == (
+            f"{made['hrid']} isn't in {elsewhere['hrid']}'s project, so it can't be kept there: "
+            "whoever reads the box reads what's in it."
+        )
+    # Completing refuses an explicitly chosen well there just the same, and changes nothing.
+    ids = [t["id"] for t in tubes]
+    before = custody_state(api, path, ids)
+    response = api.post(
+        path + "/complete",
+        {
+            "put_away": [{"line": first, "to": elsewhere["id"], "position": "A1"}],
+            "keep_in_custody": [second],
+        },
+        headers=seen(receipt["revision"]),
+    )
+    assert response.status_code == 422, response.content
+    assert custody_state(api, path, ids) == before
+    # A stale revision is refused like the preview's, and an unreadable box isn't found.
+    stale = api.post(
+        path + "/put-away/placeable", {"box": here["id"]}, headers=seen(receipt["revision"] - 1)
+    )
+    assert problem(stale, 412, "stale")
+    unnamed = api.post(path + "/put-away/placeable", {"box": here["id"]})
+    assert problem(unnamed, 428, "precondition_required")
+    secret = Project.objects.create(team=lab.world.team, name="Secret", description="Not tech's")
+    _member(secret, lab.users["editor"], ProjectRole.EDITOR)
+    hidden = box(lab.api("editor"), secret, "Not yours", 1, 1)
+    unseen = api.post(
+        path + "/put-away/placeable", {"box": hidden["id"]}, headers=seen(receipt["revision"])
+    )
+    assert unseen.status_code == 404, unseen.content

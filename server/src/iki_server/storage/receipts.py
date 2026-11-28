@@ -554,6 +554,36 @@ def preview_put_away(
     return storage.plan(user, wanted, taken_into_custody=taken)
 
 
+@transaction.atomic
+def placeable(
+    user: User, receipt: Receipt, box: Entity, *, plan_revision: int
+) -> list[tuple[ReceiptLine, str | None]]:
+    """Each accepted line, and why its record can't go in ``box`` at all, if it can't: the
+    checks completing makes, before any position is chosen, so a receiver is told before
+    choosing a well rather than refused when completing."""
+    receipt = _open(user, receipt, plan_revision)
+    lines = [
+        line
+        for line in receipt.lines.filter(removed=False).select_related("entity").order_by("id")
+        if line.outcome in RECEIVED and line.entity is not None
+    ]
+    taken = frozenset(
+        line.entity_id
+        for line in receipt.lines.filter(removed=False)
+        if line.entity_id and line.outcome in (*RECEIVED, Outcome.REJECTED)
+    )
+    planned = storage.plan(
+        user,
+        [storage.Wanted(line.entity, box) for line in lines if line.entity is not None],
+        taken_into_custody=taken,
+        placing=False,
+    )
+    return [
+        (line, p.problems[0] if p.problems else None)
+        for line, p in zip(lines, planned, strict=True)
+    ]
+
+
 def complete(
     user: User,
     receipt: Receipt,

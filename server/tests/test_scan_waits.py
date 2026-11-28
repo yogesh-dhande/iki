@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 import pytest
 from api_client import Api
+from django.utils import timezone
 from org_world import World
+from structlog.testing import capture_logs
 from test_api_entities import api_as
 from test_api_entities import patch as edit
 from test_request_ordering import ON_ARRIVAL, client_rank, ranked, ranker
@@ -22,6 +24,7 @@ from test_workflows import IMPORT_AND_WEIGH
 from test_workflows import start as start_workflow
 
 from iki_server.audit.models import AuditEvent
+from iki_server.core.ids import uuid7
 from iki_server.entities import services
 from iki_server.entities.models import Entity
 from iki_server.files import scan_state, scanner
@@ -282,6 +285,65 @@ def test_a_job_queued_before_scanning_waits_at_its_lease_and_the_sweep_releases_
     assert pod.lease().status_code == 204
     assert scan_waits.recover() == 1
     assert pod.lease().status_code == 200
+
+
+def waits_like(job: Job, n: int, **changes: Any) -> list[Job]:
+    """`n` more attempts of `job`'s run, waiting as it does unless `changes` says otherwise."""
+    fields = {f.attname: getattr(job, f.attname) for f in Job._meta.concrete_fields}
+    top = Job.objects.filter(run_id=job.run_id).count()
+    return Job.objects.bulk_create(
+        Job(**{**fields, "id": uuid7(), "attempt": top + i, **changes}) for i in range(1, n + 1)
+    )
+
+
+def test_the_sweep_releases_a_finished_wait_behind_any_number_still_being_scanned(
+    world: World,
+) -> None:
+    slow = _file(world)
+    made = launch(
+        api_as(world), world.project, {"sample": str(sample_of_lot(world, slow).pk)}, PURITY
+    )
+    assert made.status_code == 201, made.content
+    job = Job.objects.get(run_id=made.json()["id"])
+    assert job.waiting_for_scan and job.scan_wait_files == [slow.pk]
+    # More than a sweep looks at wait for a long scan, each since before the other.
+    waits_like(job, 500)
+    done = _file(world, "done.pdb")
+    clean(done)
+    (finished,) = waits_like(job, 1, scan_wait_files=[done.pk], scan_wait_started_at=timezone.now())
+    assert scan_waits.recover() == 1
+    finished.refresh_from_db()
+    assert not finished.waiting_for_scan
+    assert Job.objects.filter(run=job.run, scan_wait_ended_at__isnull=True).count() == 501
+
+
+def test_a_wait_the_sweep_cant_end_doesnt_keep_the_others_waiting(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    file = _file(world)
+    made = launch(
+        api_as(world), world.project, {"sample": str(sample_of_lot(world, file).pk)}, PURITY
+    )
+    assert made.status_code == 201, made.content
+    job = Job.objects.get(run_id=made.json()["id"])
+    (later,) = waits_like(job, 1, scan_wait_started_at=timezone.now())
+    with patch.object(scan_waits, "any_waiting", return_value=False):
+        clean(file)
+    check = scan_waits._check
+
+    def check_or_fail(waiting: Job) -> bool:
+        if waiting.pk == job.pk:
+            raise RuntimeError("a bug in ending this one")
+        return check(waiting)
+
+    monkeypatch.setattr(scan_waits, "_check", check_or_fail)
+    with capture_logs() as logs:
+        assert scan_waits.recover() == 1
+    later.refresh_from_db()
+    job.refresh_from_db()
+    assert not later.waiting_for_scan and job.waiting_for_scan
+    (failed,) = [e for e in logs if e["event"] == "scan_wait_check_failed"]
+    assert failed["job"] == str(job.pk) and failed["log_level"] == "error"
 
 
 def test_a_run_reuses_nothing_before_its_files_are_scanned(

@@ -70,8 +70,12 @@ downloads each file the inputs hold into `inputs/`, under a name made safe
 for the file system, and checks its size and SHA-256; a mismatch fails the
 attempt. Afterwards, each `{"$file": "…"}` in `output.json` is uploaded
 the way the web app uploads, in parts, and replaced with the new file's
-ID. Its path must resolve, symlinks and all, to a file inside `out/`, so a
-command can't upload what it shouldn't, such as the worker's state.
+ID. Its path must name a regular file inside `out/`, with no `..` and no
+symbolic link anywhere along it, so a command can't upload what it
+shouldn't, such as the worker's state. The worker opens each file once,
+one directory at a time, and hashes and uploads it from that one open
+file: whatever is renamed afterwards, what it sends is what the command
+wrote.
 
 **Ending:** if the command exits 0, the worker reads `output.json` (a JSON
 object of at most 2.5 MB), uploads its files and reports it. Otherwise, or if `output.json`

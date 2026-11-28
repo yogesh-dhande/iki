@@ -17,6 +17,7 @@ import pytest
 from api_client import problem
 from django.utils import timezone
 from org_world import World, build_world
+from structlog.testing import capture_logs
 from test_api_entities import api_as
 from test_container_tier import FakeCluster, register, rewrite_compute
 from test_run_results import done, output
@@ -580,6 +581,80 @@ def test_a_setup_whose_worker_went_away_fails(world: World) -> None:
     assert setups.recover_expired() == 1
     ended = SetupBuild.objects.get(pk=build["id"])
     assert (ended.state, ended.error["code"]) == (SetupState.FAILED, "worker_lost")  # type: ignore[index]
+
+
+def test_an_overdue_setup_is_ended_however_many_long_ones_are_within_their_timeout(
+    world: World,
+) -> None:
+    build = ask(world)
+    approve(world, build)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = setup_pod(cluster)
+    worker = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    worker.lease()
+    running = SetupBuild.objects.get(pk=build["id"])
+    # More than a pass looks at, each started before it, and none of them due: other
+    # versions of the same volumes, each with a day to fill them.
+    fields = {f.attname: getattr(running, f.attname) for f in SetupBuild._meta.concrete_fields}
+    started = timezone.now() - timedelta(minutes=10)
+    SetupBuild.objects.bulk_create(
+        SetupBuild(
+            **{
+                **fields,
+                "id": uuid7(),
+                "hrid": f"SETUP-9{n:05}",
+                "version": running.version + n,
+                "started_at": started,
+                "timeout": 86400,
+                "lease_token": uuid7(),
+                "lease_expires_at": timezone.now() + timedelta(minutes=1),
+            }
+        )
+        for n in range(1, 102)
+    )
+    SetupBuild.objects.filter(pk=build["id"]).update(
+        started_at=timezone.now() - timedelta(seconds=running.timeout + 6 * 60)
+    )
+    assert setups.recover_expired() == 1
+    ended = SetupBuild.objects.get(pk=build["id"])
+    assert (ended.state, ended.error["code"]) == (SetupState.TIMED_OUT, "timed_out")  # type: ignore[index]
+    assert SetupBuild.objects.filter(state=SetupState.RUNNING).count() == 101
+
+
+def test_a_setup_recovery_cant_end_doesnt_keep_the_others_from_ending(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    build = ask(world)
+    approve(world, build)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = setup_pod(cluster)
+    worker = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    worker.lease()
+    lost = SetupBuild.objects.get(pk=build["id"])
+    fields = {f.attname: getattr(lost, f.attname) for f in SetupBuild._meta.concrete_fields}
+    broken = SetupBuild.objects.create(
+        **{**fields, "id": uuid7(), "hrid": "SETUP-900001", "version": lost.version + 1}
+    )
+    # The broken one's worker went away first, so it's the first a pass ends.
+    now = timezone.now()
+    SetupBuild.objects.filter(pk=broken.pk).update(lease_expires_at=now - timedelta(minutes=1))
+    SetupBuild.objects.filter(pk=lost.pk).update(lease_expires_at=now - timedelta(seconds=1))
+    end = setups._end
+
+    def end_or_fail(build: SetupBuild, *args: Any) -> None:
+        if build.pk == broken.pk:
+            raise RuntimeError("a bug in ending this one")
+        end(build, *args)
+
+    monkeypatch.setattr(setups, "_end", end_or_fail)
+    with capture_logs() as logs:
+        assert setups.recover_expired() == 1
+    assert SetupBuild.objects.get(pk=lost.pk).state == SetupState.FAILED
+    assert SetupBuild.objects.get(pk=broken.pk).state == SetupState.RUNNING
+    (failed,) = [e for e in logs if e["event"] == "setup_recovery_failed"]
+    assert failed["build"] == str(broken.pk) and failed["log_level"] == "error"
 
 
 def test_a_setup_reaches_only_the_hosts_its_environment_lists(world: World) -> None:

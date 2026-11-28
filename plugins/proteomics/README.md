@@ -29,7 +29,13 @@ Recent DIA-NN releases write the main report as Apache Parquet. The importer
 reads the tab-separated form only and refuses a Parquet file, saying so:
 convert the report to TSV with its column names unchanged, and keep the Parquet
 original with the dataset's files. FragPipe spectrum-match and ion tables are a
-different identification level and are refused. DIA-NN group quantities come from target precursor rows. mzTab
+different identification level and are refused, as is its modified peptide table
+(`combined_modified_peptide.tsv`, one row per modified form of a peptide).
+MaxQuant's other tables with sequences and proteins are refused too, naming the
+table: `msms.txt` and `msmsScans.txt` (one row per MS/MS scan), `allPeptides.txt`
+(one per MS1 feature) and `modificationSpecificPeptides.txt`. Read as
+`evidence.txt`, each scan would count as a precursor. DIA-NN group quantities come from target precursor rows, including
+DIA-NN 2's `PG.TopN`. mzTab
 calculation errors are shown as NaN, distinct from missing values and numeric
 zero. MaxQuant uses zero for unquantified Intensity, LFQ intensity and iBAQ
 values. Iki displays those values as missing and retains the original reports.
@@ -38,7 +44,12 @@ The result keeps the original quantity column names and search-engine scores,
 pins the dataset revision and records the raw-file references. The action
 stages the selected reports and writes their normalized rows to the
 `identifications.jsonl` run artifact. On the result tab, mzTab PSMs are counted
-once per PSM ID per report. Peptides are counted by sequence and modifications.
+once per PSM ID per report, wherever in the file a PSM's rows for its other
+accessions are. Peptides are counted by sequence and modifications. A report may
+have up to 10,000,000 distinct PSMs and peptides, which an uncompressed report of
+the largest size, 1 GiB, can't exceed; a larger compressed one is refused with a
+message. Iki keeps a fixed-size digest of each, so the largest report imports in
+about 300 MiB.
 The preview combines accessions for these repeated identifications, while the
 artifact keeps each reported observation. Counts show target identifications
 and separate totals for flagged evidence. The preview shows decoy,
@@ -71,4 +82,7 @@ peptide-spectrum matches from the [HUPO-PSI example export for PRIDE 16649](http
 The [published study](https://doi.org/10.1074/mcp.M110.005413) lists the legacy
 PRIDE accessions where it deposited its spectra. The fixture keeps the
 protein assay quantities and reported identifiers exactly as exported.
-The native table tests for the other engines use labelled synthetic rows.
+The other engines' tests read their own tables: MaxQuant 1.6.17's `txt` folder,
+FragPipe 22.0's and 23.1's reports and a DIA-NN 1.8 main report, each from a public
+repository, with DIA-NN 2's documented columns. `tests/data/README.md` names each
+source. Edge cases use labelled synthetic rows.

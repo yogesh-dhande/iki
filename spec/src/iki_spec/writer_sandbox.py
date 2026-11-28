@@ -293,6 +293,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=8090)
     parser.add_argument("--health-port", type=int, default=8091)
     parser.add_argument("--concurrency", type=int, default=4)
+    parser.add_argument(
+        "--max-deadline",
+        type=float,
+        default=MAX_DEADLINE,
+        help="the longest, in seconds, any export may run, whatever its header asks for",
+    )
     parser.add_argument("--modules", type=Path, default=IMAGE)
     parser.add_argument("--host", default="0.0.0.0")  # noqa: S104 - the pod's own address
     args = parser.parse_args(argv)
@@ -300,7 +306,14 @@ def main(argv: list[str] | None = None) -> int:
     health = ThreadingHTTPServer((args.host, args.health_port), _Health)
     threading.Thread(target=health.serve_forever, daemon=True, name="health").start()
     threading.Thread(target=_check, args=(args.modules,), daemon=True, name="verify").start()
-    with Sandbox((args.host, args.port), modules=args.modules, concurrency=args.concurrency) as box:
+    if args.max_deadline <= 0:
+        parser.error("--max-deadline is a number of seconds above 0.")
+    with Sandbox(
+        (args.host, args.port),
+        modules=args.modules,
+        concurrency=args.concurrency,
+        max_deadline=args.max_deadline,
+    ) as box:
 
         def stop(_signal: int, _frame: object) -> None:
             # Take no more exports; serve_forever returns, and the ones running finish.

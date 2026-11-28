@@ -771,20 +771,18 @@ class AwaitingPutAwayOut(RefOut):
     summary="Received material awaiting a storage location",
 )
 def list_awaiting_put_away(request: HttpRequest, params: Query[PageParams]) -> dict[str, Any]:
-    """Matched and damaged records you can read that are still in custody without a
-    location, longest held first."""
+    """Matched and damaged records you can read that are still in custody without a location,
+    longest held first, a page at a time."""
     me = caller(request)
-    found = page_by(receipts.awaiting_put_away(me), params, by=("custody_since", "pk"))
-    places = found["items"]
+    result = page_by(receipts.awaiting_put_away(me), params, by=("custody_since", "pk"))
+    places = result["items"]
     refs = _refs(me, [p.pk for p in places])
-    return {
-        **found,
-        "items": [
-            {**refs[p.pk], "id": p.pk, "custodian": p.custodian, "custody_since": p.custody_since}
-            for p in places
-            if p.pk in refs
-        ],
-    }
+    result["items"] = [
+        {**refs[p.pk], "id": p.pk, "custodian": p.custodian, "custody_since": p.custody_since}
+        for p in places
+        if p.pk in refs
+    ]
+    return result
 
 
 class CheckedOutOut(StepOut):
@@ -1416,6 +1414,43 @@ def preview_receipt_placement(
         )
     )
     return _previewed(me, planned)
+
+
+class ReceiptBoxIn(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    box: str = Field(max_length=200, description="The box's ID, HRID or label.")
+    box_mode: scan_identity.ScanMode = Field(default_factory=lambda: "label")
+    box_choice: UUID | None = None
+
+
+class PlaceableLineOut(Schema):
+    line: UUID
+    problem: str | None = Field(
+        description="Why its record can't be put in the box at all; null if it can."
+    )
+
+
+@router.post(
+    "/receipts/{receipt_id}/put-away/placeable",
+    response=list[PlaceableLineOut],
+    summary="Which of a receipt's accepted lines can go in a box",
+    openapi_extra=preconditions.changes(tagged=False),
+)
+def receipt_placeable(
+    request: HttpRequest, receipt_id: UUID, payload: ReceiptBoxIn, if_match: IfMatch = None
+) -> list[dict[str, Any]]:
+    """Each matched or damaged line, and why it can't be put in the box if it can't, whatever
+    the well: archived, a type the box doesn't hold, or a project the box's readers don't
+    read, for the receipt's revision you reviewed (If-Match). Completing checks the same
+    again."""
+    me = caller(request)
+    receipt = _receipt(me, receipt_id)
+    expected = preconditions.expected(if_match)
+    index = scan_identity.ScanIndex(me, [payload.box])
+    box = _destination(index, payload.box, mode=payload.box_mode, choice=payload.box_choice)
+    checked = _receiving(lambda: receipts.placeable(me, receipt, box, plan_revision=expected))
+    return [{"line": line.pk, "problem": problem} for line, problem in checked]
 
 
 @router.post(

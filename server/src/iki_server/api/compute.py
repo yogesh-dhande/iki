@@ -30,6 +30,7 @@ from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_server.runs import catalog, overview, queue, slurm, workers
 from iki_server.runs.models import (
+    HELD,
     MAX_LABELS,
     TIERS,
     ActionRun,
@@ -40,7 +41,6 @@ from iki_server.runs.models import (
     SlurmAccount,
     Worker,
 )
-from iki_server.runs.queue import HELD
 from iki_spec import releases
 from iki_spec.compute import ImageBinding, Template
 

@@ -142,6 +142,13 @@ async def call(
     return parsed
 
 
+def _where(error: dict[str, Any]) -> str:
+    """Where an error is: a query or path parameter by name, a body field by pointer."""
+    if error.get("parameter"):
+        return f"parameter {error['parameter']}"
+    return str(error.get("pointer", "#"))
+
+
 def problem_text(status: int, problem: Any) -> str:  # noqa: ANN401 - JSON
     """A problem as an agent reads it: what was wrong, and where."""
     if not isinstance(problem, dict):
@@ -150,7 +157,7 @@ def problem_text(status: int, problem: Any) -> str:  # noqa: ANN401 - JSON
     code = problem.get("code")
     lines[0] += f" ({status}{', ' + code if code else ''})"
     lines += [
-        f"- {error.get('pointer', '#')}: {error.get('detail', '')}" + _rule(error)
+        f"- {_where(error)}: {error.get('detail', '')}" + _rule(error)
         for error in problem.get("errors") or []
         if isinstance(error, dict)
     ]

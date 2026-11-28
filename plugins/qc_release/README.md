@@ -25,16 +25,23 @@ Set `certificate_issuer` to the manufacturer's name, address and telephone, as e
 certificate states them (ICH Q7 §11.43). A regulated certificate can't be prepared without
 it.
 
-Register the material and a physical lot with its lot number. Create a **Specification
-schedule** for the material in each **context** the lab specifies it for. The default is
-`Release`; others might be `Shelf life`, a market or a product grade (ICH Q6A §2.2). Each
-context has its own versions and effective dates, and a project has one schedule per
-material and context. Create a **Specification version** in that schedule with an
-effective date, a controlled source, and one criterion per attribute. Every criterion names
-its method and its kind of result (ADR 0244):
+Register the material, with its name, and a physical lot with its lot number. Create a
+**Specification schedule** for the material in each **context** the lab specifies it for.
+The default is `Release`; others might be `Shelf life`, a market or a product grade (ICH
+Q6A §2.2). Each context has its own versions and effective dates, and a project has one
+schedule per material and context. Where the material is released as a grade, such as
+USP or Reagent grade, give the schedule its **Grade**. The certificate states the
+material's name and grade (ICH Q7 §11.41). Create a **Specification version** in that
+schedule with an effective date, a controlled source, and one criterion per attribute.
+Every criterion names its method and its kind of result (ADR 0244):
 
 - A **numeric** criterion has a reporting unit and an inclusive lower limit, upper limit or
-  both, such as an assay of 99.0–100.5%.
+  both, such as an assay of 99.0–100.5%. Enter each limit as the specification states it,
+  to its last significant place: `99.0`, not `99`. A result is rounded to the limits'
+  last place before it's compared, looking only at the next digit, 5 or more rounding up
+  (USP General Notices 7.20). So 98.96% meets 99.0–100.5% as 99.0%, and 98.94% is 98.9%,
+  out of specification. A range's two limits are stated to the same place. A criterion
+  whose specification compares results unrounded says so in **Compared as**.
 - A **conforms** criterion states its requirement, such as `Meets the requirements` for an
   identification test or `White crystalline powder` for appearance. It has no limits or
   unit. ICH Q6A lists such tests beside quantitative ones.
@@ -64,7 +71,9 @@ tested under. The deployment's `successor_effective_dates` setting says how soon
    any lot type works; a strain isolate is its own material. The action selects the most
    recent approved, published version effective on that date. The case retains its lot number and the schedule and version
    revisions the run read.
-2. Record each criterion's value with its declared method and unit. For a conforming
+2. Record each criterion's value with its declared method and unit, unrounded. The test
+   keeps it as measured, and keeps the reportable value its limits were compared with
+   beside it (21 CFR 211.194(a)). For a conforming
    criterion, say whether it conforms instead, and describe what was seen. Iki records a
    result that does not conform as out of specification, like a number outside its limits,
    and opens its investigation. For a manual observation, attach the source laboratory
@@ -104,13 +113,15 @@ tested under. The deployment's `successor_effective_dates` setting says how soon
    signed investigation. Iki checks the selections against the case's attempt sequence
    and confirms every criterion has a passing result. It then seals the case and writes
    a certificate record with two parts:
-   - **Certificate:** what the certificate states (ICH Q7 §11.4). That's the issuer, the
-     lot number with its made, retest and expiry dates, the specification, and each
-     criterion's method, limits or requirement, and final reportable result. A Research
-     certificate is titled as one and says it was issued on one reviewer's sign-off, not
-     released by a quality unit.
+   - **Certificate:** what the certificate states (ICH Q7 §11.41-11.43). That's the
+     issuer, the material's name and grade, read when the certificate is prepared, the lot
+     number with its made, retest and expiry dates, the specification, and each
+     criterion's method, limits or requirement, and final reportable result. Its issuing
+     signature dates it. A Research certificate is titled as one and says it was issued
+     on one reviewer's sign-off, not released by a quality unit.
    - **Evidence:** everything behind the certificate. That's every attempt with its
-     analyst and evidence, the full pinned criteria and each signed investigation.
+     analyst, its value as measured and its evidence, the full pinned criteria and each
+     signed investigation.
      It stays internal to the lab.
 5. Sign the certificate record through the selected flow. It's internal: it keeps the
    evidence for audit and has no export.

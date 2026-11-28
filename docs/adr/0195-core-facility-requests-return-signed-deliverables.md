@@ -1,6 +1,7 @@
 # 0195. Core facility requests return signed deliverables
 
 - Status: Accepted
+- Superseded in part by [0305](0305-a-type-is-a-kind-of-work-not-a-review-procedure.md): one Request and one Deliverable, reviewed under the procedure the service pins
 - Date: 2026-11-23
 - Updated by: [0235](0235-a-services-own-request-types-carry-its-fields.md). The production
   and sequencing fields and checks below are now the

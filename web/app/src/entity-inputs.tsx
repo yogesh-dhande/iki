@@ -475,7 +475,7 @@ function pickedLabel(picked: Picked): string {
 }
 
 /** "a protein", "a protein or a DNA sequence", "a protein, a conjugate or a compound". */
-function orList(words: string[]): string {
+export function orList(words: string[]): string {
   return new Intl.ListFormat("en", { type: "disjunction" }).format(words);
 }
 
@@ -1311,12 +1311,10 @@ function PersonInput({
   );
 }
 
-function inSentenceLabel(label: string): string {
+/** A type's label in a sentence, with its article: "a protein", "an RNA". */
+export function inSentenceLabel(label: string): string {
   const article = /^[aeiou]/i.test(label) ? "an" : "a";
-  const second = label.charAt(1);
-  const lowered =
-    second !== second.toLowerCase() ? label : label.charAt(0).toLowerCase() + label.slice(1);
-  return `${article} ${lowered}`;
+  return `${article} ${inSentence(label)}`;
 }
 
 /** A file: one uploaded from this computer, or one already in the project. In a list,
