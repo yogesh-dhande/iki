@@ -156,7 +156,7 @@ def exercise_reviews() -> None:
     application.save()
     # A newly installed plugin may advertise a recipe this server doesn't yet offer.
     # The previously applied choice remains binding for runs and direct creates.
-    with patch.dict(registry.plugins()[fit.plugin].starters, {"dose-response": "99.0.0"}):
+    with patch.dict(registry.plugins()[fit.plugin].recipes, {"dose-response": "99.0.0"}):
         starters.installed_starters.cache_clear()
         assert "dose-response" not in starters.installed_starters()
         assert plugin_settings(fit, world.project)["review_flow"] == "regulated_qc"
