@@ -252,10 +252,10 @@ class ListCurator(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     registry = models.ForeignKey(Registry, on_delete=models.CASCADE, related_name="list_curators")
-    #: The list's type, such as ``iki/lots.LotMethod``. A plugin's removal leaves the
+    #: The list's type, such as ``iki/lots.PurityMethod``. A plugin's removal leaves the
     #: appointment, which curates nothing until a list of that name is installed again.
     list_type = models.CharField(
-        max_length=112, db_comment="The list's type, such as iki/lots.LotMethod (ADR 0270)."
+        max_length=112, db_comment="The list's type, such as iki/lots.PurityMethod (ADR 0270)."
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="list_curator_of"

@@ -35,15 +35,20 @@ without numbered variable domains (an Fc, or a receptor's fused to one, which nu
 leaves as it was) is compared whole.
 
 Where the heavy chain has a constant region, it says the isotype: its residues after the
-variable domain are compared with IMGT's human constant regions (constant_regions.py).
-An isotype given that isn't the one they are is refused; one left out is theirs. A
-hybrid's (an IgG2/IgG4, say) may be given as any of its domains' subclasses, and is
-left out otherwise, as is one as near two references as each other, saying so. A chain
-that matches a human reference has a human constant region (`constant_species`). One no
-human reference matches, such as a mouse's, keeps the isotype and the species given,
-which must name each other (a mouse has IgG2a, IgG2b and IgG2c, not IgG2 or IgG4): its
-isotype is then as given, unread, saying so. An isotype given for one without its species
-is refused, since a human subclass's name on another species' chain would be a guess.
+variable domain are compared with IMGT's human constant regions, and with a rhesus
+macaque's (constant_regions.py). An isotype given that isn't the one they are is
+refused; one left out is theirs. A hybrid's (an IgG2/IgG4, say) may be given as any of
+its domains' subclasses, and is left out otherwise, as is one as near two references as
+each other, saying so. A chain that matches a human reference, and is nearer it than any
+macaque one, has a human constant region (`constant_species`). One nearer a macaque's is
+an Old World monkey's, whose species the references don't tell (a baboon's is as near a
+rhesus macaque's as a cynomolgus macaque's is): it's left out, saying so, and given as
+macaque, the isotype is read off the macaque references, as IMGT names a macaque's IGHC
+genes. One no reference matches, such as a mouse's, keeps the isotype and the species
+given, which must name each other (a mouse has IgG2a, IgG2b and IgG2c, not IgG2 or
+IgG4): its isotype is then as given, unread, saying so. An isotype given for one without
+its species is refused, since a human subclass's name on another species' chain would be
+a guess.
 """
 
 from __future__ import annotations
@@ -66,6 +71,7 @@ IGG = ("igg1", "igg2", "igg3", "igg4")
 #: The isotypes each species' constant regions have, as each names them.
 SPECIES = {
     "human": ("igg1", "igg2", "igg3", "igg4", "iga1", "iga2", "igm", "ige", "igd"),
+    "macaque": ("igg1", "igg2", "igg3", "igg4", "iga", "igm", "ige", "igd"),
     "mouse": ("igg1", "igg2a", "igg2b", "igg2c", "igg3", "iga", "igm", "ige", "igd"),
     "rat": ("igg1", "igg2a", "igg2b", "igg2c", "iga", "igm", "ige", "igd"),
     "rabbit": ("igg", "iga", "igm", "ige"),
@@ -74,6 +80,17 @@ SPECIES = {
 IGG_CLASS = {"igg1", "igg2", "igg2a", "igg2b", "igg2c", "igg3", "igg4", "igg"}
 ALL_ISOTYPES = {isotype for found in SPECIES.values() for isotype in found}
 ISOTYPES = {"igg": IGG_CLASS, "fab": ALL_ISOTYPES, "other": ALL_ISOTYPES}
+#: The classes whose subunits polymerize, joined by disulfides between their heavy chains,
+#: with a J chain in an IgM pentamer or an IgA dimer: how many subunits each makes. An IgM
+#: is a pentamer of five subunits or a hexamer of six (Hiramoto et al., Sci Adv
+#: 4:eaau1199, 2018), and a hexamer has no J chain (Wiersma et al., J Immunol
+#: 160:5979-5989, 1998: pentamers are made with or without one, hexamers without); an IgA
+#: is a monomer, or a dimer or higher polymer with its J chain (Kumar et al., Science
+#: 367:1008-1014, 2020, whose structures are of dimers, tetramers and pentamers).
+POLYMERS = {
+    "igm": (1, 5, 6),
+    **dict.fromkeys(("iga", "iga1", "iga2"), (1, 2, 3, 4, 5)),
+}
 #: Fewer residues than this after a variable domain aren't a constant domain.
 CONSTANT_DOMAIN = 90
 #: A heavy chain constant region's domains, in order; those of its Fc; and those an IgG's
@@ -190,20 +207,25 @@ def _check_chains(
         )
 
 
-def _region(form: str, heavy: dict[str, Any]) -> tuple[constant_regions.Call, bool] | None:
+def _region(
+    form: str, heavy: dict[str, Any], species: str | None
+) -> tuple[constant_regions.Call, bool] | None:
     """What the heavy chain's constant region is, if it may have one, and whether the
     chain was compared whole: its residues after its last variable domain, or, for a
     format `other` chain without numbered domains (an Fc, or a fusion to one), all of it.
-    None when it has no constant region."""
+    It's read as the species given's, where there are references for it, and as a
+    human's otherwise. None when it has no constant region."""
     if form in VARIABLE_ONLY:
         return None
+    as_species = species if species in constant_regions.SPECIES_REFERENCES else "human"
     sequence = heavy["values"]["sequence"].removesuffix("*")
     domains = _domains(heavy)
     if domains is None:
-        return (constant_regions.call(sequence), True) if form == "other" else None
+        return (constant_regions.call(sequence, as_species), True) if form == "other" else None
     if _after(heavy, domains) < CONSTANT_DOMAIN:
         return None
-    return constant_regions.call(sequence[max(int(d["end"]) for d in domains) :]), False
+    constant = sequence[max(int(d["end"]) for d in domains) :]
+    return constant_regions.call(constant, as_species), False
 
 
 def _listed(names: list[str]) -> str:
@@ -215,10 +237,10 @@ def _check_domains(
 ) -> None:
     """That a Fab's or an IgG's heavy chain has the constant domains its format says: a
     Fab's CH1, perhaps with some of the hinge, and no Fc (CH2 or CH3); an IgG's all of
-    CH1, CH2 and CH3. Read off how the constant region aligns with the human reference
-    nearest it, whether or not it's that isotype (a mouse's aligns with a human one domain
-    by domain); one too unlike every human reference for its domains to be told is
-    refused, as its format can't be checked. Raises :class:`RefusedError`."""
+    CH1, CH2 and CH3. Read off how the constant region aligns with the reference nearest
+    it, whether or not it's that isotype (a mouse's aligns with a human one domain by
+    domain); one too unlike every reference for its domains to be told is refused, as its
+    format can't be checked. Raises :class:`RefusedError`."""
     if form not in ("fab", "igg") or region is None:
         return
     found, _ = region
@@ -226,7 +248,8 @@ def _check_domains(
     name = constant_regions.NAMES[nearest.isotype]
     if not found.homologous:
         raise RefusedError(
-            f"{_label(heavy)}'s constant region is too unlike every human one for its domains "
+            f"{_label(heavy)}'s constant region is too unlike every {found.species} one for "
+            "its domains "
             f"to be told (the nearest, {name}'s, is {nearest.identity:.1%} identical), so "
             f"whether it's {_noun(form)}'s can't be checked: choose other, with its copies."
         )
@@ -236,7 +259,7 @@ def _check_domains(
         f"{_label(heavy)}'s constant region has {name}'s {_listed(present)}"
         if found.isotypes
         else f"{_label(heavy)}'s constant region aligns with {name}'s {_listed(present)}, "
-        f"the nearest human one's ({nearest.identity:.1%} identical)"
+        f"the nearest {found.species} one's ({nearest.identity:.1%} identical)"
     )
     if form == "fab" and fc:
         whole = all(found.covers(d) for d in WHOLE)
@@ -265,8 +288,84 @@ def _check_domains(
             )
 
 
+def _check_polymer(
+    form: str,
+    params: dict[str, Any],
+    heavy: dict[str, Any],
+    light: dict[str, Any] | None,
+    j_chain: dict[str, Any] | None,
+) -> int:
+    """How many subunits it has, each two heavy and two light chains, for an IgM or IgA
+    polymer of format other, and that its J chain, if it has one, is one: a protein other
+    than its heavy and light chains, not numbered as an antibody's chain. Raises
+    :class:`RefusedError`."""
+    subunits = int(params.get("subunits") or 1)
+    if j_chain is not None and subunits == 1:
+        raise RefusedError(
+            "A J chain joins a polymer's subunits: give how many it has, 5 for an IgM "
+            "pentamer or 2 for an IgA dimer, or leave the J chain out."
+        )
+    if subunits == 1:
+        return 1
+    if form != "other":
+        raise RefusedError(
+            f"An antibody of {subunits} subunits, an IgM's or an IgA's polymer, is format "
+            "other: choose other."
+        )
+    if light is None:
+        raise RefusedError(
+            "An IgM's or an IgA's subunit is two heavy and two light chains: give its light chain."
+        )
+    if params.get("copies") is not None:
+        raise RefusedError(
+            f"Its copies are its {subunits} subunits', two of each chain in each: leave copies out."
+        )
+    if j_chain is not None:
+        if j_chain["id"] in (heavy["id"], light["id"]):
+            raise RefusedError(f"{_label(j_chain)} can't be both its J chain and another chain.")
+        if _domains(j_chain):
+            raise RefusedError(
+                f"{_label(j_chain)} has a numbered antibody variable domain, so it's an "
+                "antibody's chain, not a J chain: give the J chain."
+            )
+    return subunits
+
+
+def _check_polymer_isotype(subunits: int, isotype: str | None, j_chain: bool) -> None:
+    """That an antibody of more than one subunit is an IgM's or an IgA's polymer, of a
+    number of subunits its class makes. Raises :class:`RefusedError`."""
+    if subunits == 1:
+        return
+    if isotype is None:
+        raise RefusedError(
+            f"An antibody of {subunits} subunits is an IgM's or an IgA's polymer, and its "
+            "isotype wasn't read off its heavy chain: give it, with its constant region's "
+            "species if it isn't human."
+        )
+    made = POLYMERS.get(isotype)
+    if made is None:
+        raise RefusedError(
+            f"Only an IgM's or an IgA's subunits make a polymer, not an "
+            f"{constant_regions.NAMES.get(isotype, isotype)}'s: leave subunits out."
+        )
+    if subunits not in made:
+        raise RefusedError(
+            f"An {'IgM' if isotype == 'igm' else 'IgA'} has "
+            + " or ".join(str(n) for n in made)
+            + f" subunits, not {subunits}."
+        )
+    if isotype == "igm" and subunits == 6 and j_chain:
+        raise RefusedError(
+            "An IgM hexamer has no J chain, which only a pentamer takes (Wiersma et al., "
+            "1998): leave it out, or give 5 subunits."
+        )
+
+
 def assembled(
-    heavy: dict[str, Any], light: dict[str, Any] | None, params: dict[str, Any]
+    heavy: dict[str, Any],
+    light: dict[str, Any] | None,
+    params: dict[str, Any],
+    j_chain: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The antibody the chains make, as a run's output: its create, and what the run says
     of its isotype. Raises :class:`RefusedError`."""
@@ -297,32 +396,54 @@ def assembled(
             + ", ".join(i for i in SPECIES[species] if i in ISOTYPES[form])
             + "."
         )
+    subunits = _check_polymer(form, params, heavy, light, j_chain)
     _check_chains(form, heavy, light, isotype)
-    region = _region(form, heavy)
+    region = _region(form, heavy, species)
     _check_domains(form, heavy, region)
     isotype, species, messages = _isotype(form, heavy, isotype, species, region)
-    if isotype == "igm":
+    _check_polymer_isotype(subunits, isotype, j_chain is not None)
+    if subunits > 1:
+        noun = {2: "dimer", 3: "trimer", 4: "tetramer", 5: "pentamer", 6: "hexamer"}[subunits]
+        messages.append(
+            {
+                "level": "info",
+                "text": f"Its chains make {'an IgM' if isotype == 'igm' else 'an IgA'} {noun}: "
+                f"{subunits} subunits, {2 * subunits} heavy and {2 * subunits} light chains"
+                + (", and its J chain." if j_chain is not None else ", without a J chain."),
+            }
+        )
+    elif isotype == "igm":
         messages.append(
             {
                 "level": "info",
                 "text": "An IgM is secreted as a pentamer, 10 heavy chains, 10 light chains "
                 "and a J chain (Hiramoto et al., Sci Adv 4:eaau1199, 2018), or a hexamer of 12 "
-                "of each without one: this is one of its subunits, two of each. Register a "
-                "pentamer or a hexamer as a protein complex (iki/complex.ProteinComplex) of its "
-                "chains, with their copies, and its J chain.",
+                "of each without one: this is one of its subunits, two of each. For the whole "
+                "molecule, choose other and give 5 subunits, with its J chain, or 6.",
             }
         )
     name = params.get("name") or (
         f"{_label(heavy)} / {_label(light)}" if light is not None else _label(heavy)
     )
-    copies = _copies(form, params, region)
+    copies = 2 * subunits if subunits > 1 else _copies(form, params, region)
     components = [{"part": heavy["id"], "copies": copies, "role": "heavy"}]
     if light is not None:
         components.append({"part": light["id"], "copies": copies, "role": "light"})
+    if j_chain is not None:
+        components.append({"part": j_chain["id"], "copies": 1, "role": "j_chain"})
     # A subclass places its disulfides only where the chain's constant region was read as
-    # that one subclass's: not a hybrid's, nor one no human reference matches.
-    read = region is not None and len(region[0].isotypes) == 1
-    bonds, said, bond_map = _bonds(form, heavy, light, isotype if read else None, copies)
+    # that one human subclass's: not a hybrid's, a macaque's (whose hinges are other
+    # lengths), nor one no human reference matches.
+    read = region is not None and len(region[0].isotypes) == 1 and region[0].species == "human"
+    bonds, said, bond_map = _bonds(
+        form,
+        heavy,
+        light,
+        isotype if read else None,
+        copies,
+        polymer=subunits > 1,
+        joined=j_chain is not None,
+    )
     messages += said
     values: dict[str, Any] = {
         "components": components,
@@ -342,6 +463,7 @@ def assembled(
     if params.get("target"):
         values["target"] = params["target"]
     derived = [heavy["id"], *([light["id"]] if light is not None else [])]
+    derived += [j_chain["id"]] if j_chain is not None else []
     create = {"type": "iki/antibody.Antibody", "values": values, "derived_from": derived}
     return {"creates": [create], "messages": messages}
 
@@ -377,6 +499,8 @@ def _bonds(
     light: dict[str, Any] | None,
     isotype: str | None,
     copies: int,
+    polymer: bool = False,
+    joined: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], str]:
     """Its disulfides (interchain.py): those between its chains, as an IgG's subclass places
     them (each light chain to its heavy chain, and, with two heavy chains, those to each
@@ -385,7 +509,9 @@ def _bonds(
     chain's constant region was read as, or None: then only its variable domains' and its
     light chain's constant domain's are given. Between its chains, none for a format
     without a constant region, nor for `other`, whose chains may be joined any way (an Fc
-    fusion's, joined at its hinge, which aren't an antibody's)."""
+    fusion's, joined at its hinge, which aren't an antibody's), nor for an IgM's or IgA's
+    polymer, whose subunits, and its J chain, are joined by bonds these patterns don't
+    place."""
     sequence = _sequence_of(heavy)
     domains = _domains(heavy) or []
     offset = max((int(d["end"]) for d in domains), default=0)
@@ -432,6 +558,13 @@ def _bonds(
                         "it within each heavy chain instead of between them (Angal et al., "
                         "1993; Bloom et al., 1997): its bonds are its predominant form's"
                     )
+    elif polymer:
+        unknown = "its subunits are joined by bonds between their heavy chains that the "
+        unknown += (
+            "patterns don't place, as is its J chain, whose own bonds aren't given either"
+            if joined
+            else "patterns don't place"
+        )
     elif form == "other" and (light is not None or copies > 1):
         unknown = "its format is other, whose chains may be joined any way"
     pairs, gone = interchain.variable_within(
@@ -519,10 +652,36 @@ def _isotype(
     )
     said = f"{what} {found.describe()}"
     names = constant_regions.NAMES
-    if not found.isotypes:
-        if species == "human":
+    if not found.isotypes and found.nearer:
+        other = found.nearer
+        if species:
+            fix = "leave the species out" if other == "human" else f"give {other}"
             raise RefusedError(
-                f"{said}, so it isn't a human constant region: give the species it is, or "
+                f"{said}, so it isn't a {species} constant region: {fix}, or check the chain."
+            )
+        if isotype:
+            raise RefusedError(
+                f"{said}. Give its constant region species with its isotype, {isotype}: "
+                f"{other} for a rhesus or cynomolgus macaque's, whose isotype is then read "
+                "off the chain."
+            )
+        return (
+            None,
+            None,
+            [
+                {
+                    "level": "warning",
+                    "text": f"{said}. That's an Old World monkey's, whose species these "
+                    "references don't tell apart (a baboon's is as near them as a macaque's), "
+                    f"so its species and isotype are left out: give {other} for a rhesus or "
+                    "cynomolgus macaque's, and its isotype is read off the chain.",
+                }
+            ],
+        )
+    if not found.isotypes:
+        if species in constant_regions.SPECIES_REFERENCES:
+            raise RefusedError(
+                f"{said}, so it isn't a {species} constant region: give the species it is, or "
                 "check the chain."
             )
         if isotype and not species:
@@ -542,10 +701,11 @@ def _isotype(
                 ],
             )
         return None, species, [{"level": "info", "text": f"{said}, so it says no isotype."}]
-    if species and species != "human":
+    if species and species != found.species:
         raise RefusedError(
-            f"{said}, a human constant region, not a {species} one: leave the species out, or "
-            "check the chain."
+            f"{said}, a {found.species} constant region, not a {species} one: "
+            + ("leave the species out" if found.species == "human" else f"give {found.species}")
+            + ", or check the chain."
         )
     allowed = [i for i in found.isotypes if i in ISOTYPES[form]]
     if not allowed:
@@ -565,12 +725,12 @@ def _isotype(
         if isotype:
             return (
                 isotype,
-                "human",
+                found.species,
                 [{"level": "warning", "text": f"{said}. It's given as {isotype}."}],
             )
         return (
             None,
-            "human",
+            found.species,
             [
                 {
                     "level": "warning",
@@ -583,7 +743,7 @@ def _isotype(
     how = "as given" if isotype else "from its heavy chain"
     return (
         found.isotypes[0],
-        "human",
+        found.species,
         [{"level": "info", "text": f"Its isotype is {found.isotypes[0]}, {how}: {said}."}],
     )
 
@@ -592,7 +752,13 @@ def assemble(run: dict[str, Any]) -> dict[str, Any]:
     inputs = run["inputs"]
     (heavy,) = inputs["heavy_chain"]
     lights = inputs.get("light_chain") or []
-    result = assembled(heavy, lights[0] if lights else None, run.get("params") or {})
+    joining = inputs.get("j_chain") or []
+    result = assembled(
+        heavy,
+        lights[0] if lights else None,
+        run.get("params") or {},
+        joining[0] if joining else None,
+    )
     values = result["creates"][0]["values"]
     print(
         f"{values['name']}: {values['format']}"

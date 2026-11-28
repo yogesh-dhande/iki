@@ -310,6 +310,40 @@ describe("a sheet of records", () => {
     ).toBeVisible();
     expect(within(dialog).getByRole("button", { name: "Bring in the latest" })).toBeVisible();
   });
+
+  it("checks every row again when a well the check found was taken since", async () => {
+    const kd1 = sample(1, { label: "ABL1-KD-001", purity: 90 });
+    answer(`POST ${PATH}`, (request: { body: { rows: Schemas["SheetEditCheckRowIn"][] } }) => ({
+      rows: request.body.rows.map((r) => checked(r, {})),
+    }));
+    const said =
+      "Something else was put at BOX-000002 A2 since you checked: nothing was saved. Check " +
+      "the sheet again, and review where the new rows go now.";
+    answer(
+      `POST /api/v1/projects/${KINASE.id}/sheet-edits`,
+      problem(412, "stale", said, undefined, {
+        rows: [],
+        places: [{ key: "new-1", container: "box", hrid: "BOX-000002", position: "A2" }],
+      }),
+    );
+    const { user, grid } = await open([kd1]);
+    await user.click(nth(within(grid).getAllByRole("gridcell"), 2));
+    await user.keyboard("98.5{Enter}");
+    const save = screen.getByRole("button", { name: "Review and save" });
+    await waitFor(() => {
+      expect(save).not.toHaveAttribute("aria-disabled");
+    });
+    await user.click(save);
+    const dialog = screen.getByRole("alertdialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "QC");
+    const checks = calls("POST", PATH).length;
+    await user.click(within(dialog).getByRole("button", { name: "Save 1 row" }));
+    expect(await within(dialog).findByText(/BOX-000002 A2 since you checked/)).toBeVisible();
+    expect(within(dialog).queryByRole("button", { name: "Bring in the latest" })).toBeNull();
+    await waitFor(() => {
+      expect(calls("POST", PATH).length).toBeGreaterThan(checks);
+    });
+  });
 });
 
 describe("a sheet over records the table reads again", () => {

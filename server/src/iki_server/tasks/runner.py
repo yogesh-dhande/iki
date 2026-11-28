@@ -19,7 +19,7 @@ import threading
 import time
 import traceback
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -327,70 +327,42 @@ class Runner:
                 logger.exception("task_housekeeping_error")
             finally:
                 close_old_connections()
-            try:
-                # Jobs whose workers went away (ADR 0043): any runner can end them.
-                ended = runs_queue.recover_expired()
-                if ended:
-                    logger.info("jobs_recovered", count=ended)
-                # And setup builds' (ADR 0075).
-                ended = runs_setups.recover_expired()
-                if ended:
-                    logger.info("setups_recovered", count=ended)
-                # Runs whose files' scans are done, that no decision released (ADR 0234).
-                ended = runs_scan_waits.recover()
-                if ended:
-                    logger.info("scan_waits_ended", count=ended)
-            except Exception:
-                logger.exception("jobs_housekeeping_error")
-            finally:
-                close_old_connections()
-            if time.monotonic() - self.last_workflows >= WORKFLOWS_EVERY:
-                self.last_workflows = time.monotonic()
-                try:
-                    # Workflow runs whose task to move them on was lost (ADR 0079).
-                    ended = runs_workflows.recover()
-                    if ended:
-                        logger.info("workflows_recovered", count=ended)
-                except Exception:
-                    logger.exception("workflows_housekeeping_error")
-                finally:
-                    close_old_connections()
-                try:
-                    # Scheduled triggers whose time has come (ADR 0080).
-                    ticked = runs_triggers.tick()
-                    if ticked:
-                        logger.info("triggers_scheduled", count=ticked)
-                    # And firings whose task to launch their run was lost.
-                    fired = runs_triggers.recover()
-                    if fired:
-                        logger.info("triggers_recovered", count=fired)
-                except Exception:
-                    logger.exception("triggers_housekeeping_error")
-                finally:
-                    close_old_connections()
-            try:
-                # Bulk imports whose runner went away (ADR 0056).
-                moved = runs_imports.recover()
-                if moved:
-                    logger.info("imports_recovered", count=moved)
-                # And spreadsheets' previews (ADR 0178).
-                moved = spreadsheets.recover()
-                if moved:
-                    logger.info("spreadsheet_imports_recovered", count=moved)
-            except Exception:
-                logger.exception("imports_housekeeping_error")
-            finally:
-                close_old_connections()
-            if time.monotonic() - self.last_budgets >= BUDGETS_EVERY:
-                self.last_budgets = time.monotonic()
-                try:
-                    told = runs_budgets.send_alerts()
-                    if told:
-                        logger.info("budget_alerts_sent", count=told)
-                except Exception:
-                    logger.exception("budgets_housekeeping_error")
-                finally:
-                    close_old_connections()
+            self.housekeep()
+
+    def housekeep(self) -> None:
+        """One pass of the sweeps for what was left behind, which any runner may make. Each
+        runs on its own, so one that fails is logged and the rest still run."""
+        # Jobs whose workers went away (ADR 0043), and setup builds' (ADR 0075).
+        self._sweep("jobs_recovered", runs_queue.recover_expired)
+        self._sweep("setups_recovered", runs_setups.recover_expired)
+        # Runs whose files' scans are done, that no decision released (ADR 0234).
+        self._sweep("scan_waits_ended", runs_scan_waits.recover)
+        if time.monotonic() - self.last_workflows >= WORKFLOWS_EVERY:
+            self.last_workflows = time.monotonic()
+            # Workflow runs whose task to move them on was lost (ADR 0079).
+            self._sweep("workflows_recovered", runs_workflows.recover)
+            # Scheduled triggers whose time has come (ADR 0080), and firings whose task to
+            # launch their run was lost.
+            self._sweep("triggers_scheduled", runs_triggers.tick)
+            self._sweep("triggers_recovered", runs_triggers.recover)
+        # Bulk imports whose runner went away (ADR 0056), and spreadsheets' previews (0178).
+        self._sweep("imports_recovered", runs_imports.recover)
+        self._sweep("spreadsheet_imports_recovered", spreadsheets.recover)
+        if time.monotonic() - self.last_budgets >= BUDGETS_EVERY:
+            self.last_budgets = time.monotonic()
+            self._sweep("budget_alerts_sent", runs_budgets.send_alerts)
+
+    @staticmethod
+    def _sweep(done: str, sweep: Callable[[], int]) -> None:
+        """Runs one sweep, and logs how many it ended as `done`, or why it failed."""
+        try:
+            count = sweep()
+            if count:
+                logger.info(done, count=count)
+        except Exception:
+            logger.exception("housekeeping_sweep_failed", sweep=done)
+        finally:
+            close_old_connections()
 
     def _listen(self) -> None:
         """Wakes idle threads when a task is enqueued (LISTEN/NOTIFY)."""

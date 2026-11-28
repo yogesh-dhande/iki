@@ -23,7 +23,7 @@ import sys
 import time
 import webbrowser
 from collections.abc import Callable, Iterator, Sequence
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -79,11 +79,12 @@ def normalize_url(url: str) -> str:
 
 @dataclass(frozen=True)
 class Credentials:
-    """A sign-in to one deployment."""
+    """A sign-in to one deployment. Shown, it names the deployment but neither token: a
+    traceback that prints its locals, or a notebook that shows it, gives away no sign-in."""
 
     url: str
-    access_token: str
-    refresh_token: str
+    access_token: str = field(repr=False)
+    refresh_token: str = field(repr=False)
     #: When the access token expires, in seconds since the epoch.
     expires_at: float
     #: What the person allowed, space-separated: ``read write run``.

@@ -36,8 +36,12 @@ export interface MapDifference extends MapSpan {
   hgvs: string;
   kind:
     "substitution" | "deletion" | "insertion" | "duplication" | "inversion" | "deletion_insertion";
+  /** Each allele's first 200 bases. */
   reference: string;
   observed: string;
+  /** Each allele's whole length, which its first 200 bases don't say. */
+  reference_length: number;
+  observed_length: number;
   length_change: number;
   homopolymer?: number;
   features?: readonly string[];
@@ -890,11 +894,12 @@ function readsOf(difference: MapDifference) {
   return `${String(difference.support)} of ${String(difference.depth)}, ${percentOf(difference.support, difference.depth)}${strands}`;
 }
 
+/** What a difference changed: each allele's bases, or its length past a dozen. */
 function changeOf(difference: MapDifference) {
-  const shown = (bases: string, change: number) =>
-    bases.length > 12 ? `${String(bases.length + Math.max(change - bases.length, 0))} bp` : bases;
-  const was = difference.reference ? shown(difference.reference, 0) : "\u2014";
-  const now = difference.observed ? shown(difference.observed, difference.length_change) : "\u2014";
+  const shown = (bases: string, length: number) =>
+    !length ? "\u2014" : length > 12 ? `${String(length)} bp` : bases;
+  const was = shown(difference.reference, difference.reference_length);
+  const now = shown(difference.observed, difference.observed_length);
   return `${difference.kind.replace("_", "-")}: ${was} \u2192 ${now}`;
 }
 

@@ -350,25 +350,6 @@ export function entityProjectsQuery(ref: string) {
   });
 }
 
-/** Newest first, a page at a time ("Show older"). */
-export function revisionsQuery(ref: string) {
-  return infiniteQueryOptions({
-    queryKey: [...ENTITIES, "revisions", ref.toUpperCase()],
-    initialPageParam: undefined as string | undefined,
-    queryFn: async ({ pageParam, signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/entities/{ref}/revisions", {
-          params: {
-            path: { ref },
-            query: { limit: 25, ...(pageParam ? { cursor: pageParam } : {}) },
-          },
-          signal,
-        }),
-      ),
-    getNextPageParam: (last) => last.next_cursor ?? undefined,
-  });
-}
-
 /** An entity at a revision. `project` (an ID) says whose record of a registry entry: a
  * view's targets are entries, pinned in the view's own project (ADR 0115). */
 export function revisionQuery(ref: string, number: number, project?: string) {

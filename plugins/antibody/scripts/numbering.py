@@ -69,8 +69,6 @@ Bounds = tuple[int, int]
 
 #: ANARCI's numbered domains for each chain, and what it found about them.
 Answer = tuple[list[Any], list[Any]]
-#: The numbering schemes ANARCI numbers in.
-SCHEMES = ("imgt", "kabat", "chothia", "martin", "aho")
 #: Each CDR definition: the numbering its boundaries are given in, and its three CDRs for
 #: heavy (H) and light (L) domains (see the module's docstring for the sources).
 DEFINITIONS: dict[str, tuple[str, dict[str, tuple[Bounds, Bounds, Bounds]]]] = {

@@ -267,7 +267,7 @@ def test_project_stock_and_outstanding_deliveries(
         str(ORDER["hrid"]),
     )
     assert page.evaluate("document.documentElement.scrollWidth - window.innerWidth <= 1")
-    assert_clean(page, axe_in_firefox=False)
+    assert_clean(page)
     page.context.close()
 
 

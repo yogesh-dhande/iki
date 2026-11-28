@@ -72,10 +72,8 @@ SIZES = [(390, 844), (1024, 768), (768, 1024), (1440, 900)]
 
 
 def checked(page: Page) -> None:
-    """axe, as on every page. Playwright's Firefox crashes in axe on these pages, as on
-    others named by `aria-labelledby` (see assert_clean): Chromium and WebKit check them,
-    and the DOM is the same in every browser."""
-    assert_clean(page, axe_in_firefox=False)
+    """axe and the page's errors, as on every page."""
+    assert_clean(page)
 
 
 def fits(page: Page) -> None:
@@ -1762,7 +1760,7 @@ def held_by(page: Page, path: str) -> dict[str, Any]:
     out = page.request.get("/api/v1/storage/checked-out")
     waiting = page.request.get("/api/v1/storage/awaiting-put-away")
     assert receipt.ok and out.ok and waiting.ok
-    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()}
+    return {"receipt": receipt.json(), "out": out.json(), "waiting": waiting.json()["items"]}
 
 
 @pytest.mark.parametrize("color_scheme", ["light", "dark"])

@@ -27,9 +27,10 @@ fields:
     immutable: true
     label: Certificate
     description: >-
-      What its certificate of analysis will state: the issuer, the lot and its dates, the
-      specification, and each criterion's limits and final result (ICH Q7 §11.4). Failed
-      attempts, investigations and analysts stay in the evidence.
+      What its certificate of analysis will state: the issuer, the material's name and
+      grade, the lot and its dates, the specification, and each criterion's limits and
+      final reportable result (ICH Q7 §11.41-11.43). Failed attempts, investigations,
+      analysts and values as measured stay in the evidence.
   coa_digest:
     type: string
     label: Certificate SHA-256

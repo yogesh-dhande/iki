@@ -136,7 +136,7 @@ def exercise_qc() -> None:
     )
     assert material.entry_id is not None
     lot = make("iki/lots.GenericLot", of=str(material.entry_id), lot_number="Synthetic NaCl lot")
-    schedule = make(PREFIX + "SpecificationSchedule", material=str(material.entry_id))
+    schedule = make(PREFIX + "SpecificationSchedule", material=str(material.entry_id), grade="USP")
     specification = json.loads(
         (PLUGIN / "tests/data/sodium-chloride-specification.json").read_text(encoding="utf-8")
     )
@@ -169,7 +169,12 @@ def exercise_qc() -> None:
     assert control.entry_id is not None
     control_schedule = make(PREFIX + "SpecificationSchedule", material=str(control.entry_id))
     fit_method = {"attribute": "IC50", "method": "4PL-OLS/1", "unit": "nM"}
-    fit_criterion = {**fit_method, "upper": 10, "procedure": "SOP-PLATE", "procedure_revision": "2"}
+    fit_criterion = {
+        **fit_method,
+        "upper": "10",
+        "procedure": "SOP-PLATE",
+        "procedure_revision": "2",
+    }
     control_spec = make(
         PREFIX + "SpecificationVersion",
         schedule=str(control_schedule.pk),
@@ -348,7 +353,11 @@ def exercise_qc() -> None:
         ),
         "ReleaseTest",
     )
-    moisture = made(execute("record_test", inputs, **params(drying, 0.3)), "ReleaseTest")
+    # 0.54% against "NMT 0.5%" is 0.5% to the limit's tenths, which conforms (USP General
+    # Notices 7.20). The test keeps 0.54 as measured.
+    moisture = made(execute("record_test", inputs, **params(drying, 0.54)), "ReleaseTest")
+    dried = services.current_values_of([moisture])[moisture.pk]
+    assert (dried["value"], dried["reported"], dried["outcome"]) == (0.54, "0.5", "pass")
     evidence = {**inputs, "investigations": [investigation.pk]}
     _, omission = start("prepare_certificate", {**evidence, "tests": [repeat.pk, moisture.pk]})
     with pytest.raises(ValueError, match="every attempt"):
@@ -361,7 +370,7 @@ def exercise_qc() -> None:
         "QCCertificate",
     )
     report = services.current_values_of([certificate])[certificate.pk]["report"]
-    assert [test["value"] for test in report["tests"]] == [98.7, 98.6, 99.8, 0.3]
+    assert [test["value"] for test in report["tests"]] == [98.7, 98.6, 99.8, 0.54]
     assert report["investigations"][0]["plan"] == plan
     assert report["lot"]["revision"] == pinned["lot_revision"]
     assert report["lot"]["lot_number"] == pinned["lot_number"]
@@ -369,10 +378,17 @@ def exercise_qc() -> None:
     # What the certificate states: the issuer, and each criterion's final result.
     coa = services.current_values_of([certificate])[certificate.pk]["coa"]
     assert coa["issuer"] == ISSUER
-    assert [(row["attribute"], row["value"]) for row in coa["results"]] == [
-        (assay["attribute"], 99.8),
-        (drying["attribute"], 0.3),
+    assert [(row["attribute"], row["reported"]) for row in coa["results"]] == [
+        (assay["attribute"], "99.8"),
+        (drying["attribute"], "0.5"),
     ]
+    assert "value" not in coa["results"][1]
+    # It names the material it certifies, as registered (ICH Q7 §11.41).
+    assert coa["material"] | {"hrid": None} == {
+        "name": "Sodium chloride",
+        "hrid": None,
+        "grade": "USP",
+    }
     assert "intended_use" not in coa
     assert coa["specification"]["context"] == "Release"
     assert "investigations" not in coa
@@ -392,7 +408,7 @@ def exercise_qc() -> None:
     qa_view = qa_api.get(certificate_path)
     assert qa_view.json()["values"]["report"] == report
     alternative = [dict(criterion) for criterion in report["specification"]["criteria"]]
-    alternative[0]["lower"] -= 0.1
+    alternative[0]["lower"] = "98.9"
     for record, replacement, status, code in (
         (original, {"value": 99.5}, 422, "validation_failed"),
         (original, {"unit": "mg/g"}, 422, "validation_failed"),
@@ -498,11 +514,11 @@ def exercise_qc() -> None:
     assert verified(packet)
     assert json.loads(signed_proof["document"])["change"]["to"] == "released"
     edited = json.loads(downloaded.content)
-    edited["report"]["results"][0]["value"] = 101.0
+    edited["report"]["results"][0]["reported"] = "101.0"
     assert not verified(edited)
     swapped = json.loads(downloaded.content)
     content = json.loads(swapped["signatures"][0]["content"])
-    content["values"]["coa"]["results"][0]["value"] = 101.0
+    content["values"]["coa"]["results"][0]["reported"] = "101.0"
     swapped["signatures"][0]["content"] = proof.canonical(content)
     swapped["report"] = content["values"]["coa"]
     assert not verified(swapped)

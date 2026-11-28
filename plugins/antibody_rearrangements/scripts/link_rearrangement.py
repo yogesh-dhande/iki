@@ -45,6 +45,21 @@ def rows(path: Path) -> Iterator[dict[str, str]]:
                 yield dict(zip(header, cells, strict=True))
 
 
+def productive_of(row: dict[str, str], sequence_id: str) -> bool | None:
+    """The row's `productive`: True if its V(D)J is predicted to be productive, None when
+    the report leaves it empty (AIRR Rearrangement schema: a boolean, written T or F, and
+    null as an empty string). TRUE and FALSE, as some tools write them, are read too."""
+    value = (row.get("productive") or "").strip()
+    if not value:
+        return None
+    read = {"t": True, "true": True, "f": False, "false": False}.get(value.lower())
+    if read is None:
+        raise ValueError(
+            f"{sequence_id!r}'s productive is {value!r}, not T, F or empty, as AIRR writes it."
+        )
+    return read
+
+
 def locus_of(row: dict[str, str]) -> str | None:
     # Locus is nullable in AIRR. The V and J calls identify it when both are present and
     # every call shares one immunoglobulin prefix.
@@ -87,6 +102,31 @@ def link(run: dict[str, Any]) -> dict[str, Any]:
     locus = locus_of(row)
     if locus not in IG_LOCI:
         raise ValueError(f"{sequence_id!r} has no immunoglobulin locus (IGH, IGK or IGL).")
+    # A rearrangement predicted not to be productive (out of frame, or with a stop codon)
+    # can't encode a chain, unless the call is wrong: then the curator says why.
+    reason = (run["params"].get("nonproductive_reason") or "").strip() or None
+    productive = productive_of(row, sequence_id)
+    messages = []
+    if productive is False and reason is None:
+        raise ValueError(
+            f"{sequence_id!r} is predicted not to be productive (productive F: out of frame, "
+            "or with a stop codon), so it can't encode a chain: link a productive "
+            "rearrangement, or, if this one's call is wrong, give why it encodes the chain."
+        )
+    if productive is not False and reason is not None:
+        raise ValueError(
+            f"{sequence_id!r} isn't called non-productive, so there's nothing to give a "
+            "reason for: leave it out."
+        )
+    if productive is None:
+        messages.append(
+            {
+                "level": "warning",
+                "text": f"The report doesn't say whether {sequence_id!r} is productive: check "
+                "that it's in frame and without a stop codon, since only a productive "
+                "rearrangement encodes a chain.",
+            }
+        )
     pins = ("id", "revision", "entry_id", "entry_revision")
     pinned = [{key: record[key] for key in pins if key in record} for record in (result, antibody)]
     return {
@@ -102,6 +142,7 @@ def link(run: dict[str, Any]) -> dict[str, Any]:
                     "locus": locus,
                     "rearrangement": {key: row[key] for key in KEPT if row.get(key)},
                     "curator": curator,
+                    "nonproductive_reason": reason,
                     "inputs": {
                         "result": pinned[0],
                         "antibody": pinned[1],
@@ -110,6 +151,7 @@ def link(run: dict[str, Any]) -> dict[str, Any]:
                 },
             }
         ],
+        "messages": messages,
     }
 
 
