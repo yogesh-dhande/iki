@@ -397,7 +397,13 @@ def test_the_consensus_of_reads_with_aan_counts_each_as_k_or_n(tmp_path: Path) -
         )
     )
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(PLUGINS / "protein" / "scripts" / "consensus.py"), "protein"],
+        [
+            sys.executable,
+            "-E",
+            "-s",
+            str(PLUGINS / "protein" / "scripts" / "consensus.py"),
+            "protein",
+        ],
         env={
             "IKI_INPUT": str(tmp_path / "consensus.json"),
             "IKI_OUTPUT": str(tmp_path / "consensus-output.json"),
