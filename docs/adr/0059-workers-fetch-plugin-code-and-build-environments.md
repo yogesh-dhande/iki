@@ -4,6 +4,8 @@
 - Date: 2026-11-12
 - Refines: [0047](0047-workers-run-only-the-code-a-run-was-launched-with.md),
   [0058](0058-workers-on-peoples-computers-sign-in-as-them.md)
+- Extended by: [0288](0288-plugins-share-readers-from-the-runtime-each-release-ships.md), an environment that declares
+  `iki_runtime` installs the plugin runtime its release ships, by the digest of its build
 
 ## Context
 

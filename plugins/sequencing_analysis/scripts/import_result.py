@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import csv
-import gzip
 import re
 import sys
-import zlib
 from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 import iki_action as iki
+
+from iki_runtime import airr, text
 
 PREVIEW_ROWS = 12
 FORMATS = ("vcf", "counts", "airr")
@@ -27,19 +26,6 @@ AIRR_COLUMNS = [
     "j_call",
     "duplicate_count",
 ]
-IG_LOCI = {"IGH", "IGK", "IGL"}
-
-
-@contextmanager
-def report_lines(path: Path) -> Iterator[Iterable[str]]:
-    with path.open("rb") as source:
-        compressed = source.peek(2)[:2] == b"\x1f\x8b"
-    with (
-        gzip.open(path, "rt", encoding="utf-8-sig", newline="")
-        if compressed
-        else path.open(encoding="utf-8-sig", newline="")
-    ) as source:
-        yield source
 
 
 def choose_column(names: list[str], choice: str, label: str) -> str:
@@ -202,23 +188,13 @@ def count_rows(lines: Iterable[str], selector: str, output: csv._writer) -> dict
 
 def rearrangement_rows(lines: Iterable[str], selector: str, output: csv._writer) -> dict[str, Any]:
     # AIRR Rearrangement schema: https://docs.airr-community.org/en/stable/datarep/rearrangements.html
-    rows = tsv_rows(lines)
-    header = next(rows, [])
-    if len(set(header)) != len(header) or not {
-        "sequence_id",
-        "productive",
-        "v_call",
-        "j_call",
-    } <= set(header):
-        raise ValueError("Expected AIRR sequence_id, productive, v_call and j_call columns.")
+    rows = airr.rearrangements(lines, required=("sequence_id", "productive", "v_call", "j_call"))
     selected = selector or None
     output.writerow(AIRR_COLUMNS)
     seen: set[str] = set()
     preview: list[dict[str, Any]] = []
     productive = 0
-    for number, cells in enumerate(rows, 1):
-        width(cells, header, number)
-        row = dict(zip(header, cells, strict=True))
+    for number, row in enumerate(rows, 1):
         repertoire = row.get("repertoire_id", "")
         if selector and repertoire != selector:
             continue
@@ -236,17 +212,8 @@ def rearrangement_rows(lines: Iterable[str], selector: str, output: csv._writer)
         duplicates = row.get("duplicate_count") or ""
         if duplicates and not re.fullmatch(r"[0-9]{1,18}", duplicates):
             raise ValueError(f"AIRR row {number} has an invalid duplicate_count.")
-        # Locus is nullable in AIRR. The supplied V and J gene calls can
-        # identify it when both have the same unambiguous immunoglobulin prefix.
-        if not row.get("locus"):
-            prefixes = {
-                call.strip()[:3]
-                for field in ("v_call", "j_call")
-                for call in row[field].split(",")
-                if call.strip()
-            }
-            if row["v_call"] and row["j_call"] and len(prefixes) == 1 and prefixes <= IG_LOCI:
-                row["locus"] = prefixes.pop()
+        # Locus is nullable in AIRR; the V and J calls name it when they agree.
+        row["locus"] = airr.locus(row) or ""
         add_row({name: row.get(name, "") for name in AIRR_COLUMNS}, preview, output)
     if not seen:
         raise ValueError("The selected AIRR repertoire has no rearrangements.")
@@ -279,7 +246,7 @@ def result(run: dict[str, Any], artifact: Path, format_: str) -> dict[str, Any]:
     file_id = params["report"]
     report = run["files"][file_id]
     with (
-        report_lines(Path(report["path"])) as lines,
+        text.open_text(Path(report["path"])) as lines,
         artifact.open("w", encoding="utf-8", newline="") as out,
     ):
         writer = csv.writer(out, delimiter="\t")
@@ -324,4 +291,4 @@ def import_report(run: iki.Run) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    iki.main(import_report, refuse=(ValueError, OSError, EOFError, zlib.error))
+    iki.main(import_report, refuse=(ValueError, *text.UNREADABLE))

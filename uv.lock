@@ -21,6 +21,7 @@ exclude-newer-span = "P3D"
 members = [
     "iki-cli",
     "iki-codegen",
+    "iki-plugin-runtime",
     "iki-server",
     "iki-spec",
     "iki-workspace",
@@ -1286,6 +1287,11 @@ dependencies = [
 requires-dist = [{ name = "iki-spec", editable = "spec" }]
 
 [[package]]
+name = "iki-plugin-runtime"
+version = "0.1.0.dev0"
+source = { editable = "runtime" }
+
+[[package]]
 name = "iki-server"
 version = "0.1.0.dev0"
 source = { editable = "server" }
@@ -1383,6 +1389,7 @@ dev = [
     { name = "gemmi" },
     { name = "iki-cli" },
     { name = "iki-codegen" },
+    { name = "iki-plugin-runtime" },
     { name = "iki-server" },
     { name = "iki-spec" },
     { name = "ikisci", extra = ["pandas"] },
@@ -1415,6 +1422,7 @@ dev = [
     { name = "gemmi", specifier = "==0.7.5" },
     { name = "iki-cli", editable = "cli" },
     { name = "iki-codegen", editable = "codegen" },
+    { name = "iki-plugin-runtime", editable = "runtime" },
     { name = "iki-server", editable = "server" },
     { name = "iki-spec", editable = "spec" },
     { name = "ikisci", extras = ["pandas"], editable = "sdk/python" },

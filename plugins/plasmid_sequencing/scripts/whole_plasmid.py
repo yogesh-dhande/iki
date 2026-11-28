@@ -80,9 +80,11 @@ from collections import Counter
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NoReturn, TextIO
+from typing import Any, NoReturn
 
 import iki_action as iki
+
+from iki_runtime import fastq, text
 
 #: The bases each IUPAC code stands for (IUBMB, 1985,
 #: https://iupac.qmul.ac.uk/misc/naseq.html).
@@ -901,20 +903,10 @@ def spans(found: list[dict[str, int]]) -> str:
 # --- Files -------------------------------------------------------------------------------
 
 
-def opened(path: Path) -> TextIO:
-    with path.open("rb") as raw:
-        gzipped = raw.read(2) == b"\x1f\x8b"
-    return (
-        gzip.open(path, "rt", encoding="utf-8", errors="replace")
-        if gzipped
-        else path.open(encoding="utf-8", errors="replace")
-    )
-
-
 def fasta_records(path: Path) -> list[tuple[str, str]]:
     """The records of a FASTA file, gzipped or not: name and bases."""
     out: list[tuple[str, list[str]]] = []
-    with opened(path) as handle:
+    with text.open_text(path, encoding="utf-8", errors="replace", newline=None) as handle:
         for line in handle:
             if line.startswith(">"):
                 out.append(((line[1:].split() or ["consensus"])[0], []))
@@ -926,34 +918,16 @@ def fasta_records(path: Path) -> list[tuple[str, str]]:
 
 
 def count_reads(paths: list[Path]) -> int:
-    """The reads in FASTQ files, gzipped or not: each record a header (`@`), its bases on
-    one line or several, a `+` line, and as many quality characters as bases, on one line
-    or several (Cock et al. 2010, https://doi.org/10.1093/nar/gkp1137)."""
+    """The reads in FASTQ files, compressed or not, read as every Iki plugin reads FASTQ
+    (:mod:`iki_runtime.fastq`)."""
     total = 0
     for path in paths:
-        with opened(path) as handle:
-            lines = (line.rstrip("\r\n") for line in handle)
-            for header in lines:
-                if not header:
-                    continue
-                if not header.startswith("@"):
-                    fail(f"{path.name} isn't FASTQ: a record starts {header[:20]!r}.")
-                bases = 0
-                for line in lines:
-                    if line.startswith("+"):
-                        break
-                    bases += len(line.strip())
-                else:
-                    fail(f"{path.name} ends inside a record.")
-                quality = 0
-                while quality < bases:
-                    line = next(lines, None)
-                    if line is None:
-                        fail(f"{path.name} ends inside a record's qualities.")
-                    quality += len(line.strip())
-                if quality != bases:
-                    fail(f"{path.name} has a record with more qualities than bases.")
-                total += 1
+        try:
+            total += sum(1 for _ in fastq.read(path))
+        except ValueError as why:
+            fail(f"{path.name} isn't FASTQ: {why}")
+        except text.UNREADABLE as why:
+            fail(f"{path.name} can't be read: {why}")
     return total
 
 

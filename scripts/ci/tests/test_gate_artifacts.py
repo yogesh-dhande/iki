@@ -30,10 +30,16 @@ def write(root: Path, name: str, data: bytes) -> Path:
     return path
 
 
+#: scripts/build-wasm.sh also builds the plugin runtime's wheel into iki-spec (ADR 0288).
+RUNTIME = "spec/src/iki_spec/plugin_runtime/iki_plugin_runtime-0.1.0-py3-none-any.whl"
+
+
 def build_wasm(root: Path) -> None:
-    """Deliver what scripts/build-wasm.sh builds: the parser's copies and the previews."""
+    """Deliver what scripts/build-wasm.sh builds: the parser's copies, the previews and
+    the plugin runtime's wheel."""
     for name in (*PARSER_COPIES, PREVIEWS):
         write(root, name, WASM)
+    write(root, RUNTIME, b"PK")
 
 
 def run_check(root: Path, group: str) -> subprocess.CompletedProcess[str]:
@@ -82,6 +88,12 @@ def test_scale_targets_fail_before_pytest_without_wasm(
 def test_builds_modules_declared_on_this_branch(tmp_path: Path) -> None:
     build_wasm(tmp_path)
     assert run_check(tmp_path, "wasm").returncode == 0
+    runtime = tmp_path / RUNTIME
+    runtime.unlink()
+    missing_runtime = run_check(tmp_path, "wasm")
+    assert missing_runtime.returncode != 0
+    assert "plugin runtime wheel" in missing_runtime.stderr
+    write(tmp_path, RUNTIME, b"PK")
     sdk = tmp_path / "spec/src/iki_spec/iki_wasm.wasm"
     sdk.write_bytes(b"")
     missing_shared = run_check(tmp_path, "wasm")

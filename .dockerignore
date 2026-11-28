@@ -22,6 +22,13 @@
 !sdk/python/README.md
 !sdk/python/LICENSE
 !sdk/python/NOTICE
+# The plugin runtime, whose wheel the image builds (ADR 0288), not a local build's.
+!runtime/pyproject.toml
+!runtime/README.md
+!runtime/LICENSE
+!runtime/NOTICE
+!runtime/src/
+spec/src/iki_spec/plugin_runtime/*.whl
 # The web app, built into the image by its own stage.
 !package.json
 !pnpm-lock.yaml

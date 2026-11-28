@@ -14,6 +14,8 @@ git holds the Rust and each module's SHA-256 digest, and a build makes the bytes
 same build runs their scripts, each of which checks what it built against the tracked
 digest, and a checkout that cannot build them says so rather than shipping a plugin whose
 actions have no module to call.
+
+It carries the plugin runtime's wheel too (ADR 0288), built from ``runtime/`` the same way.
 """
 
 from __future__ import annotations
@@ -115,6 +117,28 @@ def ensure_writer_sdk(project: Path) -> Path:
     return target
 
 
+#: The plugin runtime's wheel (ADR 0288), which iki-spec carries for `iki deploy build` to
+#: install into the environments that declare it.
+PLUGIN_RUNTIME = Path("src", "iki_spec", "plugin_runtime")
+
+
+def ensure_plugin_runtime(project: Path) -> Path:
+    """Builds the plugin runtime's wheel into ``project`` from the checkout it's in, or,
+    outside one, checks it's there."""
+    script = project.parent / "scripts" / "build-plugin-runtime.sh"
+    if script.is_file() and (project.parent / "runtime" / "pyproject.toml").is_file():
+        subprocess.run([str(script)], check=True)  # noqa: S603 - the checkout's own script
+    found = sorted((project / PLUGIN_RUNTIME).glob("iki_plugin_runtime-*-py3-none-any.whl"))
+    if len(found) != 1 or found[0].stat().st_size == 0:
+        raise RuntimeError(
+            f"iki-spec needs one iki-plugin-runtime wheel in {PLUGIN_RUNTIME}, and has "
+            f"{len(found)}: build iki-spec from Iki's repository, where "
+            "scripts/build-plugin-runtime.sh builds it, or from a source distribution that "
+            "carries it."
+        )
+    return found[0]
+
+
 def _uv() -> Any:  # noqa: ANN401 - uv_build's module, which has no types
     """uv_build, which only the build's environment has."""
     return importlib.import_module("uv_build")
@@ -128,6 +152,7 @@ def build_wheel(
     ensure_wasm(Path.cwd())
     ensure_dna_annotation(Path.cwd())
     ensure_writer_sdk(Path.cwd())
+    ensure_plugin_runtime(Path.cwd())
     return str(_uv().build_wheel(wheel_directory, config_settings, metadata_directory))
 
 
@@ -135,6 +160,7 @@ def build_sdist(sdist_directory: str, config_settings: dict[str, Any] | None = N
     ensure_wasm(Path.cwd())
     ensure_dna_annotation(Path.cwd())
     ensure_writer_sdk(Path.cwd())
+    ensure_plugin_runtime(Path.cwd())
     return str(_uv().build_sdist(sdist_directory, config_settings))
 
 

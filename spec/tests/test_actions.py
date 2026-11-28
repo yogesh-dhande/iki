@@ -284,6 +284,48 @@ def test_provisioned_tiers_need_an_image(tmp_path: Path) -> None:
     assert "environment-needs-image" in codes(result)
 
 
+def test_a_script_that_reads_with_the_plugin_runtime_runs_where_its_installed(
+    tmp_path: Path,
+) -> None:
+    """ADR 0288: an environment Iki builds installs the plugin runtime only if it says so,
+    and a script that imports it, or imports a module beside it that does, needs that."""
+    files = {
+        "run.py": "import json\nimport reading\n",
+        "reading.py": "from iki_runtime import fastq\n",
+    }
+    message = only(make(tmp_path, ACTION, BACKEND, files=files), "runtime-not-installed")
+    assert "`run.py` imports `iki_runtime`" in message
+    assert "`tools` environment" in message
+    declared = BACKEND.replace(
+        "requirements: requirements.txt }", "requirements: requirements.txt, iki_runtime: true }"
+    )
+    loaded = make(tmp_path, ACTION, declared, files=files)
+    assert loaded.problems == []
+    assert loaded.plugin is not None
+    assert loaded.plugin.environments["tools"].iki_runtime
+    assert plugin_from_dict(plugin_to_dict(loaded.plugin)) == loaded.plugin
+    # Left out when it isn't declared, so what's stored of other plugins doesn't change.
+    plain = make(tmp_path, ACTION, BACKEND)
+    assert plain.plugin is not None
+    assert "iki_runtime" not in json.dumps(plugin_to_dict(plain.plugin))
+    # A conda environment's Python can have it too.
+    conda = BACKEND.replace(
+        'python: { version: "3.12", requirements: requirements.txt }',
+        "conda: { lockfile: conda.lock, iki_runtime: true }",
+    )
+    lock = "@EXPLICIT\nhttps://conda.anaconda.org/x/python-3.12.tar.bz2#" + "c" * 32 + "\n"
+    found = make(tmp_path, ACTION, conda, files={**files, "conda.lock": lock})
+    assert found.problems == [], found.problems
+    # An image's packages are its own: Iki can't tell, so it doesn't refuse.
+    image = action(runs_on="{ tier: container, environment: gpu }")
+    assert "runtime-not-installed" not in codes(make(tmp_path, image, GPU, files=files))
+    # It's a yes or no.
+    bad = BACKEND.replace(
+        "requirements: requirements.txt }", "requirements: requirements.txt, iki_runtime: 1.2 }"
+    )
+    assert "schema" in codes(make(tmp_path, ACTION, bad))
+
+
 def test_an_environment_can_ask_its_deployment_for_an_image(tmp_path: Path) -> None:
     env = BACKEND.replace("[backend, self_hosted]", "[backend, self_hosted, container]")
     opt_in = env + "customer_image_required: true\nlabels: [local-tools]\n"

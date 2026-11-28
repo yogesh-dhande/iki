@@ -6,6 +6,7 @@ name: Release
 #     CycloneDX SBOM attestation, plus a SHA256SUMS file;
 #   - the Helm chart, with a CycloneDX SBOM, also signed and attested in ghcr.io;
 #   - @ikisci/science and @ikisci/ui on npm, at the release version;
+#   - iki-plugin-runtime on PyPI: the wheel the release ships in iki-spec (ADR 0288);
 #   - iki-writer, the SDK plugins' writers build against, on crates.io, at the release
 #     version: packaged in the writer builder, checked against the checksum committed
 #     beside it (which Iki's own writers' Cargo.locks pin), then published;
@@ -85,8 +86,9 @@ jobs:
             # A tag must match the versions committed in the repo.
             chart=$(awk '/^version:/ {print $2}' deploy/helm/iki/Chart.yaml)
             cargo=$(awk -F'"' '/^version =/ {print $2; exit}' worker/Cargo.toml)
+            runtime=$(awk -F'"' '/^version =/ {print $2; exit}' runtime/pyproject.toml)
             writer=$(awk -F'"' '/^version =/ {print $2; exit}' worker/crates/iki-writer/Cargo.toml)
-            for found in "$chart" "$cargo" "$writer"; do
+            for found in "$chart" "$cargo" "$runtime" "$writer"; do
               if [ "$found" != "$version" ]; then
                 echo "::error::Tag $REF_NAME doesn't match committed version $found"
                 exit 1
@@ -429,6 +431,55 @@ jobs:
           npm publish --ignore-scripts --access public --provenance --tag "$tag" \
             "$RUNNER_TEMP/ikisci-$PACKAGE-$VERSION.tgz"
 
+  plugin-runtime:
+    name: Build the plugin runtime's wheel
+    needs: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with:
+          enable-cache: false
+      # The wheel iki-spec carries in this release's images: runtime/pyproject.toml pins
+      # its build backend, so the same source gives the same file. Built twice to check.
+      - name: Build, twice, and compare
+        run: |
+          scripts/build-plugin-runtime.sh dist
+          scripts/build-plugin-runtime.sh "$RUNNER_TEMP/again"
+          cmp dist/iki_plugin_runtime-*.whl "$RUNNER_TEMP"/again/iki_plugin_runtime-*.whl
+          (cd dist && sha256sum ./*.whl | sed 's| \./| |')
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: plugin-runtime
+          path: dist/*.whl
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-plugin-runtime:
+    name: Publish the plugin runtime to PyPI
+    needs: [version, plugin-runtime]
+    if: github.event_name == 'push' && needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # PyPI's trusted publisher for iki-plugin-runtime names this repository, release.yml
+    # and this environment; no token is stored anywhere.
+    environment: pypi
+    permissions:
+      id-token: write # PyPI trusted publishing, and the wheel's PEP 740 attestation
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: plugin-runtime
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          packages-dir: dist/
+
   iki-writer:
     name: Package and publish iki-writer to crates.io
     needs: version
@@ -479,7 +530,7 @@ jobs:
 
   github-release:
     name: GitHub release
-    needs: [version, sign-worker, chart, publish-chart, npm]
+    needs: [version, sign-worker, chart, publish-chart, npm, publish-plugin-runtime]
     if: needs.version.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -488,7 +539,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{worker-signed,chart}"
+          pattern: "{worker-signed,chart,plugin-runtime}"
           path: dist
           merge-multiple: true
       - name: Create release

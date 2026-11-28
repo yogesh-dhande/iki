@@ -81,6 +81,50 @@ def test_workers_see_which_plugins_to_fetch(world: World, installed: dict[str, A
     assert tools["digest"] == installed["environments"]["protein-tools"]["digest"]
 
 
+def test_a_worker_is_told_where_its_bundle_carries_the_plugin_runtime(
+    world: World, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0288: an environment that declares the plugin runtime names the wheel its bundle
+    carries, and the digest the worker must compute from it."""
+    import shutil
+    import tarfile
+
+    from iki_spec import plugin_runtime
+
+    directory = tmp_path / "protein"
+    shutil.copytree(PLUGINS / "protein", directory)
+    env = directory / "environments" / "protein-tools.yaml"
+    env.write_text(
+        env.read_text().replace(
+            "requirements: requirements.txt }",
+            "requirements: requirements.txt, iki_runtime: true }",
+        )
+    )
+    loaded = load_plugin(directory, dependencies=[PLUGINS / "dna"])
+    assert loaded.plugin is not None, loaded.problems
+    out = tmp_path / "bundles"
+    out.mkdir()
+    bundle = out / f"acme__protein-{SHA}.tar.gz"
+    entry = {
+        "name": "acme/protein",
+        "version": loaded.plugin.version,
+        "sha": SHA,
+        "state": "active",
+        "bundle": bundles.bundle("acme/protein", directory, bundle, runtime=True),
+        "environments": bundles.environments(loaded.plugin, directory),
+    }
+    monkeypatch.setattr(registry, "installed", lambda: {"plugins": [entry]})
+    monkeypatch.setattr(registry, "bundles", lambda: out)
+    (listed,) = pod(world).call("GET", "/plugins").json()["plugins"]
+    tools = listed["environments"]["protein-tools"]
+    wheel = plugin_runtime.wheel()
+    assert tools["runtime"] == f".iki-runtime/{wheel.name}"
+    with tarfile.open(bundle) as tar:
+        member = tar.extractfile(tools["runtime"])
+        assert member is not None
+        assert hashlib.sha256(member.read()).hexdigest() == wheel.sha256
+
+
 def test_workers_download_a_plugins_code(
     world: World, installed: dict[str, Any], tmp_path: Path
 ) -> None:

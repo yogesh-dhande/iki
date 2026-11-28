@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-import gzip
 import re
-import zlib
-from collections.abc import Iterator
 from contextlib import ExitStack
 from dataclasses import dataclass
 from itertools import zip_longest
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 
 import iki_action as iki
 
+from iki_runtime import fastq, text
+from iki_runtime.fastq import MAX_READ_LENGTH, PHRED_OFFSET
+
 # Cock et al. (2010), Table 1, Sanger FASTQ, https://doi.org/10.1093/nar/gkp1137.
-PHRED_OFFSET = 33
 BELOW_Q30 = bytes(range(PHRED_OFFSET, PHRED_OFFSET + 30))
-QUALITY = re.compile(rb"[!-~]+")
-BASES = re.compile(rb"[ACGTURYSWKMBDHVNacgturyswkmbdhvn.]+")
-MAX_READ_LENGTH = 10_000_000
 
 
 @dataclass
@@ -49,47 +45,6 @@ class Summary:
             "mean_phred": self.quality_sum / self.bases,
             "q30_percent": 100 * self.q30_bases / self.bases,
         }
-
-
-def line(source: BinaryIO) -> bytes:
-    raw = source.readline(MAX_READ_LENGTH + 3)
-    content = raw.removesuffix(b"\n").removesuffix(b"\r")
-    if len(content) > MAX_READ_LENGTH:
-        raise ValueError("a FASTQ line exceeds 10 million characters.")
-    return content
-
-
-def read_fastq(source: BinaryIO) -> Iterator[tuple[bytes, bytes]]:
-    # Cock et al. permit wrapping and a repeated title after the + delimiter.
-    number = 1
-    while header := source.readline(MAX_READ_LENGTH + 3):
-        try:
-            title = header.removesuffix(b"\n").removesuffix(b"\r")
-            if len(title) > MAX_READ_LENGTH or not title.startswith(b"@") or not title[1:].split():
-                raise ValueError("expected an @ title with a read identifier.")
-            bases = 0
-            while not (part := line(source)).startswith(b"+"):
-                if not BASES.fullmatch(part):
-                    raise ValueError("expected sequence bases followed by a + separator.")
-                bases += len(part)
-                if bases > MAX_READ_LENGTH:
-                    raise ValueError("the sequence exceeds 10 million bases.")
-            if not bases:
-                raise ValueError("the read has no bases.")
-            if part[1:] and part[1:] != title[1:]:
-                raise ValueError("the + title differs from the @ title.")
-            quality = bytearray()
-            while len(quality) < bases:
-                part = line(source)
-                if not QUALITY.fullmatch(part):
-                    raise ValueError("expected printable Phred+33 qualities for every base.")
-                quality.extend(part)
-            if len(quality) != bases:
-                raise ValueError("the base and quality counts differ.")
-            yield title[1:], bytes(quality)
-        except ValueError as exc:
-            raise ValueError(f"read {number}: {exc}") from exc
-        number += 1
 
 
 #: Where a FASTQ title says which mate a read is:
@@ -136,26 +91,18 @@ def mate_id(title: bytes, mate: int) -> bytes:
 def statistics(*paths: Path) -> list[dict[str, int | float]]:
     summaries = [Summary() for _ in paths]
     with ExitStack() as stack:
-        sources = []
-        for path in paths:
-            raw = stack.enter_context(path.open("rb"))
-            source = (
-                stack.enter_context(gzip.GzipFile(fileobj=raw))
-                if raw.peek(2)[:2] == b"\x1f\x8b"
-                else raw
-            )
-            sources.append(read_fastq(source))
+        sources = [fastq.reads(stack.enter_context(text.open_bytes(path))) for path in paths]
 
         for number, reads in enumerate(zip_longest(*sources), 1):
             if len(reads) == 2:
                 first, second = reads
                 if first is None or second is None:
                     raise ValueError("the mate files have different read counts.")
-                if mate_id(first[0], 1) != mate_id(second[0], 2):
+                if mate_id(first.title, 1) != mate_id(second.title, 2):
                     raise ValueError(f"the mate identifiers differ at read {number}.")
             for summary, read in zip(summaries, reads, strict=True):
                 if read is not None:
-                    summary.add(read[1])
+                    summary.add(read.quality)
     if not summaries[0].reads:
         raise ValueError("the FASTQ contains no reads.")
     return [summary.values() for summary in summaries]
@@ -199,7 +146,7 @@ def summarize(run: dict[str, Any]) -> dict[str, Any]:
 def summary(run: iki.Run) -> dict[str, Any]:
     try:
         return summarize(run)
-    except (EOFError, OSError, ValueError, zlib.error) as exc:
+    except (ValueError, *text.UNREADABLE) as exc:
         raise iki.Refused(f"Cannot summarize FASTQ: {exc}") from None
 
 

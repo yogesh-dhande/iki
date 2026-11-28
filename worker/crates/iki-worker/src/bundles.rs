@@ -401,8 +401,55 @@ fn run(program: &str, args: &[&std::ffi::OsStr]) -> Result<(), String> {
     }
 }
 
-/// Builds the environment at `prefix`, with uv or micromamba.
+/// Installs the plugin runtime's wheel (ADR 0288) into the environment `python` names:
+/// a virtual environment's directory, or a conda environment's interpreter. Its bytes
+/// are the ones the digest named, so nothing else is fetched.
+fn install_runtime(python: &Path, wheel: &Path) -> Result<(), String> {
+    let os = |s: &str| std::ffi::OsString::from(s);
+    run(
+        "uv",
+        &[
+            &os("pip"),
+            &os("install"),
+            &os("--quiet"),
+            &os("--python"),
+            python.as_os_str(),
+            &os("--no-deps"),
+            &os("--no-index"),
+            wheel.as_os_str(),
+        ],
+    )
+}
+
+/// A conda environment's Python, where its packages go.
+fn conda_python(prefix: &Path) -> PathBuf {
+    if cfg!(windows) {
+        prefix.join("python.exe")
+    } else {
+        prefix.join("bin").join("python")
+    }
+}
+
+/// Builds the environment at `prefix`, with uv or micromamba, then installs the plugin
+/// runtime into it if it declares one.
 fn install(
+    kind: Kind,
+    prefix: &Path,
+    definition: &BTreeMap<&str, String>,
+    wanted: &EnvironmentBuildOut,
+    file: &Path,
+    runtime: Option<&Path>,
+) -> Result<(), String> {
+    install_packages(kind, prefix, definition, wanted, file)?;
+    match (runtime, kind) {
+        (None, _) => Ok(()),
+        (Some(wheel), Kind::Python) => install_runtime(prefix, wheel),
+        (Some(wheel), Kind::Conda) => install_runtime(&conda_python(prefix), wheel),
+    }
+}
+
+/// Builds the environment at `prefix` from its requirements or lockfile.
+fn install_packages(
     kind: Kind,
     prefix: &Path,
     definition: &BTreeMap<&str, String>,
@@ -485,7 +532,7 @@ fn build(
         .join(crate::plugins::label(plugin))
         .join(env)
         .join(&hex_digest[..16]);
-    let (kind, definition, file) = match wanted.kind {
+    let (kind, mut definition, file) = match wanted.kind {
         EnvironmentBuildOutKind::Python => {
             let python = wanted
                 .python
@@ -509,6 +556,22 @@ fn build(
         }
         EnvironmentBuildOutKind::Unknown => {
             return Err("it's a kind this worker doesn't know: update iki-worker".to_owned());
+        }
+    };
+    // The plugin runtime's wheel, which the bundle carries: its bytes are in the digest.
+    let runtime = match wanted.runtime.as_deref() {
+        None => None,
+        Some(name) => {
+            let wheel = bundled(dir, Some(name))?;
+            let named = wheel.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                n.starts_with("iki_plugin_runtime-")
+                    && Path::new(n).extension().is_some_and(|e| e == "whl")
+            });
+            if !named {
+                return Err(format!("{name} isn't the plugin runtime's wheel"));
+            }
+            definition.insert("iki_runtime_sha256", file_sha256(&wheel)?);
+            Some(wheel)
         }
     };
     // The bundle was checked, but check the build gets what the server will expect.
@@ -535,7 +598,14 @@ fn build(
     if let Some(parent) = prefix.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let built = install(kind, &prefix, &definition, wanted, &file);
+    let built = install(
+        kind,
+        &prefix,
+        &definition,
+        wanted,
+        &file,
+        runtime.as_deref(),
+    );
     if let Err(error) = built {
         let _ = std::fs::remove_dir_all(&prefix);
         return Err(error);
@@ -688,6 +758,24 @@ mod tests {
             "sha256:{}",
             hex(&Sha256::digest(
                 br#"{"kind":"python","python":"3.12","requirements_sha256":"ab"}"#
+            ))
+        );
+        assert_eq!(digest(&definition), expected);
+    }
+
+    #[test]
+    fn a_runtime_is_part_of_the_digest_iki_deploy_build_computes() {
+        // From cli/tests: the plugin runtime's wheel's SHA-256 beside the requirements'.
+        let definition = BTreeMap::from([
+            ("kind", "python".to_owned()),
+            ("python", "3.12".to_owned()),
+            ("requirements_sha256", "ab".to_owned()),
+            ("iki_runtime_sha256", "cd".to_owned()),
+        ]);
+        let expected = format!(
+            "sha256:{}",
+            hex(&Sha256::digest(
+                br#"{"iki_runtime_sha256":"cd","kind":"python","python":"3.12","requirements_sha256":"ab"}"#
             ))
         );
         assert_eq!(digest(&definition), expected);

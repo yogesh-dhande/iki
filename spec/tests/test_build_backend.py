@@ -156,3 +156,37 @@ def test_iki_spec_carries_the_writer_sdk_from_its_checkout(tmp_path: Path) -> No
     (outside / "src" / "iki_spec").mkdir(parents=True)
     with pytest.raises(RuntimeError, match="iki-writer SDK"):
         backend().ensure_writer_sdk(outside)
+
+
+def test_iki_spec_carries_the_plugin_runtimes_wheel_from_its_checkout(tmp_path: Path) -> None:
+    """ADR 0288: a checkout builds it with its script; a source distribution must carry
+    exactly one, or no wheel of iki-spec is built from it."""
+    project = checkout(tmp_path, "true")
+    (tmp_path / "runtime").mkdir()
+    (tmp_path / "runtime" / "pyproject.toml").write_text("[project]\n")
+    build = tmp_path / "scripts" / "build-plugin-runtime.sh"
+    build.write_text(
+        '#!/bin/sh\nset -eu\ncd "$(dirname "$0")/.."\nd=spec/src/iki_spec/plugin_runtime\n'
+        'mkdir -p "$d" && rm -f "$d"/*.whl\n'
+        'printf PK > "$d"/iki_plugin_runtime-1.0.0-py3-none-any.whl\n'
+    )
+    build.chmod(build.stat().st_mode | stat.S_IXUSR)
+    carried = project / "src" / "iki_spec" / "plugin_runtime"
+    carried.mkdir()
+    (carried / "iki_plugin_runtime-0.9.0-py3-none-any.whl").write_text("stale")
+    assert (
+        backend().ensure_plugin_runtime(project).name == "iki_plugin_runtime-1.0.0-py3-none-any.whl"
+    )
+    build.write_text("#!/bin/sh\nexit 3\n")
+    with pytest.raises(subprocess.CalledProcessError):
+        backend().ensure_plugin_runtime(project)
+
+    sdist = tmp_path / "unpacked" / "iki_spec-0.1.0"
+    (sdist / "src" / "iki_spec" / "plugin_runtime").mkdir(parents=True)
+    with pytest.raises(RuntimeError, match="needs one iki-plugin-runtime wheel"):
+        backend().ensure_plugin_runtime(sdist)
+    wheel = (
+        sdist / "src" / "iki_spec" / "plugin_runtime" / "iki_plugin_runtime-1.0.0-py3-none-any.whl"
+    )
+    wheel.write_bytes(b"PK")
+    assert backend().ensure_plugin_runtime(sdist) == wheel

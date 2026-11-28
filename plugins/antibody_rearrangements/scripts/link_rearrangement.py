@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import gzip
-import zlib
-from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import iki_action as iki
+
+from iki_runtime import airr, text
 
 IG_LOCI = {"IGH", "IGK", "IGL"}
 #: The row's columns the link keeps, when the report has them (AIRR Rearrangement schema:
@@ -25,26 +24,6 @@ KEPT = [
 ]
 
 
-def rows(path: Path) -> Iterator[dict[str, str]]:
-    with path.open("rb") as source:
-        compressed = source.peek(2)[:2] == b"\x1f\x8b"
-    with (
-        gzip.open(path, "rt", encoding="utf-8-sig", newline="")
-        if compressed
-        else path.open(encoding="utf-8-sig", newline="")
-    ) as source:
-        lines = (line.rstrip("\r\n") for line in source)
-        header = next((line.split("\t") for line in lines if line), [])
-        if "sequence_id" not in header or len(set(header)) != len(header):
-            raise ValueError("The AIRR report has no distinct sequence_id column.")
-        for line in lines:
-            if line:
-                cells = line.split("\t")
-                if len(cells) != len(header):
-                    raise ValueError("An AIRR row's columns don't match its header.")
-                yield dict(zip(header, cells, strict=True))
-
-
 def productive_of(row: dict[str, str], sequence_id: str) -> bool | None:
     """The row's `productive`: True if its V(D)J is predicted to be productive, None when
     the report leaves it empty (AIRR Rearrangement schema: a boolean, written T or F, and
@@ -58,22 +37,6 @@ def productive_of(row: dict[str, str], sequence_id: str) -> bool | None:
             f"{sequence_id!r}'s productive is {value!r}, not T, F or empty, as AIRR writes it."
         )
     return read
-
-
-def locus_of(row: dict[str, str]) -> str | None:
-    # Locus is nullable in AIRR. The V and J calls identify it when both are present and
-    # every call shares one immunoglobulin prefix.
-    if row.get("locus"):
-        return row["locus"]
-    prefixes = {
-        call.strip()[:3]
-        for field in ("v_call", "j_call")
-        for call in (row.get(field) or "").split(",")
-        if call.strip()
-    }
-    if row.get("v_call") and row.get("j_call") and len(prefixes) == 1:
-        return prefixes.pop()
-    return None
 
 
 def link(run: dict[str, Any]) -> dict[str, Any]:
@@ -92,14 +55,14 @@ def link(run: dict[str, Any]) -> dict[str, Any]:
     repertoire = (values.get("summary") or {}).get("selector") or ""
     found = [
         row
-        for row in rows(Path(report["path"]))
+        for row in airr.read(Path(report["path"]))
         if row["sequence_id"] == sequence_id and (row.get("repertoire_id") or "") == repertoire
     ]
     if len(found) != 1:
         where = f"repertoire {repertoire}" if repertoire else "the imported rearrangements"
         raise ValueError(f"{sequence_id!r} isn't exactly one row of {where}.")
     row = found[0]
-    locus = locus_of(row)
+    locus = airr.locus(row)
     if locus not in IG_LOCI:
         raise ValueError(f"{sequence_id!r} has no immunoglobulin locus (IGH, IGK or IGL).")
     # A rearrangement predicted not to be productive (out of frame, or with a stop codon)
@@ -156,4 +119,4 @@ def link(run: dict[str, Any]) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    iki.main(link, refuse=(ValueError, OSError, EOFError, zlib.error))
+    iki.main(link, refuse=(ValueError, *text.UNREADABLE))

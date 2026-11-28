@@ -134,6 +134,11 @@ def wasm() -> None:
             if not binary.startswith(WASM_HEADER) or hashlib.sha256(binary).hexdigest() != pin[0]:
                 raise SystemExit(f"{module} does not match {lock}. Run {builder} --check.")
             populated(package / "rust-standard-library.html", str(builder))
+    # The plugin runtime's wheel (ADR 0288), which build-wasm.sh builds into iki-spec.
+    wheels = list((package / "plugin_runtime").glob("iki_plugin_runtime-*-py3-none-any.whl"))
+    if len(wheels) != 1:
+        raise SystemExit("iki-spec needs one plugin runtime wheel. Run scripts/build-wasm.sh.")
+    populated(wheels[0], "scripts/build-wasm.sh")
     writers()
 
 

@@ -120,6 +120,8 @@ custom_build(
         'scripts/build-plasmid-tools-wasm.sh', 'scripts/build-oligo-checks-wasm.sh',
         'plugins/plasmid/data/plasmid-tools.wasm.sha256', 'plugins/dna/data/oligo-checks.wasm.sha256',
         'deploy/dev/build-server.sh', 'deploy/plugins.Dockerfile',
+        # The plugin runtime, whose wheel the image builds (ADR 0288).
+        'runtime', 'scripts/build-plugin-runtime.sh',
     ],
     ignore=[
         'server/tests', 'cli/tests', 'codegen/tests', '**/__pycache__', '**/node_modules',
@@ -128,6 +130,7 @@ custom_build(
         # What deploy/dev/build-wasm.sh writes.
         '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm', '**/iki_spec/dna-annotation.wasm',
         '**/iki_spec/rust-standard-library.html', '**/iki_spec/modules/*.wasm',
+        '**/iki_spec/plugin_runtime/*.whl',
         # Plugins' export writers: their Rust builds, and the modules built from them.
         '**/writers/*/target', '**/writers/*.wasm',
     ],
@@ -144,13 +147,14 @@ custom_build(
         'server/Dockerfile', 'scripts/build-oligo-wasm.sh', 'scripts/build-dna-annotation-wasm.sh',
         'scripts/verify-server-wasm.sh', 'server/iki_wasm.wasm.sha256',
         'scripts/build-plasmid-tools-wasm.sh', 'scripts/build-oligo-checks-wasm.sh',
-        # What `iki deploy build --workers` reads and runs.
-        'cli', 'spec/src',
+        # What `iki deploy build --workers` reads and runs, and the plugin runtime it installs.
+        'cli', 'spec/src', 'runtime', 'scripts/build-plugin-runtime.sh',
     ],
     ignore=[
         '**/__pycache__', '**/iki_spec/iki_wasm*', '**/oligo-measurement.wasm',
         '**/iki_spec/dna-annotation.wasm', '**/iki_spec/rust-standard-library.html',
-        '**/iki_spec/modules/*.wasm', '**/writers/*/target', '**/writers/*.wasm',
+        '**/iki_spec/modules/*.wasm', '**/iki_spec/plugin_runtime/*.whl',
+        '**/writers/*/target', '**/writers/*.wasm',
     ],
 )
 

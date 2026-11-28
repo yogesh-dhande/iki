@@ -29,3 +29,6 @@ mkdir -p spec/src/iki_spec/modules
 rm "$tmp/iki_previews.wasm"
 mv "$tmp/plasmid-tools.wasm" "$tmp/oligo-checks.wasm" spec/src/iki_spec/modules/
 mv "$tmp"/* spec/src/iki_spec/
+# And the plugin runtime's wheel, which `iki deploy build` installs into the environments
+# that declare it (ADR 0288); its build is the same on every machine.
+scripts/build-plugin-runtime.sh

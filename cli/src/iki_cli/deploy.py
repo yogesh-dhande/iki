@@ -23,7 +23,7 @@ from iki_codegen import REGISTRY
 from iki_codegen import build as build_apps
 from iki_codegen.build import with_hosts
 from iki_spec import compute as compute_spec
-from iki_spec import naming
+from iki_spec import naming, plugin_runtime
 from iki_spec.lockfile import FILENAME, Lock, LockedPlugin, load_lock, lock_to_dict
 from iki_spec.model import Plugin
 from iki_spec.validate import load_plugin, read_settings
@@ -464,8 +464,9 @@ def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]
                 item.directory,
                 output / f"{naming.app_label(item.entry.name)}-{item.entry.sha or LOCAL}.tar.gz",
                 pinned=item.entry.sha is not None,
+                runtime=workers.wants_runtime(item.plugin),
             )
-        except ValueError as error:
+        except (ValueError, plugin_runtime.UnavailableError) as error:
             raise ValueError(f"{item.label}: {error}") from None
         made[item.entry.name] = {
             "bundle": packed,

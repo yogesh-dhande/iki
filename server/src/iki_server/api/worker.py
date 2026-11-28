@@ -409,6 +409,11 @@ class EnvironmentBuildOut(Schema):
         False, description="For `python`: whether the requirements file names any packages."
     )
     lockfile: str | None = Field(None, description="For `conda`: the lockfile in the bundle.")
+    runtime: str | None = Field(
+        None,
+        description="The plugin runtime's wheel in the bundle, which the environment installs "
+        "after its packages (ADR 0288). Its SHA-256 is part of the digest.",
+    )
 
 
 class AvailableOut(Schema):

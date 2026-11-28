@@ -4,4 +4,4 @@ name: report-tools
 label: Proteomics report import
 tiers: [backend, self_hosted]
 resources: { cpu: 0.25, memory: 512Mi }
-python: { version: "3.12", requirements: requirements.txt }
+python: { version: "3.12", requirements: requirements.txt, iki_runtime: true }

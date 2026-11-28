@@ -1774,6 +1774,8 @@ class Environment:
     python_version: str | None = None
     requirements: str | None = None  # a path in the plugin
     conda_lockfile: str | None = None  # a path in the plugin
+    #: The plugin runtime this release ships is installed in it (ADR 0288).
+    iki_runtime: bool = False
     volumes: dict[str, Volume] = field(default_factory=dict)
     setup_script: str | None = None  # a path in the plugin
     setup_timeout: int | None = None  # seconds
@@ -2329,9 +2331,9 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
             )
             and not (isinstance(value, Plugin) and f.name == "procedures" and not value.procedures)
             and not (
-                f.name == "customer_image_required"
+                f.name in {"customer_image_required", "iki_runtime"}
                 and isinstance(value, Environment)
-                and not value.customer_image_required
+                and not getattr(value, f.name)
             )
             and not (
                 isinstance(value, Rule)

@@ -56,6 +56,11 @@
         "requirements": {
           "description": "A requirements file in the plugin, every package pinned with `==` and its `--hash`, as `uv pip compile --generate-hashes` writes it.",
           "$ref": "#/$defs/file"
+        },
+        "iki_runtime": {
+          "description": "Install the plugin runtime (`iki_runtime`: readers for compressed text, FASTQ and AIRR files) that this Iki release ships. Its version is part of the environment's build, so an upgrade that changes it rebuilds the environment. Leave it out of the requirements file.",
+          "type": "boolean",
+          "default": false
         }
       },
       "additionalProperties": false
@@ -68,6 +73,11 @@
         "lockfile": {
           "description": "An explicit lockfile in the plugin, every package with its hash, as `conda-lock` or `conda list --explicit --md5` writes it.",
           "$ref": "#/$defs/file"
+        },
+        "iki_runtime": {
+          "description": "Install the plugin runtime (`iki_runtime`) that this Iki release ships into the environment's Python, which the lockfile must include. Its version is part of the environment's build.",
+          "type": "boolean",
+          "default": false
         }
       },
       "additionalProperties": false

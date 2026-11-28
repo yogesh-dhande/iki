@@ -757,6 +757,9 @@ pub struct EnvironmentBuildOut {
     /// For `python`: the pinned, hashed requirements file in the bundle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub requirements: Option<String>,
+    /// The plugin runtime's wheel in the bundle, which the environment installs after its packages (ADR 0288). Its SHA-256 is part of the digest.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

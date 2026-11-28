@@ -4,6 +4,8 @@
 - Date: 2026-11-27
 - Extends: [0046](0046-how-iki-worker-runs-a-command.md),
   [0093](0093-plugin-action-tests-run-fixtures-through-the-worker.md)
+- Extended by: [0288](0288-plugins-share-readers-from-the-runtime-each-release-ships.md), the readers it leaves out come in a
+  runtime each release ships
 
 ## Context
 

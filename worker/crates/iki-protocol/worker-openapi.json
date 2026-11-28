@@ -376,6 +376,18 @@
             ],
             "description": "For `python`: the pinned, hashed requirements file in the bundle.",
             "title": "Requirements"
+          },
+          "runtime": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plugin runtime's wheel in the bundle, which the environment installs after its packages (ADR 0288). Its SHA-256 is part of the digest.",
+            "title": "Runtime"
           }
         },
         "required": [

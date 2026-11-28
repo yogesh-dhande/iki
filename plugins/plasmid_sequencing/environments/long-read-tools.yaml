@@ -9,4 +9,4 @@ label: Long-read tools
 description: minimap2 2.31 and Python 3.12, for linux-64 and linux-aarch64 workers.
 tiers: [backend]
 resources: { cpu: 0.25, memory: 1Gi }
-conda: { lockfile: conda/long-read-tools-lock.yml }
+conda: { lockfile: conda/long-read-tools-lock.yml, iki_runtime: true }
