@@ -157,7 +157,7 @@ def test_trastuzumabs_heavy_chain_has_its_known_ng_and_dg_motifs(tmp_path: Path)
     for found in values["liabilities"]:
         start = found["position"] - 1
         assert sequence[start : start + len(found["motif"])] == found["motif"]
-    assert "::progress 1 1 of 1" in result.stdout
+    assert "::progress 1.00 1 of 1" in result.stdout
     assert "PRT-000001: 6 liabilities (deamidation 1, isomerisation 2" in result.stdout
     assert output["messages"] == []
 

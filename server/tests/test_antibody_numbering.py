@@ -154,7 +154,7 @@ def test_a_heavy_chain_gets_its_imgt_cdrs_and_closest_human_germline(tmp_path: P
             "j_identity": 92.9,
         }
     )
-    assert "::progress 1 1 of 1" in result.stdout
+    assert "::progress 1.00 1 of 1" in result.stdout
     assert "PRT-000001: chain_type heavy, species human, cdr_h3 SRWGGDGFYAMDY" in result.stdout
     assert "messages" not in output or output["messages"] == []
 

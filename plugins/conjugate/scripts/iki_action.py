@@ -392,7 +392,9 @@ def progress(fraction: float, text: str = "") -> None:
 
 def fail(reason: str) -> NoReturn:
     """Fails the attempt, with ``reason`` as the run's page shows it."""
-    line = " ".join(str(reason).split())[:MAX_TEXT]
+    # One line, as the run's page shows it; spaces within it are the reason's own
+    # (an SD file's terminator is "M  END").
+    line = " ".join(str(reason).splitlines())[:MAX_TEXT]
     print(f"::error {line}", flush=True)
     sys.exit(1)
 

@@ -15,6 +15,7 @@ from api_client import Api, problem
 from django.db import transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
+from iki_test_plugins import run_output
 from org_world import build_world
 from scan_fixtures import clean_blob
 from test_api_entities import patch
@@ -111,8 +112,7 @@ def exercise_qc() -> None:
 
     def execute(name: str, entities: Mapping[str, Sequence[UUID]], **params: Any) -> ActionRun:
         run, document = start(name, entities, **params)
-        # What the action returns is run output's fields, as `iki.main` writes them.
-        output = {"apiVersion": "iki/v1", "kind": "RunOutput", **actions.ACTIONS[name](document)}
+        output = run_output(actions.ACTIONS[name](document))
         try:
             commit(run, output)
         except results.InvalidOutput as error:
@@ -232,7 +232,7 @@ def exercise_qc() -> None:
     case = made(execute("open_release", opening, testing_on=today.isoformat()), "ReleaseCase")
     with pytest.raises(results.InvalidOutput) as duplicate:
         run, document = start("open_release", opening, testing_on=today.isoformat())
-        commit(run, actions.open_release(document))
+        commit(run, run_output(actions.open_release(document)))
     assert any("already has that cycle" in issue["detail"] for issue in duplicate.value.errors)
     pinned = services.current_values_of([case])[case.pk]
     assert pinned["specification"] == version.pk
@@ -257,9 +257,9 @@ def exercise_qc() -> None:
     inputs = {"case": [case.pk]}
     first, document = start("record_test", inputs, **params(assay, 98.7))
     pending, stale = start("record_test", inputs, **params(assay, 98.7))
-    commit(first, actions.record_test(document))
+    commit(first, run_output(actions.record_test(document)))
     with pytest.raises(results.Rejected, match="changed after this run"):
-        commit(pending, actions.record_test(stale))
+        commit(pending, run_output(actions.record_test(stale)))
     original = made(first, "ReleaseTest")
     investigation = made(first, "QCOOSInvestigation")
     assert services.current_values_of([investigation])[investigation.pk]["test"] == original.pk
@@ -512,7 +512,7 @@ def exercise_qc() -> None:
     )
     with pytest.raises(results.InvalidOutput) as reissued:
         run, document = start("issue_certificate", {"certificate": [certificate.pk]})
-        commit(run, actions.issue_certificate(document))
+        commit(run, run_output(actions.issue_certificate(document)))
     assert any("issued already" in issue["detail"] for issue in reissued.value.errors)
     # The record keeps the full evidence for audit.
     assert held[certificate.pk]["report"] == report

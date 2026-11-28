@@ -28,6 +28,7 @@ from django.utils import timezone
 from examples.dose_response import public_plate, tutorial
 from examples.dose_response.__main__ import SdkApi
 from first_party_dependencies import PLUGINS, build_order
+from iki_test_plugins import run_output
 from org_world import World, build_world
 from test_files import run_tasks
 from test_oauth import signed_in_token
@@ -643,5 +644,6 @@ def _worker(
         reader["path"] = str(csv)
         output = assays.reader_output(doc, commit=name == "commit_reader")
     with transaction.atomic():
-        results.commit(ActionRun.objects.select_for_update().get(pk=run.pk), output)
+        locked = ActionRun.objects.select_for_update().get(pk=run.pk)
+        results.commit(locked, run_output(output))
     return doc

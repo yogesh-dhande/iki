@@ -21,6 +21,7 @@ from api_client import Api
 from django.db import transaction
 from django.utils import timezone
 from first_party_dependencies import FIRST_PARTY, PLUGINS, ROOT, build_order
+from iki_test_plugins import run_output
 from org_world import build_world
 from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
@@ -239,9 +240,7 @@ def exercise_procedures() -> None:
         run = runs.launch(editor, action, project, entities, params, reuse_results=False)
         job = Job.objects.get(run=run)
         job.lease_token, job.lease_expires_at = uuid4(), timezone.now() + queue.LEASE_TTL
-        # What the action returns is run output's fields, as `iki.main` writes them.
-        returned = actions.ACTIONS[name](queue.payload(job, run))
-        output = {"apiVersion": "iki/v1", "kind": "RunOutput", **returned}
+        output = run_output(actions.ACTIONS[name](queue.payload(job, run)))
         with transaction.atomic():
             results.commit(ActionRun.objects.select_for_update().get(pk=run.pk), output)
         return run

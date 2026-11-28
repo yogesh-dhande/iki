@@ -45,6 +45,9 @@ __all__ = ["database"]
 
 
 def _lots() -> Any:
+    # As the worker runs it: its directory first, for the action helper beside it.
+    if str(LOTS / "scripts") not in sys.path:
+        sys.path.insert(0, str(LOTS / "scripts"))
     spec = importlib.util.spec_from_file_location("lots_script", LOTS / "scripts" / "lots.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)

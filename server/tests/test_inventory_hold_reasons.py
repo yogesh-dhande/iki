@@ -3,6 +3,7 @@
 import json
 import os
 import runpy
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -167,7 +168,12 @@ def exercise_hold_reasons() -> None:
         with TemporaryDirectory() as tmp:
             input_file, output_file = Path(tmp) / "input.json", Path(tmp) / "output.json"
             input_file.write_text(json.dumps(queue.payload(job, run)))
-            with patch.dict(os.environ, IKI_INPUT=str(input_file), IKI_OUTPUT=str(output_file)):
+            # As the worker runs it: its directory first, for the action helper beside it.
+            scripts = str(PLUGIN / "scripts")
+            with (
+                patch.dict(os.environ, IKI_INPUT=str(input_file), IKI_OUTPUT=str(output_file)),
+                patch.object(sys, "path", [scripts, *sys.path]),
+            ):
                 runpy.run_path(str(PLUGIN / "scripts" / "hold.py"), run_name="__main__")
             return run, json.loads(output_file.read_text())
 

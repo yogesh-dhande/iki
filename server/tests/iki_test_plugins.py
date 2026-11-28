@@ -17,6 +17,7 @@ import sys
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = ROOT / "spec" / "tests" / "plugins"
@@ -108,3 +109,12 @@ def ensure_built(variant: str = "", change: Callable[[Path], None] | None = None
             if not (final / "iki_installed_plugins").is_dir():  # another worker won the race
                 raise
     return final
+
+
+def run_output(returned: Any) -> dict[str, Any]:
+    """What a plugin script's action function returns, as `iki.main` writes it into
+    output.json (ADR 0287): an `Output`'s document, or run output's fields as a dict."""
+    document = getattr(returned, "document", None)
+    if callable(document):
+        return dict(document())
+    return {"apiVersion": "iki/v1", "kind": "RunOutput", **returned}

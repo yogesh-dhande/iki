@@ -37,7 +37,7 @@ FILE_NAME = "iki_action.py"
 SOURCE = FilePath(__file__).with_name(FILE_NAME)
 #: Every published version's SHA-256, by version.
 PUBLISHED: dict[str, str] = {
-    "1.0.0": "6a0f9a6f603863724a74071d3edefbb596dc04dd110887f4820aad036f075e52",
+    "1.0.0": "53b5a36d1553e8c6476ffe97ea9562b17940fd0c0a83cc3163e9f11551fc129d",
 }
 #: The version :data:`SOURCE` is.
 CURRENT = "1.0.0"

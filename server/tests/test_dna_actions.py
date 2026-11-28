@@ -133,7 +133,7 @@ def test_every_field_the_action_declares_is_one_a_primer_can_get(tmp_path: Path)
 
 def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) -> None:
     """Run the same files a worker gets from its pinned plugin: the script, the checks
-    module's wrapper it imports, and the two modules they load."""
+    module's wrapper and the action helper it imports, and the two modules they load."""
     packed = tmp_path / "dna.tar.gz"
     code = workers.prepared_source("iki/dna", SCRIPT.parents[1], tmp_path / "worker-code")
     workers.bundle("iki/dna", code, packed)
@@ -142,6 +142,7 @@ def test_measurement_in_the_worker_archive_matches_the_server(tmp_path: Path) ->
         for path in (
             "scripts/sequences.py",
             "scripts/oligos.py",
+            "scripts/iki_action.py",
             "data/oligo-measurement.wasm",
             "data/oligo-checks.wasm",
         ):

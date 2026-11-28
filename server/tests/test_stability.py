@@ -16,6 +16,7 @@ from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
+from iki_test_plugins import run_output
 from org_world import build_world
 from scan_fixtures import clean_blob
 from test_plugin_migrations import database, django, iki, migrate, sync
@@ -192,7 +193,8 @@ def exercise_stability() -> None:
 
     def commit(run: ActionRun, output: dict[str, Any]) -> None:
         with transaction.atomic():
-            results.commit(ActionRun.objects.select_for_update().get(pk=run.pk), output)
+            locked = ActionRun.objects.select_for_update().get(pk=run.pk)
+            results.commit(locked, run_output(output))
 
     today = dt.datetime.now(dt.UTC).date()
 

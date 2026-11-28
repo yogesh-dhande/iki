@@ -110,7 +110,7 @@ def test_defined_conjugate_of_discrete_peg(tmp_path: Path, monkeypatch: pytest.M
     assert values["monoisotopic_mass"] == 350.1689
     assert "reduced carrier chains without glycans" in values["composition_note"]
     assert values["carrier_heavy_copies"] is None
-    assert output["messages"] == []
+    assert "messages" not in output  # none, so output.json leaves them out
 
 
 def test_different_sites_and_explicit_isotopic_loss(
