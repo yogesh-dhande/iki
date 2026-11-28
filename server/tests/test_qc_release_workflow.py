@@ -111,7 +111,8 @@ def exercise_qc() -> None:
 
     def execute(name: str, entities: Mapping[str, Sequence[UUID]], **params: Any) -> ActionRun:
         run, document = start(name, entities, **params)
-        output = actions.ACTIONS[name](document)
+        # What the action returns is run output's fields, as `iki.main` writes them.
+        output = {"apiVersion": "iki/v1", "kind": "RunOutput", **actions.ACTIONS[name](document)}
         try:
             commit(run, output)
         except results.InvalidOutput as error:

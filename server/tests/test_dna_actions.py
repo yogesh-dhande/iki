@@ -40,7 +40,7 @@ def run(
         timeout=30,
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[-1].startswith("::progress 1.00 ")
+    assert result.stdout.splitlines()[-1].startswith("::progress 1 ")
     output: dict[str, Any] = json.loads((tmp_path / "out.json").read_text())
     assert not list(schemas.check("run-output", output))
     return {u["entity"][-1]: u["values"] for u in output["updates"][name]}
@@ -176,7 +176,7 @@ def imported(
     out_dir = tmp_path / "out"
     out_dir.mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(IMPORTS)],
+        [sys.executable, "-E", "-s", str(IMPORTS)],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(out),

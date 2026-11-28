@@ -13,7 +13,7 @@ def decode(run: iki.Run) -> iki.Output:
     codes = json.loads(CODES.read_text(encoding="utf-8"))
     out = run.output()
     for sample in run.inputs("sample"):
-        storage = sample.values.get("storage") or ""
+        storage = sample["values"].get("storage") or ""
         wanted = codes.get(storage.strip().lower())
         if wanted and wanted != storage:
             out.update("sample", sample, {"storage": wanted})

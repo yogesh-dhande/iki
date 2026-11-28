@@ -2554,7 +2554,7 @@ import iki_action as iki
 
 def store(run: iki.Run) -> iki.Output:
     sample = run.input("sample")  # exactly one, or the run is refused
-    if sample.values.get("storage"):
+    if sample["values"].get("storage"):
         raise iki.Refused(f"{sample.hrid} is stored already.")  # its ::error line
     out = run.output()
     out.update("sample", sample, {"storage": run.params["location"]})

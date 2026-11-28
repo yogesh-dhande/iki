@@ -62,7 +62,7 @@ def script(
     out_dir = tmp_path / "out"
     out_dir.mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(SCRIPTS / name)],
+        [sys.executable, "-E", "-s", str(SCRIPTS / name)],
         env={
             "PATH": os.environ["PATH"],
             **(env or {}),

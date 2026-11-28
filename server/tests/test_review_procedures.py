@@ -239,7 +239,9 @@ def exercise_procedures() -> None:
         run = runs.launch(editor, action, project, entities, params, reuse_results=False)
         job = Job.objects.get(run=run)
         job.lease_token, job.lease_expires_at = uuid4(), timezone.now() + queue.LEASE_TTL
-        output = actions.ACTIONS[name](queue.payload(job, run))
+        # What the action returns is run output's fields, as `iki.main` writes them.
+        returned = actions.ACTIONS[name](queue.payload(job, run))
+        output = {"apiVersion": "iki/v1", "kind": "RunOutput", **returned}
         with transaction.atomic():
             results.commit(ActionRun.objects.select_for_update().get(pk=run.pk), output)
         return run

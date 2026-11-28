@@ -57,7 +57,7 @@ def imported(tmp_path: Path, content: bytes, name: str, topology: str = "linear"
     (tmp_path / "input.json").write_text(json.dumps(run))
     (tmp_path / "out").mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(IMPORTS)],
+        [sys.executable, "-E", "-s", str(IMPORTS)],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(tmp_path / "out.json"),

@@ -6,7 +6,7 @@ import iki_action as iki
 def assign(run: iki.Run) -> iki.Output:
     out = run.output()
     for sample in run.inputs("sample"):
-        if not sample.values.get("storage"):
+        if not sample["values"].get("storage"):
             out.update("sample", sample, {"storage": run.settings["default_storage"]})
     return out
 

@@ -43,7 +43,7 @@ def script(
     out_dir = tmp_path / "out"
     out_dir.mkdir(exist_ok=True)
     result = subprocess.run(  # noqa: S603 - our own script
-        [sys.executable, "-I", str(SCRIPTS / name), *args],
+        [sys.executable, "-E", "-s", str(SCRIPTS / name), *args],
         env={
             "IKI_INPUT": str(tmp_path / "input.json"),
             "IKI_OUTPUT": str(out),
@@ -242,7 +242,7 @@ def properties(tmp_path: Path, *sequences: str) -> tuple[dict[str, Any], list[di
     )
     assert result.returncode == 0, result.stderr
     assert output is not None
-    assert result.stdout.splitlines()[-1].startswith("::progress 1.00 ")
+    assert result.stdout.splitlines()[-1].startswith("::progress 1 ")
     found = {u["entity"][-1]: u["values"] for u in output["updates"]["protein"]}
     return found, output["messages"]
 
