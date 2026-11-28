@@ -1526,24 +1526,48 @@ def entry_at(
     then (one it moved from, ADR 0115), and the entry's revision: ``entry_revision``, as a
     run pins it, or else the entry's latest while that revision of the record was its
     latest (now, for its latest), as the entry changes without the record changing."""
-    if entity.registry_id is not None:
-        return (entity.pk, number)
-    moved = (
-        entity.revisions.filter(kind=RevisionKind.MOVED, number__gt=number)
-        .order_by("number")
-        .values_list("moved_from_id", flat=True)
-        .first()
-    )
-    entry_id = moved or entity.entry_id
-    if entry_id is None:
-        return None
-    if entry_revision is not None:
-        return (entry_id, entry_revision)
+    return entries_at([(entity, number, entry_revision)])[0]
+
+
+def entries_at(
+    wanted: Sequence[tuple[Entity, int, int | None]],
+) -> list[tuple[Any, int] | None]:
+    """:func:`entry_at` for each (entity, revision, entry revision) of ``wanted``, reading
+    their records' moves once for all of them. Only a record without its entry's revision,
+    which no run pins, reads its entry's revisions on its own."""
+    records = {entity.pk for entity, _, _ in wanted if entity.registry_id is None}
+    moves: dict[Any, list[tuple[int, Any]]] = defaultdict(list)
+    if records:
+        for owner, number, moved_from in (
+            Revision.objects.filter(entity_id__in=records, kind=RevisionKind.MOVED)
+            .order_by("entity_id", "number")
+            .values_list("entity_id", "number", "moved_from_id")
+        ):
+            moves[owner].append((number, moved_from))
+    out: list[tuple[Any, int] | None] = []
+    for entity, number, entry_revision in wanted:
+        if entity.registry_id is not None:
+            out.append((entity.pk, number))
+            continue
+        moved = next((source for at, source in moves[entity.pk] if at > number), None)
+        entry_id = moved or entity.entry_id
+        if entry_id is None:
+            out.append(None)
+        elif entry_revision is not None:
+            out.append((entry_id, entry_revision))
+        else:
+            out.append((entry_id, _entry_revision_then(entity, number, entry_id)))
+    return out
+
+
+def _entry_revision_then(entity: Entity, number: int, entry_id: Any) -> int:  # noqa: ANN401 - an ID
+    """The entry's latest revision while the record's revision ``number`` was its latest:
+    now, for its latest."""
     after = entity.revisions.filter(number=number + 1).values_list("created_at", flat=True).first()
     then = Revision.objects.filter(entity_id=entry_id)
     if after is not None:
         then = then.filter(created_at__lt=after)
-    return (entry_id, then.order_by("-number").values_list("number", flat=True).first() or 0)
+    return then.order_by("-number").values_list("number", flat=True).first() or 0
 
 
 def entry_revision(entity: Entity) -> int | None:
@@ -1571,28 +1595,71 @@ def values_and_entry_at(
     entity: Entity, number: int, entry_revision: int | None = None, *, removed: bool = False
 ) -> tuple[dict[str, Any], tuple[uuid.UUID, int] | None]:
     """Read both the record values and the historical entry they were composed from."""
-    form = shape(entity.type)
-    is_entry = entity.registry_id is not None
-    entry = entry_at(entity, number, entry_revision) if form.has_entries else None
-    out: dict[str, Any] = {}
-    for part in form.parts:
-        if is_entry and not part.entry:
-            continue
-        if part.entry and not is_entry:
-            if entry is None:
+    return values_and_entries_at([(entity, number, entry_revision)], removed=removed)[0]
+
+
+def values_and_entries_at(
+    wanted: Sequence[tuple[Entity, int, int | None]], *, removed: bool = False
+) -> list[tuple[dict[str, Any], tuple[uuid.UUID, int] | None]]:
+    """:func:`values_and_entry_at` for each (entity, revision, entry revision) of
+    ``wanted``, in order. Each table's history is read once for all of them, so a lease
+    reads a pack's documents in as many queries however many there are (ADR 0055)."""
+    having = [i for i, (entity, _, _) in enumerate(wanted) if shape(entity.type).has_entries]
+    entries: list[tuple[Any, int] | None] = [None] * len(wanted)
+    for i, entry in zip(having, entries_at([wanted[i] for i in having]), strict=True):
+        entries[i] = entry
+    reads: dict[type[Model], set[tuple[Any, int]]] = defaultdict(set)
+    plans: list[list[tuple[Part, Any, int]]] = []
+    for (entity, number, _), entry in zip(wanted, entries, strict=True):
+        is_entry = entity.registry_id is not None
+        plan = []
+        for part in shape(entity.type).parts:
+            if is_entry and not part.entry:
                 continue
-            key, at = entry
-        else:
-            key, at = entity.pk, number
-        row = (
-            part.history._default_manager.filter(entity_id=key, revision__lte=at)
-            .order_by("-revision")
-            .first()
-        )
-        for name, f in part.fields.items():
-            if removed or not f.removed:
-                out[name] = history_value(row, f) if row is not None else None
-    return out, entry
+            if part.entry and not is_entry:
+                if entry is None:
+                    continue
+                key, at = entry
+            else:
+                key, at = entity.pk, number
+            reads[part.history].add((key, at))
+            plan.append((part, key, at))
+        plans.append(plan)
+    rows = {history: _history_rows(history, pairs) for history, pairs in reads.items()}
+    out = []
+    for plan, entry in zip(plans, entries, strict=True):
+        values: dict[str, Any] = {}
+        for part, key, at in plan:
+            row = rows[part.history].get((key, at))
+            for name, f in part.fields.items():
+                if removed or not f.removed:
+                    values[name] = history_value(row, f) if row is not None else None
+        out.append((values, entry))
+    return out
+
+
+def _history_rows(history: type[Model], wanted: set[tuple[Any, int]]) -> dict[Any, Model]:
+    """Of a history table, the row each (entity, revision) of ``wanted`` reads: its latest
+    at or before that revision, by the table's key. One lookup each, however long its
+    history."""
+    keys, revisions = zip(*sorted(wanted, key=lambda w: (str(w[0]), w[1])), strict=True)
+    quote = connection.ops.quote_name
+    columns = {f.name: quote(str(f.column)) for f in history._meta.concrete_fields}
+    table, entity, revision = (
+        quote(history._meta.db_table),
+        columns["entity_id"],
+        columns["revision"],
+    )
+    # What's interpolated is the table's and its columns' quoted names; every value is a
+    # parameter.
+    found = history._default_manager.raw(
+        "SELECT kept.*, wanted.at AS iki_wanted_at"  # noqa: S608 - see above
+        " FROM unnest(%s::uuid[], %s::integer[]) AS wanted(entity_id, at)"
+        f" CROSS JOIN LATERAL (SELECT * FROM {table} AS h WHERE h.{entity} = wanted.entity_id"
+        f" AND h.{revision} <= wanted.at ORDER BY h.{revision} DESC LIMIT 1) AS kept",
+        [list(keys), list(revisions)],
+    )
+    return {(row.entity_id, row.iki_wanted_at): row for row in found}  # type: ignore[attr-defined]
 
 
 def revision_values(entity: Entity, number: int, fields: Mapping[str, Field]) -> dict[str, Any]:
