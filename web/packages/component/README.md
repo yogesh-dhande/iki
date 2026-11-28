@@ -97,9 +97,11 @@ one before acting on it, and again on its server:
   conditions, 4 levels deep. A sort replaces the place's; text is added only
   when the place has none.
 - `open(element, hrid)` opens the page of an entity the component received.
-  `open(element, recordUuid, revision)` opens the historical revision as JSON. The
-  host requires a readable reference and the exact `record_id` and `record_revision` in
-  a stored row. A row for a registry-backed record uses `entry_id` for the reference and can open the corresponding `entry_revision`.
+  `open(element, recordUuid, revision)` opens Iki's read-only page of that record as
+  it was at the revision, which links to the record as it is now and to the revision's
+  JSON. The host requires a readable reference and the exact `record_id` and
+  `record_revision` in a stored row. A row for a registry-backed record uses `entry_id`
+  for the reference and can open the entry's page at the corresponding `entry_revision`.
 - Picking entities offers Iki's run page, with those of the declared type
   the person can read. A component writes nothing itself.
 - `run(element, action)` opens Iki's run page with the action and the tab's

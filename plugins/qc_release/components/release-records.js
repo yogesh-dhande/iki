@@ -18,8 +18,11 @@ function send(element, name, detail) {
 function more(element) {
 	send(element, EVENTS.more);
 }
-/** Opens an entity's page by HRID, or a stored revision pin by record UUID and
-* revision number. The host validates the target before navigating. */
+/** Opens an entity's page by HRID, one the component was given; or, by record or registry
+* entry UUID and revision number, Iki's read-only page of it as it was at a revision that
+* a stored row of the entity pins (`record_id` and `record_revision`, or `entry_id` and
+* `entry_revision`). Iki checks the target before opening it, and never falls back to the
+* record as it is now. */
 function open(element, entity, revision) {
 	send(element, EVENTS.open, revision === void 0 ? { entity } : {
 		entity,

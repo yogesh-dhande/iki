@@ -364,6 +364,57 @@ describe("a record's audit trail", () => {
     expect(screen.getByText(/19 Nov 2026, 16:40 UTC/)).toBeInTheDocument();
   });
 
+  it("opens each revision as it was, on a page of its own, as the trail tells it", async () => {
+    onPlasmid();
+    answer("GET /api/v1/entities/PLS-000001/revisions/2", {
+      ...revision({
+        number: 2,
+        kind: "state_changed",
+        changed_fields: ["topology"],
+        state: {
+          field: { name: "topology", label: "Topology" },
+          from: { name: "linear", label: "Linear" },
+          to: { name: "circular", label: "Circular" },
+          signatures: [
+            {
+              id: APPROVAL.id,
+              manifestation:
+                "Approved by Ada Lovelace on 2026-11-19 at 16:00:00 UTC. Meaning: Approval.",
+              present: true,
+            },
+          ],
+        },
+        user: ADA,
+        created_at: "2026-11-19T16:00:00Z",
+      }),
+      values: { name: "pUC19c", bases: "ACGT", topology: "circular", resistance: null },
+      changes: { topology: { before: "linear", after: "circular" } },
+      refs: {},
+      files: {},
+      people: {},
+    });
+    const { router, user } = await renderApp("/entities/PLS-000001/audit/");
+    await user.click(await screen.findByRole("link", { name: "Open revision 2 as it was" }));
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/entities/PLS-000001/revisions/2/");
+    });
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Revision 2 of PLS-000001" }),
+    ).toBeVisible();
+    const about = await screen.findByRole("region", {
+      name: "Revision 2: Topology set to Circular, from Linear by Ada Lovelace",
+    });
+    const signed = within(about).getByRole("list", { name: "Signatures of revision 2" });
+    expect(
+      await within(signed).findByText(/Reason: “Map matches GenBank L09137.2.”/),
+    ).toBeVisible();
+    // It isn't the record's tabs: those are the record as it is now.
+    expect(screen.queryByRole("navigation", { name: "Record" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Values at revision 2" })).toHaveTextContent(
+      "Not set: Resistance.",
+    );
+  });
+
   it("narrows to a person and a field, in its address", async () => {
     onPlasmid();
     const { router, user } = await renderApp("/entities/PLS-000001/audit/");

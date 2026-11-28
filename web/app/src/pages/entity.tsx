@@ -99,12 +99,18 @@ declare module "@tanstack/react-router" {
  * drawn here, once for all its tabs, not by each tab: a tab's page can wait on what it
  * reads (the record again, under the `?project=` its tabs' links carry, or its code) after
  * the address has changed, and a strip each tab drew afresh was replaced under the reader
- * when the new tab came, with whatever they were pressing or reading. Its edit page has a
- * header of its own and no tabs.
+ * when the new tab came, with whatever they were pressing or reading. Its edit page, and
+ * its page at a past revision, have a header of their own and no tabs.
  */
 export function RecordPages() {
+  // Its edit page, and the record as it was at a revision, which isn't the record as its
+  // tabs show it now.
   const editing = useMatches({
-    select: (matches) => matches.some((m) => m.routeId === "/entities/$ref/edit"),
+    select: (matches) =>
+      matches.some(
+        (m) =>
+          m.routeId === "/entities/$ref/edit" || m.routeId === "/entities/$ref/revisions/$number",
+      ),
   });
   return (
     <>

@@ -13,7 +13,7 @@ import {
   entityTabs,
   EVERY_RECORD,
   lineageOf,
-  pinnedRevisionUrl,
+  pinnedRevision,
   type PluginComponent,
 } from "./components";
 import { entity, PROTEIN, PROTEIN_ID, renderApp, STRUCTURE, withTypes } from "./entity-fixtures";
@@ -326,27 +326,89 @@ describe("an action it offers", () => {
 describe("historical record links", () => {
   const record = "00000000-0000-7000-8000-00000000e002";
   const entry = "00000000-0000-7000-8000-00000000e003";
-  const url = `/api/v1/entities/${record}/revisions/4`;
+  const at4 = { of: "record", id: record, revision: 4 };
+  const ref = (hrid: string, title: string) => ({
+    hrid,
+    title,
+    type: "iki/results.Result",
+    archived: false,
+    purged: false,
+  });
 
   it("opens the exact stored record revision of a readable reference", () => {
     const visible = { purged: false };
     const pin = { record_id: record, record_revision: 4 };
     const given = { refs: { [record]: visible }, values: { pins: [pin] } };
-    expect(pinnedRevisionUrl(given, record, 4)).toBe(url);
-    expect(pinnedRevisionUrl(given, record, 5)).toBeNull();
-    expect(pinnedRevisionUrl(given, entry, 4)).toBeNull();
-    expect(pinnedRevisionUrl({ ...given, refs: {} }, record, 4)).toBeNull();
+    expect(pinnedRevision(given, record, 4)).toEqual(at4);
+    expect(pinnedRevision(given, record, 5)).toBeNull();
+    expect(pinnedRevision(given, entry, 4)).toBeNull();
+    expect(pinnedRevision({ ...given, refs: {} }, record, 4)).toBeNull();
     expect(
-      pinnedRevisionUrl({ ...given, refs: { [record]: { purged: true } } }, record, 4),
+      pinnedRevision({ ...given, refs: { [record]: { purged: true } } }, record, 4),
     ).toBeNull();
-    expect(pinnedRevisionUrl(undefined, record, 4)).toBeNull();
+    expect(pinnedRevision(undefined, record, 4)).toBeNull();
     const registryPin = {
       values: { pins: [{ ...pin, entry_id: entry, entry_revision: 7 }] },
       refs: { [entry]: visible },
     };
-    expect(pinnedRevisionUrl(registryPin, record, 4)).toBe(url);
-    expect(pinnedRevisionUrl(registryPin, entry, 7)).toBe(`/api/v1/entries/${entry}/revisions/7`);
-    expect(pinnedRevisionUrl(registryPin, entry, 4)).toBeNull();
+    expect(pinnedRevision(registryPin, record, 4)).toEqual(at4);
+    expect(pinnedRevision(registryPin, entry, 7)).toEqual({ of: "entry", id: entry, revision: 7 });
+    expect(pinnedRevision(registryPin, entry, 4)).toBeNull();
+  });
+
+  it("opens Iki's page of a pinned revision, in the app, and nothing it doesn't pin", async () => {
+    onResidues();
+    const pins = [
+      { record_id: record, record_revision: 4 },
+      { record_id: record, record_revision: 2, entry_id: entry, entry_revision: 7 },
+    ];
+    answer(
+      "GET /api/v1/entities/PRT-000001",
+      entity({
+        values: { ...entity().values, pins },
+        refs: {
+          [record]: ref("RES-000001", "Curve"),
+          [entry]: ref("RES-000002", "Registered curve"),
+        },
+      }),
+    );
+    const assign = vi.fn();
+    vi.stubGlobal("location", {
+      origin: window.location.origin,
+      assign,
+      pathname: "/entities/PRT-000001/components/iki/protein.residues/",
+      search: "",
+    });
+    const { router } = await renderApp("/entities/PRT-000001/components/iki/protein.residues/");
+    const { port } = connect(await screen.findByTitle<HTMLIFrameElement>("Residues"));
+    port.postMessage({ type: "ready" });
+    // A revision no pin names, and a pinned record at another revision: neither opens,
+    // nor falls back to the record as it is now.
+    port.postMessage({ type: "open", entity: record, revision: 5 });
+    port.postMessage({ type: "open", entity: entry, revision: 2 });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(router.state.location.pathname).toBe(
+      "/entities/PRT-000001/components/iki/protein.residues/",
+    );
+    port.postMessage({ type: "open", entity: record, revision: 4 });
+    await vi.waitFor(() => {
+      expect(router.state.location.pathname).toBe(`/entities/${record}/revisions/4/`);
+    });
+    router.history.back();
+    await vi.waitFor(() => {
+      expect(router.state.location.pathname).toBe(
+        "/entities/PRT-000001/components/iki/protein.residues/",
+      );
+    });
+    const { port: again } = connect(await screen.findByTitle<HTMLIFrameElement>("Residues"));
+    again.postMessage({ type: "ready" });
+    again.postMessage({ type: "open", entity: entry, revision: 7 });
+    await vi.waitFor(() => {
+      expect(router.state.location.pathname).toBe(`/entries/${entry}/revisions/7/`);
+    });
+    // Through the router, never by sending the tab to the API's document.
+    expect(assign).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("rejects invalid revision targets without falling back to a current record", () => {

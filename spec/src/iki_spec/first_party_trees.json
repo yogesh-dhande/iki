@@ -151,7 +151,8 @@
       "cfb02dd1279c3e7c96eae0fd6fda5595f0b5322b",
       "eefd08625aa575752876c4dfb50579db82c35c39",
       "7f39bf0a1a47423d8f86a0503db6b2d8817abb6a",
-      "5700976e01b1940e5bc84f60f429f41ac9069e48"
+      "5700976e01b1940e5bc84f60f429f41ac9069e48",
+      "0cebe303d61c05ccd379cb3d340ac2c5b25f9cb1"
     ],
     "iki/example_models": [
       "3667e222ea15d2c33f34083206e6896ad8e78d36",
@@ -167,7 +168,8 @@
       "8b657db3d553903b398a1a9d52eb06bdb57a6055",
       "2e6a4924180dbc9b5be65b66ddd4d82b4734634c",
       "88397aaaf7961fbffd6c1857a02070cb1f41ec99",
-      "11bc45a03158dcad1d1946329632e645c749cfd7"
+      "11bc45a03158dcad1d1946329632e645c749cfd7",
+      "701890a33d0e72ed9c8bd907d739afb875f20a6a"
     ],
     "iki/inventory": [
       "b4cca08ffdc0fdcabf46c5543dd41a8a09094075",
@@ -232,7 +234,8 @@
       "2c84cc4fe7a981b843d9a997e51a98a8e07855eb",
       "baa8fe5d639a93cafcc4bb82d3b853fb46e0b7a5",
       "4ff9ae9985f672e0a5ba1e0f47fe85f126cd1165",
-      "ccc270f0b3392dcc6ff8db96c8234348e02a39da"
+      "ccc270f0b3392dcc6ff8db96c8234348e02a39da",
+      "4df27c889c3a8217695418f60905593f7b61bc30"
     ],
     "iki/mouse_strains": [
       "6a2ea62961cfe738c1ce948814081f567048abf1",
@@ -309,7 +312,8 @@
       "3edd512d144ae4c4f60cb36d1e4df8dab3e6e20c",
       "e23212f73c6edf2c414b12132ea6e00c19f69310",
       "22c068ec5c00d6d8493257eaa1641cd6ce3215e6",
-      "fe3ae7af2eb74d38203a34cbb5430b237da8429e"
+      "fe3ae7af2eb74d38203a34cbb5430b237da8429e",
+      "16183975190489e91623c986fd444043da50692b"
     ],
     "iki/plasmid_sequencing": [
       "a75cacbd131d8b9c241f7bce714b28581403b513",
@@ -420,7 +424,8 @@
       "def9e8f6500ff577751a3b0cec13e8f2f91f4b63",
       "1bc52fb73364fa1d3a311dd39d46f4e8e4659f60",
       "98c7ff433f4b10e16ee666625cd5fa53605582b3",
-      "bede7b25a6be57e1fbe264ad1715d2c0f6f9a225"
+      "bede7b25a6be57e1fbe264ad1715d2c0f6f9a225",
+      "98e117ab2a77600cbdf338248a549089ba8c8a5d"
     ],
     "iki/reagents": [
       "f292f6ca2072e01c3e5c31de06097104633b0b83",
@@ -508,7 +513,8 @@
       "99e7a1123425f15fd23cf6e437dbc4a317f60222",
       "b55dd7bf83bfeced05c62ec9476c1735e40efaf5",
       "6b82d5861b2c769a96ceba754d60195a88127b95",
-      "be2688252affae25a5c9a7571f72ac9497ef0029"
+      "be2688252affae25a5c9a7571f72ac9497ef0029",
+      "94b4239155668b941570afa44766a9b0cc3ee06c"
     ],
     "iki/strains": [
       "ffd3bb13863247881360620a7098022d1b29b317",
