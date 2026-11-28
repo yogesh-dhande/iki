@@ -62,7 +62,16 @@ import { EntityLocation } from "./entity-location";
 import { EntityState } from "./entity-state";
 import { EntityWork } from "./entity-work";
 import { EntityTabs, neighboursOf, neighboursQuery, trailCount, useEntity } from "./entity-header";
-import { drawnBy, DrawnBy, MappedFeatures, registryNote, shownIn, Value } from "./entity-value";
+import { isOptionRef } from "../lab-lists";
+import {
+  drawnBy,
+  DrawnBy,
+  MappedFeatures,
+  OptionRef,
+  registryNote,
+  shownIn,
+  Value,
+} from "./entity-value";
 import { FeatureTable, MiniMap, useMiniMap, type MapOf } from "./record-map";
 import { UtcTime, Via } from "./revision-text";
 import { Button, ConfirmDialog, Loading, RelativeTime, TextField, Time } from "../ui";
@@ -90,12 +99,18 @@ declare module "@tanstack/react-router" {
  * drawn here, once for all its tabs, not by each tab: a tab's page can wait on what it
  * reads (the record again, under the `?project=` its tabs' links carry, or its code) after
  * the address has changed, and a strip each tab drew afresh was replaced under the reader
- * when the new tab came, with whatever they were pressing or reading. Its edit page has a
- * header of its own and no tabs.
+ * when the new tab came, with whatever they were pressing or reading. Its edit page, and
+ * its page at a past revision, have a header of their own and no tabs.
  */
 export function RecordPages() {
+  // Its edit page, and the record as it was at a revision, which isn't the record as its
+  // tabs show it now.
   const editing = useMatches({
-    select: (matches) => matches.some((m) => m.routeId === "/entities/$ref/edit"),
+    select: (matches) =>
+      matches.some(
+        (m) =>
+          m.routeId === "/entities/$ref/edit" || m.routeId === "/entities/$ref/revisions/$number",
+      ),
   });
   return (
     <>
@@ -916,14 +931,19 @@ function LineageCard({ entity }: { entity: Entity }) {
           <ul className="rail-links">
             {g.items.slice(0, RAIL_LINKS).map(({ node: e, via }) => (
               <li key={e.id}>
-                <Link
-                  to="/entities/$ref/"
-                  params={{ ref: e.hrid }}
-                  search={slug && hasIdentity(types, e.type) ? { project: slug } : {}}
-                >
-                  <code>{e.hrid}</code>
-                  {e.title !== e.hrid ? ` · ${e.title}` : ""}
-                </Link>
+                {/* An option is read by its label, and leads to its list, as its field does. */}
+                {isOptionRef(e) ? (
+                  <OptionRef found={e} project={slug} />
+                ) : (
+                  <Link
+                    to="/entities/$ref/"
+                    params={{ ref: e.hrid }}
+                    search={slug && hasIdentity(types, e.type) ? { project: slug } : {}}
+                  >
+                    <code>{e.hrid}</code>
+                    {e.title !== e.hrid ? ` · ${e.title}` : ""}
+                  </Link>
+                )}
                 {via.length ? <span className="rail-via"> via {via.join(", ")}</span> : null}
               </li>
             ))}

@@ -4,12 +4,13 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
 import { problemOf } from "../api";
 import { personName, type EntityType, type Revision, type RevisionDetail } from "../entities";
 import { entryRevisionQuery } from "../registries";
-import { Button, Loading, ProblemAlert, RelativeTime } from "../ui";
+import { Button, buttonClass, Loading, ProblemAlert, RelativeTime } from "../ui";
 import { Value } from "./entity-value";
 import { KIND, Via } from "./revision-text";
 
@@ -117,8 +118,8 @@ export function EntryRevisionRow({
         {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
         {open ? <EntryOnlyChanges entry={entry} number={revision.number} type={type} /> : null}
       </div>
-      {revision.changed_fields.length ? (
-        <div className="row-actions">
+      <div className="row-actions">
+        {revision.changed_fields.length ? (
           <Button
             variant="quiet"
             label={`${open ? "Hide" : "Show"} changes in entry revision ${String(revision.number)}`}
@@ -128,8 +129,17 @@ export function EntryRevisionRow({
           >
             {open ? "Hide changes" : "Show changes"}
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        {/* It as it was, on a page of its own (ADR 0189). */}
+        <Link
+          className={buttonClass("quiet")}
+          to="/entries/$ref/revisions/$number/"
+          params={{ ref: entry, number: String(revision.number) }}
+          aria-label={`Open entry revision ${String(revision.number)} as it was`}
+        >
+          Open
+        </Link>
+      </div>
     </li>
   );
 }

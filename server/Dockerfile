@@ -165,6 +165,10 @@ COPY --from=web /src/server/src/iki_server/web/static/viewers server/src/iki_ser
 # The server checks apps' expressions, and plugins' rules, with the module browsers run
 # them with (ADR 0090, ADR 0127), through iki-spec.
 COPY --from=verified-wasm /artifacts/iki_wasm.wasm /artifacts/dna-annotation.wasm /artifacts/oligo-measurement.wasm /artifacts/rust-standard-library.html spec/src/iki_spec/
+# With its pin, which `iki deploy build` checks it against again before an environment
+# gets it for the plugin runtime's HELM reader (ADR 0288). A checkout's module, cargo's
+# build on its own host, has no pin beside it: its bytes differ from the pin's by paths.
+COPY server/iki_wasm.wasm.sha256 spec/src/iki_spec/
 # And the modules first-party plugins' actions call (ADR 0200). iki-spec carries them
 # because `iki deploy build` exports a plugin with `git archive`, which has each module's
 # tracked digest but not its bytes; the CLI takes them from here and checks them again.

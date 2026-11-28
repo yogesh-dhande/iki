@@ -56,7 +56,9 @@ from iki_server.core.ids import uuid7
 from iki_server.entities import (
     access,
     assignments,
+    breaches,
     checking,
+    computing,
     constraints,
     holds,
     identity,
@@ -83,13 +85,12 @@ from iki_server.entities.values import (
     shape,
     to_history,
 )
-from iki_server.entities.values import is_list_table as _is_list
 from iki_server.files.models import FileUse
 from iki_server.notifications import declared
 from iki_server.org.models import Project, registry_of
 from iki_server.org.services import Refused
 from iki_server.setup import starter_flows
-from iki_spec.model import EntityType, Field, names_people
+from iki_spec.model import LIST_LABEL, EntityType, Field, names_people, stored_in_list_table
 
 __all__ = [
     "Invalid",
@@ -211,7 +212,7 @@ class Rows:
     def value(self, part: Part, f: Field) -> Any:  # noqa: ANN401 - a model value
         holder = self.holder(part)
         if holder is None:
-            return [] if _is_list(f) else None
+            return [] if stored_in_list_table(f) else None
         return read_value(holder, f, part)
 
     def get(self, name: str) -> Any:  # noqa: ANN401 - a model value
@@ -401,7 +402,7 @@ def _new_record(
     for part in mine:
         if not part.extension:
             for name, f in part.fields.items():
-                if name in given and not _is_list(f):
+                if name in given and not stored_in_list_table(f):
                     _set(instance, f, given[name])
     own = {n: v for n, v in given.items() if not form.part_of(n).entry}
     clashes = unique.taken(project, form, own)
@@ -413,12 +414,12 @@ def _new_record(
         if part.extension and any(own.get(n) is not None for n in part.fields):
             row = rows.ensure(part)
             for name, f in part.fields.items():
-                if name in own and not _is_list(f):
+                if name in own and not stored_in_list_table(f):
                     _set(row, f, own[name])
             row.save()
             touched.append(part)
         for name, f in part.fields.items():
-            if _is_list(f) and own.get(name):
+            if stored_in_list_table(f) and own.get(name):
                 _write_list(part, f, instance.pk, own[name])
     changed = sorted(n for n, v in own.items() if v is not None)
     revision = _revise(
@@ -502,7 +503,7 @@ def _lists(form: Shape, given: Mapping[str, Any]) -> dict[str, Any]:
         for part in form.parts
         if part.entry and not part.extension
         for name, f in part.fields.items()
-        if _is_list(f)
+        if stored_in_list_table(f)
     }
 
 
@@ -513,7 +514,7 @@ def _entry_instance(form: Shape, given: Mapping[str, Any]) -> Model:
     for part in form.parts:
         if part.entry and not part.extension:
             for name, f in part.fields.items():
-                if name in given and not _is_list(f):
+                if name in given and not stored_in_list_table(f):
                     _set(instance, f, given[name])
     return instance
 
@@ -579,12 +580,12 @@ def register_entry(
         if part.extension and any(mine.get(n) is not None for n in part.fields):
             row = rows.ensure(part)
             for name, f in part.fields.items():
-                if name in mine and not _is_list(f):
+                if name in mine and not stored_in_list_table(f):
                     _set(row, f, mine[name])
             row.save()
             touched.append(part)
         for name, f in part.fields.items():
-            if _is_list(f) and mine.get(name):
+            if stored_in_list_table(f) and mine.get(name):
                 _write_list(part, f, instance.pk, mine[name])
     changed = sorted(n for n, v in mine.items() if v is not None)
     revision = _revise(
@@ -612,12 +613,16 @@ def fill_entry(
     reason: str = "",
     by_run: bool = False,
     explicit: bool = False,
+    besides: frozenset[Any] = frozenset(),
 ) -> Revision | None:
     """Sets those of an entry's values that are empty from ``values`` (as the database
     stores them), as a holder of it may. One it has already is kept: a fact with another
     value is refused, without saying what it has, as only its registrars change it; a
     derived value is its identity's, so another is ignored, unless ``explicit`` (a person
-    changing it, not registering it again), when it's refused too."""
+    changing it, not registering it again), when it's refused too.
+
+    The entry's other records are checked against the rules reading what it sets
+    (:func:`breaches.check_holders`), but ``besides``, which the save itself checks."""
     if not values:
         return None
     locked = Entity.objects.select_for_update().get(pk=entry.pk)
@@ -646,7 +651,23 @@ def fill_entry(
     )
     _write_history(touched, rows, revision.number)
     _use_files(form.fields(), locked.pk, new, revision.number)
+    breaches.check_holders(
+        locked,
+        frozenset(new),
+        # Who gave it is told only to their own project (ADR 0115).
+        user=None,
+        reason=entry_filled(locked, form, new),
+        entry_revision=revision.number,
+        besides=besides,
+    )
     return revision
+
+
+def entry_filled(entry: Entity, form: Shape, new: Mapping[str, Any]) -> str:
+    """Why a record is held by its entry's change, as its other holders are told it."""
+    fields = form.fields()
+    names = ", ".join(fields[n].label or n for n in sorted(new) if n in fields)
+    return f"Its registry entry {entry.hrid} was given {names}, which its rules read."
 
 
 def entry_changes(
@@ -723,6 +744,10 @@ def _unique_values() -> Iterator[None]:
                 f"Another record has just been saved that this one would break “{label}” with."
             )
             raise Invalid({n: [message] for n in names or ("",)}) from None
+        if unique.is_label_clash(error):
+            raise Invalid(
+                {LIST_LABEL: ["Another option of the list has just been given this label."]}
+            ) from None
         if not unique.is_clash(error):
             raise
         raise Invalid(
@@ -795,7 +820,8 @@ def prepare(
     reason.
 
     Bulk imports (ADR 0056) check each record with this, as :func:`create` does, but
-    without the plugins' rules (``check_rules=False``): they check a chunk's at once.
+    without the plugins' rules (``check_rules=False``): they work a chunk's computed values
+    out (ADR 0297) and check its rules at once.
     """
     if type_name not in registry.types() or type_name == "iki/core.Entity":
         raise Invalid({"type": [f"There's no entity type {type_name}."]})
@@ -803,7 +829,7 @@ def prepare(
     entity_type = form.entity_type
     if entity_type.abstract:
         raise Invalid({"type": [f"{type_name} is abstract: create one of its subtypes."]})
-    if entity_type.is_list:
+    if entity_type.is_lab_list:
         raise Invalid({"type": [not_a_record(entity_type)]})
     why = frozen(form)
     if why:
@@ -821,6 +847,8 @@ def prepare(
             errors[name] = [kept[name]]
         elif name == ledger_field:
             errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
+        elif f.cel is not None:
+            errors[name] = [computing.REFUSED]
         elif f.computed and not by_run:
             errors[name] = ["is computed: only actions set it."]
         elif f.type == "state":
@@ -846,6 +874,15 @@ def prepare(
                 errors.update(problems_of(name, error))
         if f.required and given.get(name) is None and not _wrong(errors, name):
             errors[name] = ["is required."]
+    unworked: dict[str, list[str]] = {}
+    if not errors and check_rules:
+        # Its computed values (ADR 0297), before its rules read them; one its field refuses
+        # is said with what its rules say. A bulk import works a chunk's out at once, as
+        # it checks their rules (``imports.breaking``).
+        try:
+            computing.fill(type_name, [given])
+        except Invalid as error:
+            unworked = dict(error.errors)
     if not errors:
         from iki_server.amounts import stock
 
@@ -865,7 +902,7 @@ def prepare(
         *checking.broken(type_name, [checking.Saving(given.get)])[0],
         *checking.apart(project.pk, form, own),
     ]
-    holding = checking.raise_broken(found, hold_reason=hold_reason)
+    holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
     return form, given, holding
 
 
@@ -916,6 +953,7 @@ def update(
     _recording_draw: bool = False,
     _recheck_note: str = "",
     _repointing: frozenset[str] = frozenset(),
+    _entry_moved: frozenset[str] = frozenset(),
 ) -> Saved:
     """Changes some of an entity's fields. Fields not named keep their values. Its registry
     entry's are set only while they're empty (see :func:`fill_entry`).
@@ -933,6 +971,10 @@ def update(
     rewrites (ADR 0115, ADR 0270). They change though they're computed or fixed, as what they
     named was a mistake. The rest of the save is as for any other: its rules and holds,
     rechecks, request sides and notifications.
+
+    ``_entry_moved``: its entry's values that changed as the record moved to another entry
+    (ADR 0115). The checks reading them have their results cleared and run again, as an
+    edit of them would.
     """
     with transaction.atomic(), _unique_values():
         locked = Entity.objects.select_for_update().get(pk=entity.pk)
@@ -1017,6 +1059,9 @@ def update(
             if name == ledger_field and not _recording_draw:
                 errors[name] = ["is recorded by the amounts ledger when material is drawn into it."]
                 continue
+            if f.cel is not None:
+                errors[name] = [computing.REFUSED]
+                continue
             if (
                 f.computed
                 and not by_run
@@ -1062,7 +1107,7 @@ def update(
                 continue
             # A list stored as item rows reads back as [] when cleared, including
             # when the client sends null. Compare what will actually be stored.
-            if converted is None and not f.required and _is_list(f):
+            if converted is None and not f.required and stored_in_list_table(f):
                 converted = []
             if converted == current:
                 continue
@@ -1084,12 +1129,26 @@ def update(
             raise ClearReasonRequired({"reason": ["Give a reason for clearing this flag."]})
         from iki_server.runs import triggers
 
-        rechecks = triggers.rechecks(locked.type, set(new)) if new else []
+        rechecks = (
+            triggers.rechecks(locked.type, set(new) | _entry_moved) if new or _entry_moved else []
+        )
         for spec, outputs in rechecks:
             for name in outputs:
                 value = "Needs re-verification" if name == spec.recheck else None
                 if rows.get(name) != value or name in new:
                     new[name] = value
+        unworked: dict[str, list[str]] = {}
+        if new:
+            # Its computed values (ADR 0297), from what it will hold, before its rules; one
+            # its field refuses is said with what its rules say.
+            try:
+                new.update(
+                    computing.changes(
+                        locked.type, lambda n: new[n] if n in new else rows.get(n), rows.get
+                    )
+                )
+            except Invalid as error:
+                unworked = dict(error.errors)
         changing = {**new, **for_entry}
         if changing:
             if returns:
@@ -1128,7 +1187,7 @@ def update(
                     changed=changed,
                 ),
             ]
-            holding = checking.raise_broken(found, hold_reason=hold_reason)
+            holding = checking.raise_broken(found, hold_reason=hold_reason, errors=unworked)
         entry_revision = None
         if for_entry:
             assert rows.entry is not None  # noqa: S101 - entry fields are an entry's
@@ -1141,6 +1200,7 @@ def update(
                 reason=reason,
                 by_run=by_run,
                 explicit=not by_run,
+                besides=frozenset({locked.pk}),
             )
         held_entry_revision = entry_revision.number if entry_revision else checked_entry_revision
         if not new:
@@ -1189,6 +1249,29 @@ def update(
     return updated if by_run else saved
 
 
+def reworked(entity: Entity, values: Mapping[str, Any], reason: str) -> Revision:
+    """Writes computed values worked out again (ADR 0297), as a deploy or a bundle's
+    import does: a ``migrated`` revision by no one, via the system, for ``reason``, as a
+    plugin migration's values are (:class:`iki_server.plugins.operations.MigrateValues`).
+    Only an unlocked record's: the database refuses a locked one's. Like a migration's,
+    it tells no webhook and fires no trigger: the deploy's audit event counts them."""
+    locked = Entity.objects.select_for_update().get(pk=entity.pk)
+    form = shape(locked.type)
+    rows = Rows.of(_specific(locked))
+    touched = _write(form, rows, values, locked.pk)
+    changed = sorted(values)
+    with quietly():
+        revision = _revise(locked, RevisionKind.MIGRATED, changed, None, reason, via="system")
+    _write_history(touched, rows, revision.number)
+    log.record(
+        "entity.migrated",
+        target=locked,
+        project=locked.owner_project,
+        data={"revision": revision.number, "changed_fields": changed, "reason": reason},
+    )
+    return revision
+
+
 def _referred_in(f: Field, current: Any) -> set[Any]:  # noqa: ANN401 - a model value
     """What a reference, a list of them or a list of rows' references names now: an
     option archived since may stay named (ADR 0270)."""
@@ -1231,7 +1314,7 @@ def _write(form: Shape, rows: Rows, new: Mapping[str, Any], owner_id: Any) -> li
         key = owner.pk if owner is not None else owner_id
         for name, value in mine.items():
             f = part.fields[name]
-            if _is_list(f):
+            if stored_in_list_table(f):
                 part.list_model(name)._default_manager.filter(entity_id=key).delete()
                 if value:
                     _write_list(part, f, key, value)
@@ -1480,7 +1563,7 @@ def current_values_of(entities: Sequence[Entity]) -> dict[Any, dict[str, Any]]:
                     for r in part.model._default_manager.filter(entity_id__in=ids)
                 }
             for name, f in part.fields.items():
-                if _is_list(f) and not f.removed:
+                if stored_in_list_table(f) and not f.removed:
                     items: dict[Any, list[Any]] = defaultdict(list)
                     rows = part.list_model(name)._default_manager.filter(entity_id__in=ids)
                     rows = rows.order_by("entity_id", "position")

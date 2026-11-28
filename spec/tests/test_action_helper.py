@@ -100,6 +100,44 @@ def test_its_names_hide_no_dict_method() -> None:
     assert list(record.values())[2] == "acme/protein.Protein"
 
 
+@pytest.mark.parametrize("chunk", [1, 7, 4096])
+def test_a_streamed_input_reads_as_json_does_a_record_at_a_time(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, chunk: int
+) -> None:
+    """Read in chunks of any size, a run with a streamed input is what json.loads reads,
+    but that input's records, which run.stream hands on one at a time."""
+    monkeypatch.setattr(iki, "CHUNK", chunk)
+    compounds = [
+        {**entity("acme/chem.Compound", smiles="CC(=O)O", note='\u00e9 \\ " ]}'), "id": f"c{i}"}
+        for i in range(4)
+    ]
+    given = run_input(
+        query=[entity("acme/chem.Compound", smiles="CCO")], compounds=compounds, after=[]
+    )
+    path = tmp_path / "input.json"
+    path.write_text(json.dumps(given, indent=1))
+    run = iki.read(path, streamed=("compounds",))
+    assert dict(run) == {**given, "inputs": {**given["inputs"], "compounds": []}}
+    assert run.inputs("query") == given["inputs"]["query"]
+    assert list(run.stream("compounds")) == compounds
+    assert all(isinstance(e, iki.Entity) for e in run.stream("compounds"))
+    # An input it wasn't told to stream streams from what it holds.
+    assert list(run.stream("query")) == given["inputs"]["query"]
+    path.write_text(json.dumps({"inputs": {"compounds": []}, "params": {}}))
+    run = iki.read(path, streamed=("compounds",))
+    assert (dict(run), list(run.stream("compounds"))) == (
+        {"inputs": {"compounds": []}, "params": {}},
+        [],
+    )
+
+
+def test_a_streamed_input_that_isnt_json_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "input.json"
+    path.write_text('{"inputs": {"compounds": [{"id": "c1"}, {"id": ')
+    with pytest.raises(iki.Refused, match="isn't JSON"):
+        iki.read(path, streamed=("compounds",))
+
+
 def test_a_run_input_of_another_version_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "input.json"
     path.write_text(json.dumps({**run_input(), "apiVersion": "iki/v2"}))
@@ -252,7 +290,7 @@ def test_it_runs_on_the_oldest_python_an_image_may_bring() -> None:
         )
         if name
     }
-    assert imported <= {"__future__", "json", "os", "sys", "pathlib", "typing"}
+    assert imported <= {"__future__", "json", "os", "re", "sys", "pathlib", "typing"}
 
 
 def test_every_published_version_keeps_its_digest() -> None:
@@ -267,7 +305,7 @@ def plugin(tmp_path: Path) -> Path:
     root = tmp_path / "plugin"
     (root / "scripts").mkdir(parents=True)
     (root / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/example\nversion: 1.0.0\n"
+        'apiVersion: iki/v1\nkind: Plugin\nname: acme/example\nversion: 1.0.0\niki: ">=0.1"\n'
         "title: Example\ndescription: An example.\nlicense: Apache-2.0\n"
     )
     return root

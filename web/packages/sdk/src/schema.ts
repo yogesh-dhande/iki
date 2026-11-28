@@ -2079,6 +2079,7 @@ export interface paths {
          * Change a registry entry's facts
          * @description Its registry's registrars, with a reason. Audited, and told to every holding project:
          *     who, when and why. Its identity and derived values never change: supersede it instead.
+         *     A lab list's option changes on its list (`/lists/{name}/options/{code}`), not here.
          */
         patch: operations["iki_server_api_registries_patch_entry"];
         trace?: never;
@@ -2162,7 +2163,9 @@ export interface paths {
          * @description Its registry's registrars replace a mistaken entry with another in the registry, for
          *     good: one of its type, or of another type under its identity; or with a new entry of its
          *     identity as another type (``type``, ADR 0165). Each holding project's Admins, and
-         *     whoever added its record, are told, to move their records to the replacement.
+         *     whoever added its record, are told, to move their records to the replacement. A lab
+         *     list's option is superseded on its list (`/lists/{name}/options/{code}/supersede`), not
+         *     here, either way.
          */
         post: operations["iki_server_api_registries_supersede_entry"];
         delete?: never;
@@ -4217,7 +4220,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/registries/{registry_id}/list-curators": {
+    "/api/v1/registries/{registry_id}/roles": {
         parameters: {
             query?: never;
             header?: never;
@@ -4225,77 +4228,41 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Who curates a registry's lab lists
-         * @description Each list's curators. Its registrars curate every list besides.
+         * Who holds a registry's roles
+         * @description Its registrars, and its lab lists' curators, oldest grant first. A registrar curates
+         *     every list besides the lists' own curators.
          */
-        get: operations["iki_server_api_lists_list_curators"];
+        get: operations["iki_server_api_registries_list_registry_roles"];
         put?: never;
-        post?: never;
+        /**
+         * Give someone a registry role
+         * @description Org Admins grant them: a registrar, over the whole registry, or a lab list's curator,
+         *     a list at a time, such as a QC lead for deviation categories. 201 with the new grant,
+         *     or 200 with the one they hold already. Being an Org Admin doesn't make someone either.
+         */
+        post: operations["iki_server_api_registries_grant_registry_role"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/v1/registries/{registry_id}/list-curators/{name}/{user_id}": {
+    "/api/v1/registries/{registry_id}/roles/{role_id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get?: never;
-        /**
-         * Make someone a lab list's curator
-         * @description Org Admins appoint them, a list at a time: a QC lead for deviation categories, a
-         *     purification lead for lot methods. Being an Org Admin doesn't make someone one.
-         */
-        put: operations["iki_server_api_lists_appoint_curator"];
-        post?: never;
-        /** Stop someone curating a lab list */
-        delete: operations["iki_server_api_lists_dismiss_curator"];
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/registries/{registry_id}/registrars": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * A registry's registrars
-         * @description Who curates its entries' facts and supersedes them.
-         */
-        get: operations["iki_server_api_registries_list_registrars"];
+        /** A registry role */
+        get: operations["iki_server_api_registries_get_registry_role"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/registries/{registry_id}/registrars/{user_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
         /**
-         * Make someone a registrar
-         * @description Org Admins appoint them, a registry at a time. Being an Org Admin doesn't make
-         *     someone one.
+         * Take a registry role away
+         * @description Org Admins. A curator of a list whose plugin was removed can still be removed.
          */
-        put: operations["iki_server_api_registries_appoint_registrar"];
-        post?: never;
-        /** Stop someone being a registrar */
-        delete: operations["iki_server_api_registries_dismiss_registrar"];
+        delete: operations["iki_server_api_registries_remove_registry_role"];
         options?: never;
         head?: never;
         patch?: never;
@@ -8968,6 +8935,13 @@ export interface components {
              * @description The types it extends, nearest first, ending with `iki/core.Entity`: its records are each of theirs too (ADR 0282). A type is another when the other is it or among its ancestors.
              */
             ancestors: string[];
+            /**
+             * Annotations
+             * @description Its lab's own metadata about the type, by name, such as its owner or validation status (ADR 0293): shown, never acted on.
+             */
+            annotations?: {
+                [key: string]: string;
+            };
             /** Description */
             description: string | null;
             /**
@@ -8989,7 +8963,10 @@ export interface components {
             extends: string | null;
             /** Fields */
             fields: components["schemas"]["FieldOut"][];
-            /** Hrid Prefix */
+            /**
+             * Hrid Prefix
+             * @description The prefix of its entities' HRIDs, such as PRT. None for an abstract type, and for a lab list, whose options are named by their code and numbered in the one sequence every list's options share (ADR 0295).
+             */
             hrid_prefix: string | null;
             /**
              * Identity
@@ -9565,8 +9542,18 @@ export interface components {
              */
             assignment_states: string[];
             /**
+             * Cel
+             * @description A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+             */
+            cel?: string | null;
+            /**
+             * Cel Reads
+             * @description The record's fields `cel` reads: changing one changes this field.
+             */
+            cel_reads?: string[];
+            /**
              * Computed
-             * @description Set only by actions.
+             * @description Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
              */
             computed: boolean;
             /** Description */
@@ -11925,21 +11912,6 @@ export interface components {
              */
             curate: boolean;
         };
-        /** ListCuratorOut */
-        ListCuratorOut: {
-            /**
-             * Appointed At
-             * Format: date-time
-             */
-            appointed_at: string;
-            appointed_by: components["schemas"]["UserOut"] | null;
-            /**
-             * List
-             * @description The list's type, such as iki/lots.PurityMethod.
-             */
-            list: string;
-            user: components["schemas"]["UserOut"];
-        };
         /** ListOut */
         ListOut: {
             can: components["schemas"]["ListCan"];
@@ -12928,7 +12900,10 @@ export interface components {
             code: string;
             /** Description */
             description: string;
-            /** Hrid */
+            /**
+             * Hrid
+             * @description Its page's address, such as OPTION-000123, from the one sequence every list's options share (ADR 0295). It's shown by its label and named by its code.
+             */
             hrid: string;
             /**
              * Id
@@ -13469,6 +13444,16 @@ export interface components {
              */
             next_cursor: string | null;
         };
+        /** Page[RegistryRoleOut] */
+        Page_RegistryRoleOut_: {
+            /** Items */
+            items: components["schemas"]["RegistryRoleOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as cursor for the next page; null at the end.
+             */
+            next_cursor: string | null;
+        };
         /** Page[RevisionOut] */
         Page_RevisionOut_: {
             /** Items */
@@ -13680,8 +13665,18 @@ export interface components {
              */
             assignment_states: string[];
             /**
+             * Cel
+             * @description A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.
+             */
+            cel?: string | null;
+            /**
+             * Cel Reads
+             * @description The record's fields `cel` reads: changing one changes this field.
+             */
+            cel_reads?: string[];
+            /**
              * Computed
-             * @description Set only by actions.
+             * @description Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).
              */
             computed: boolean;
             /**
@@ -15555,16 +15550,6 @@ export interface components {
             /** @description Conditions on the fields it reads (and `hrid`), added to the place's with `all`. At most 20, nested at most 4 deep. */
             where?: components["schemas"]["Condition"] | null;
         };
-        /** RegistrarOut */
-        RegistrarOut: {
-            /**
-             * Appointed At
-             * Format: date-time
-             */
-            appointed_at: string;
-            appointed_by: components["schemas"]["UserOut"] | null;
-            user: components["schemas"]["UserOut"];
-        };
         /** RegistrationIn */
         RegistrationIn: {
             /**
@@ -15688,7 +15673,7 @@ export interface components {
             curate_lists: boolean;
             /**
              * Manage
-             * @description Rename it, choose its teams, appoint its registrars.
+             * @description Rename it, choose its teams, grant its roles.
              */
             manage: boolean;
         };
@@ -15848,6 +15833,78 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** RegistryRoleFilters */
+        RegistryRoleFilters: {
+            /**
+             * Cursor
+             * @description From the previous page's next_cursor.
+             */
+            cursor?: string | null;
+            /**
+             * Limit
+             * @description Items per page.
+             * @default 50
+             */
+            limit: number;
+            /**
+             * List
+             * @description Only the curators of this lab list.
+             */
+            list?: string | null;
+            /** Role */
+            role?: ("registrar" | "list_curator") | null;
+            /**
+             * User
+             * @description Only this person's roles.
+             */
+            user?: string | null;
+        };
+        /** RegistryRoleIn */
+        RegistryRoleIn: {
+            /**
+             * List
+             * @description The lab list, for a list curator; none for a registrar.
+             */
+            list?: string | null;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "registrar" | "list_curator";
+            /**
+             * User
+             * Format: uuid
+             * @description The person: never a service account.
+             */
+            user: string;
+        };
+        /** RegistryRoleOut */
+        RegistryRoleOut: {
+            /**
+             * Granted At
+             * Format: date-time
+             */
+            granted_at: string;
+            granted_by: components["schemas"]["UserOut"] | null;
+            /**
+             * Id
+             * Format: uuid
+             * @description The grant's: GET or DELETE /registries/{registry_id}/roles/{id}.
+             */
+            id: string;
+            /**
+             * List
+             * @description A list curator's list, such as iki/lots.PurityMethod. Null for a role over the whole registry.
+             */
+            list: string | null;
+            /**
+             * Role
+             * @description registrar: curates the registry's facts and supersedes its entries, and curates every lab list in it. list_curator: curates one lab list (ADR 0270).
+             * @enum {string}
+             */
+            role: "registrar" | "list_curator";
+            user: components["schemas"]["UserOut"];
         };
         /** RelatedOut */
         RelatedOut: {
@@ -28001,9 +28058,19 @@ export interface operations {
             default: components["responses"]["Problem"];
         };
     };
-    iki_server_api_lists_list_curators: {
+    iki_server_api_registries_list_registry_roles: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description From the previous page's next_cursor. */
+                cursor?: string | null;
+                /** @description Items per page. */
+                limit?: number;
+                role?: ("registrar" | "list_curator") | null;
+                /** @description Only the curators of this lab list. */
+                list?: string | null;
+                /** @description Only this person's roles. */
+                user?: string | null;
+            };
             header?: never;
             path: {
                 registry_id: string;
@@ -28018,24 +28085,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListCuratorOut"][];
+                    "application/json": components["schemas"]["Page_RegistryRoleOut_"];
                 };
             };
             default: components["responses"]["Problem"];
         };
     };
-    iki_server_api_lists_appoint_curator: {
+    iki_server_api_registries_grant_registry_role: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 registry_id: string;
-                name: string;
-                user_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegistryRoleIn"];
+            };
+        };
         responses: {
             /** @description OK */
             200: {
@@ -28043,7 +28112,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListCuratorOut"];
+                    "application/json": components["schemas"]["RegistryRoleOut"];
                 };
             };
             /** @description Created */
@@ -28052,41 +28121,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ListCuratorOut"];
+                    "application/json": components["schemas"]["RegistryRoleOut"];
                 };
             };
             default: components["responses"]["Problem"];
         };
     };
-    iki_server_api_lists_dismiss_curator: {
+    iki_server_api_registries_get_registry_role: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 registry_id: string;
-                name: string;
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    iki_server_api_registries_list_registrars: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                registry_id: string;
+                role_id: string;
             };
             cookie?: never;
         };
@@ -28098,52 +28145,19 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["RegistrarOut"][];
+                    "application/json": components["schemas"]["RegistryRoleOut"];
                 };
             };
             default: components["responses"]["Problem"];
         };
     };
-    iki_server_api_registries_appoint_registrar: {
+    iki_server_api_registries_remove_registry_role: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 registry_id: string;
-                user_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegistrarOut"];
-                };
-            };
-            /** @description Created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RegistrarOut"];
-                };
-            };
-            default: components["responses"]["Problem"];
-        };
-    };
-    iki_server_api_registries_dismiss_registrar: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                registry_id: string;
-                user_id: string;
+                role_id: string;
             };
             cookie?: never;
         };

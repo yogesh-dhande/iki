@@ -65,6 +65,12 @@ script imports it as `import iki_action as iki`. It provides:
   run input carries, and `iki.ref(entity)`, which names a registered input by
   its entry.
 - `iki.progress` and `iki.fail`.
+- Streamed inputs, for an input too large to hold at once, such as a search's
+  100,000 compounds, each with its Molfile. `iki.main(fn, streamed=("compounds",))`
+  reads the rest of the run and leaves that input's list empty, and
+  `run.stream("compounds")` reads its records one at a time, a megabyte of
+  JSON at a time, with the standard library's decoder. Only the record in hand
+  is held.
 
 The helper enforces the worker's limits in one place. It refuses output over
 2.5 MB, and numbers that JSON can't hold. It refuses a run input of another

@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TextIO
@@ -192,7 +192,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
         purged = {p.name for p in lock.plugins if p.state == "purged"}
         if (
             not _nothing_needs(purged, fetched, err)
-            or not _load_all(fetched, err)
+            or not _load_all(fetched, err, lock.hrids)
             or not _detached_alone(fetched, err)
         ):
             return 1
@@ -219,6 +219,7 @@ def run_build(args: argparse.Namespace, out: TextIO | None = None) -> int:
                 lock=_record(lock, fetched, made),
                 local=lock.has_local,
                 mirrors=[f.source for f in fetched if f.source is not None and f.mirrored],
+                hrids=lock.hrids,
             )
         except ValueError as error:
             err.write(f"error: {error}.\n")
@@ -289,7 +290,8 @@ def _declared_name(directory: Path) -> str | None:
     return name if isinstance(name, str) else None
 
 
-def _load_all(fetched: list[_Fetched], err: TextIO) -> bool:
+def _load_all(fetched: list[_Fetched], err: TextIO, hrids: Mapping[str, str] | None = None) -> bool:
+    """Load and check each plugin, with the others and the deployment's HRID prefixes."""
     for item in fetched:
         declared = _declared_name(item.directory)
         if declared is not None and declared != item.entry.name:
@@ -309,7 +311,7 @@ def _load_all(fetched: list[_Fetched], err: TextIO) -> bool:
     ok = True
     for item in fetched:
         others = [d for d in directories if d != item.directory]
-        result = load_plugin(item.directory, dependencies=others)
+        result = load_plugin(item.directory, dependencies=others, hrids=hrids)
         if result.problems:
             sources = {p.file: item.directory / p.file for p in result.problems if p.file}
             write_problems(err, result.problems, item.directory, sources, label=item.label)
@@ -465,6 +467,7 @@ def _bundles(fetched: list[_Fetched], output: Path) -> dict[str, dict[str, Any]]
                 output / f"{naming.app_label(item.entry.name)}-{item.entry.sha or LOCAL}.tar.gz",
                 pinned=item.entry.sha is not None,
                 runtime=workers.wants_runtime(item.plugin),
+                helm=workers.wants_helm(item.plugin),
             )
         except (ValueError, plugin_runtime.UnavailableError) as error:
             raise ValueError(f"{item.label}: {error}") from None

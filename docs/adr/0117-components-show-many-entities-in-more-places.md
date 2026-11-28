@@ -4,6 +4,8 @@
 - Date: 2026-11-17
 - Refines: [0084](0084-plugin-components-run-in-sandboxed-frames.md),
   [0090](0090-apps-are-compositions-of-ikis-components.md)
+- Extended by: [0286](0286-the-component-package-is-the-frame-protocols-one-source.md),
+  the frame protocol's one source, versioned and published
 
 ## Context
 

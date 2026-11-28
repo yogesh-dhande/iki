@@ -32,7 +32,11 @@ An environment that declares ``iki_runtime`` gets the plugin runtime's wheel thi
 ships (ADR 0288): ``runtime/`` beside the build script holds it for the image, and a
 plugin's bundle carries it at :data:`RUNTIME_IN_BUNDLE` for self-hosted workers. Its
 SHA-256 is part of the environment's digest, so a worker installs only those bytes, and an
-upgrade that changes them rebuilds the environment.
+upgrade that changes them rebuilds the environment. One that declares
+``iki_runtime: { helm: true }`` gets iki-wasm's module beside the wheel too, for
+``iki_runtime.helm``: the server image's verified copy checked against its pin again,
+put in the environment at ``share/iki-runtime/iki_wasm.wasm``, and with its SHA-256 in
+the digest as well.
 """
 
 from __future__ import annotations
@@ -70,6 +74,7 @@ __all__ = [
     "environments",
     "prepared_source",
     "stage_runtime",
+    "wants_helm",
     "wants_runtime",
     "write",
 ]
@@ -83,6 +88,9 @@ SCRIPT = "build-environments.sh"
 RUNTIME = "runtime"
 #: Where a plugin's bundle carries the plugin runtime's wheel, for a worker to install.
 RUNTIME_IN_BUNDLE = ".iki-runtime"
+#: Where an environment with the plugin runtime's HELM reader has iki-wasm's module, under
+#: its prefix: where ``iki_runtime.helm`` looks for it (ADR 0288).
+WASM_IN_ENVIRONMENT = "share/iki-runtime/iki_wasm.wasm"
 
 #: Working-copy metadata and caches have no place in source staging or release bundles.
 _IGNORED_NAMES = {
@@ -300,12 +308,44 @@ def _definition(env: Environment, directory: Path) -> dict[str, str]:
         }
     if env.iki_runtime:
         found["iki_runtime_sha256"] = plugin_runtime.wheel().sha256
+    if env.iki_runtime_helm:
+        found["iki_wasm_sha256"] = plugin_runtime.wasm().sha256
     return found
 
 
 def wants_runtime(plugin: Plugin) -> bool:
     """Whether an environment of `plugin` that workers build installs the plugin runtime."""
     return any(_built(env) and env.iki_runtime for env in plugin.environments.values())
+
+
+def wants_helm(plugin: Plugin) -> bool:
+    """Whether an environment of `plugin` that workers build has the plugin runtime's HELM
+    reader, and so iki-wasm's module."""
+    return any(_built(env) and env.iki_runtime_helm for env in plugin.environments.values())
+
+
+def _runtime_wasm(*, pinned: bool) -> plugin_runtime.Module:
+    """iki-wasm's module for the plugin runtime's HELM reader. The server image's copy
+    carries the pin its wasm stage verified it against, and is checked against it again. A
+    pinned build, as a release's is, needs that copy. A development build may have a
+    checkout's own, cargo's build on its host, which no pin describes (its bytes differ by
+    the paths it was built in, even on Linux x86-64): it goes by its digest. Raises
+    :class:`ValueError` when the bytes aren't the pin's, or a pinned build has no pin."""
+    module = plugin_runtime.wasm()
+    if module.pinned is None:
+        if pinned:
+            raise ValueError(
+                "A pinned build needs iki-wasm's module as the server image carries it, with "
+                "its pin beside it (iki_wasm.wasm.sha256), and this iki-spec's has none: build "
+                "it where the image's iki-spec is, as a deployment's setup build does."
+            )
+        return module
+    if module.sha256 != module.pinned:
+        raise ValueError(
+            f"iki-spec's iki_wasm.wasm isn't the module Iki pins: it is {module.sha256}, and "
+            f"the pin beside it says {module.pinned}. Reinstall this release's iki-spec."
+        )
+    return module
 
 
 def _digest(definition: dict[str, str]) -> str:
@@ -331,6 +371,8 @@ def environments(plugin: Plugin, directory: Path) -> dict[str, dict[str, Any]]:
             entry["packages"] = _has_requirements(directory / env.requirements)
         if env.iki_runtime:
             entry["runtime"] = f"{RUNTIME_IN_BUNDLE}/{plugin_runtime.wheel().name}"
+        if env.iki_runtime_helm:
+            entry["runtime_wasm"] = f"{RUNTIME_IN_BUNDLE}/{plugin_runtime.Module.name}"
         found[name] = entry
     return found
 
@@ -464,7 +506,13 @@ def stage_runtime(name: str, directory: Path, output: Path) -> None:
 
 
 def bundle(
-    name: str, directory: Path, output: Path, *, pinned: bool = False, runtime: bool = False
+    name: str,
+    directory: Path,
+    output: Path,
+    *,
+    pinned: bool = False,
+    runtime: bool = False,
+    helm: bool = False,
 ) -> dict[str, Any]:
     """Writes `directory`'s code to `output`, a gzipped tar workers fetch, and returns its
     ``sha256`` and ``size``. Only regular files: a symbolic link could point anywhere on
@@ -474,11 +522,12 @@ def bundle(
     A module `directory` tracks a digest for is put there and checked first, or the
     bundle is refused: see :func:`_place_modules`. With `runtime`, for a plugin whose
     environments install the plugin runtime, the bundle carries its wheel too, at
-    :data:`RUNTIME_IN_BUNDLE`."""
+    :data:`RUNTIME_IN_BUNDLE`; with `helm`, for one whose environments have its HELM
+    reader, iki-wasm's module beside it (:func:`_runtime_wasm`)."""
     files = _worker_files(name, directory)
     files = sorted({*files, *_place_modules(directory, files, pinned=pinned)})
     members = [(file.relative_to(directory).as_posix(), file) for file in files]
-    if runtime:
+    if runtime or helm:
         if any(m.split("/")[0] == RUNTIME_IN_BUNDLE for m, _ in members):
             raise ValueError(
                 f"{RUNTIME_IN_BUNDLE}/ is where a bundle carries the plugin runtime; "
@@ -486,6 +535,9 @@ def bundle(
             )
         wheel = plugin_runtime.wheel()
         members.append((f"{RUNTIME_IN_BUNDLE}/{wheel.name}", wheel.path))
+        if helm:
+            module = _runtime_wasm(pinned=pinned)
+            members.append((f"{RUNTIME_IN_BUNDLE}/{module.name}", module.path))
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.PAX_FORMAT) as tar:
         for relative, file in members:
@@ -513,6 +565,8 @@ def _has_requirements(file: Path) -> bool:
 
 #: What the image's build installs the plugin runtime from: its wheel, by its hash.
 RUNTIME_REQUIREMENTS = f"{RUNTIME}/requirements.txt"
+#: iki-wasm's module, beside the wheel, for the environments with its HELM reader.
+RUNTIME_WASM = f"{RUNTIME}/{plugin_runtime.Module.name}"
 
 
 def _runtime_line(python: str) -> str:
@@ -536,6 +590,8 @@ def _build_lines(item: WorkerPlugin, env: Environment, prefix: str) -> list[str]
         ]
         if env.iki_runtime:
             lines.append(_runtime_line(f"{prefix}/bin/python"))
+        if env.iki_runtime_helm:
+            lines.extend(_wasm_lines(f"{prefix}/bin/python", prefix))
         return lines
     assert env.python_version is not None and env.requirements is not None  # noqa: S101 - the schema
     # uv downloads the Python version when the image has none.
@@ -549,17 +605,35 @@ def _build_lines(item: WorkerPlugin, env: Environment, prefix: str) -> list[str]
         )
     if env.iki_runtime:
         lines.append(_runtime_line(prefix))
+    if env.iki_runtime_helm:
+        lines.extend(_wasm_lines(f"{prefix}/bin/python", prefix))
     return lines
 
 
-def _write_runtime(output: Path) -> None:
+def _wasm_lines(python: str, prefix: str) -> list[str]:
+    """Puts iki-wasm's module where the environment's ``iki_runtime.helm`` reads it, and
+    compiles it there for this machine, so a run loads it rather than compiling it."""
+    q = shlex.quote
+    target = f"{prefix}/{WASM_IN_ENVIRONMENT}"
+    return [
+        f"mkdir -p {q(str(PurePosixPath(target).parent))}",
+        f'cp "$here"/{q(RUNTIME_WASM)} {q(target)}',
+        f"{q(python)} -m iki_runtime.helm precompile {q(target)} >/dev/null",
+    ]
+
+
+def _write_runtime(output: Path, *, helm: bool, pinned: bool) -> None:
     """Puts the plugin runtime's wheel in `output`'s :data:`RUNTIME`, with the hashed
-    requirement the build installs it by."""
+    requirement the build installs it by, and with `helm` iki-wasm's module beside it."""
     wheel = plugin_runtime.wheel()
     directory = output / RUNTIME
     directory.mkdir()
     shutil.copyfile(wheel.path, directory / wheel.name)
     (directory / wheel.name).chmod(0o644)
+    if helm:
+        module = _runtime_wasm(pinned=pinned)
+        shutil.copyfile(module.path, output / RUNTIME_WASM)
+        (output / RUNTIME_WASM).chmod(0o644)
     (output / RUNTIME_REQUIREMENTS).write_text(
         f"./{RUNTIME}/{wheel.name} --hash=sha256:{wheel.sha256}\n"
     )
@@ -608,7 +682,8 @@ def write(
         )
     manifest = {"apiVersion": API_VERSION, "kind": "WorkerPlugins", "plugins": listed}
     if any(wants_runtime(item.plugin) for item in plugins):
-        _write_runtime(output)
+        helm = [item for item in plugins if wants_helm(item.plugin)]
+        _write_runtime(output, helm=bool(helm), pinned=any(item.sha for item in helm))
     (code / WORKER_PLUGINS).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     (output / SCRIPT).write_text("\n".join(script) + "\n")
     (output / SCRIPT).chmod(0o755)

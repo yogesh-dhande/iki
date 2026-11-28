@@ -5,7 +5,13 @@
   "description": "What a plugin's actions need to run, wherever they run: software, the smallest machine, and data volumes. Each deployment binds it to its own compute templates.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "tiers"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
     "kind": { "description": "What the manifest declares: `Environment`.", "const": "Environment" },
     "name": {
@@ -58,9 +64,8 @@
           "$ref": "#/$defs/file"
         },
         "iki_runtime": {
-          "description": "Install the plugin runtime (`iki_runtime`: readers for compressed text, FASTQ and AIRR files) that this Iki release ships. Its version is part of the environment's build, so an upgrade that changes it rebuilds the environment. Leave it out of the requirements file.",
-          "type": "boolean",
-          "default": false
+          "description": "Install the plugin runtime (`iki_runtime`: readers for compressed text, FASTQ, AIRR files and HELM) that this Iki release ships: `true`, or `{ helm: true }` for its HELM reader too. Its version is part of the environment's build, so an upgrade that changes it rebuilds the environment. Leave it out of the requirements file.",
+          "$ref": "#/$defs/iki_runtime"
         }
       },
       "additionalProperties": false
@@ -75,9 +80,8 @@
           "$ref": "#/$defs/file"
         },
         "iki_runtime": {
-          "description": "Install the plugin runtime (`iki_runtime`) that this Iki release ships into the environment's Python, which the lockfile must include. Its version is part of the environment's build.",
-          "type": "boolean",
-          "default": false
+          "description": "Install the plugin runtime (`iki_runtime`) that this Iki release ships into the environment's Python, which the lockfile must include: `true`, or `{ helm: true }` for its HELM reader too. Its version is part of the environment's build.",
+          "$ref": "#/$defs/iki_runtime"
         }
       },
       "additionalProperties": false
@@ -126,6 +130,24 @@
   ],
   "additionalProperties": false,
   "$defs": {
+    "iki_runtime": {
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "description": "The plugin runtime, with the readers that need more than Python's standard library.",
+          "type": "object",
+          "properties": {
+            "helm": {
+              "description": "`iki_runtime.helm`: HELM read by iki-wasm, Iki's own reader. The environment gets this Iki release's iki-wasm module, whose SHA-256 is part of its build too; its requirements must pin `wasmtime`.",
+              "type": "boolean",
+              "default": false
+            }
+          },
+          "additionalProperties": false
+        }
+      ],
+      "default": false
+    },
     "label": {
       "description": "A label, such as `chromeleon`, `gpu` or `lab-3`: lowercase letters, digits, dots, dashes and underscores, starting and ending with a letter or digit.",
       "type": "string",

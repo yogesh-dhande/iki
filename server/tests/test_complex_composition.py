@@ -262,8 +262,11 @@ def test_a_dna_sequence_weighs_as_biopython_weighs_it(
         weight(bases, double_stranded=double, circular=circular, monoisotopic=True),
         abs=1e-4,
     )
+    # Biopython weighs its nucleotides with the atomic weights of 2005 (carbon 12.0107,
+    # hydrogen 1.00794), so its average is 8 ppm above CIAAW's of 2024; the formula is
+    # what the monoisotopic mass checks.
     assert composition.mass(formula, composition.AVERAGE) == pytest.approx(
-        weight(bases, double_stranded=double, circular=circular), abs=1e-2
+        weight(bases, double_stranded=double, circular=circular), rel=1e-5
     )
 
 
@@ -326,8 +329,8 @@ def test_an_isotope_labelled_formula_as_the_oligo_plugin_keeps_it_is_weighed() -
 
 def test_a_labs_own_kind_of_protein_is_weighed_by_its_sequence() -> None:
     """The complex's parts may be of a lab's type that extends Protein, which has its
-    sequence and no formula: it's weighed as the protein is, not refused for want of a
-    formula no action computes for it."""
+    sequence and no formula: it's weighed as the protein is, by the residues role it
+    inherits, not refused for want of a formula no action computes for it."""
 
     def insulin(type_name: str, *extends: str) -> dict[str, Any]:
         chains = [
@@ -335,6 +338,8 @@ def test_a_labs_own_kind_of_protein_is_weighed_by_its_sequence() -> None:
                 "id": uuid(n),
                 "type": type_name,
                 "types": [type_name, *extends, "iki/core.Sequence", "iki/core.Entity"],
+                # A subtype has its ancestors' roles (ADR 0284).
+                "roles": ROLES["iki/protein.Protein"],
                 "values": {"name": name, "sequence": sequence},
             }
             for n, name, sequence in ((2, "A chain", INSULIN_A), (3, "B chain", INSULIN_B))

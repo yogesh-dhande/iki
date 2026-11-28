@@ -35,7 +35,6 @@ RECORD = Record(
     name="Dose-response, compound 12",
     type="acme/liquid_handling.Transfer",
     revision=3,
-    latest=True,
     revised_at=datetime(2026, 11, 20, 9, 14, 3, 250_000, tzinfo=UTC),
     roles={"source_well": "A1", "volume": {"unit": "uL", "value": 2.5}},
     withheld=("destination_plate",),
@@ -60,7 +59,7 @@ def test_abi_1s_requests_are_the_bytes_they_always_were() -> None:
         b'"writer":"acme/liquid_handling.tecan-worklist"}'
     )
     assert canonical(one.record(RECORD)) == (
-        b'{"hrid":"TRF-000042","id":"6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41","latest":true,'
+        b'{"hrid":"TRF-000042","id":"6f1c1b7e-2a6d-4c1e-9b0a-3f6f5f9b2d41",'
         b'"name":"Dose-response, compound 12","revised_at":"2026-11-20T09:14:03Z",'
         b'"revision":3,"roles":{"source_well":"A1","volume":{"unit":"uL","value":2.5}},'
         b'"type":"acme/liquid_handling.Transfer","withheld":["destination_plate"]}'

@@ -430,6 +430,40 @@ fn conda_python(prefix: &Path) -> PathBuf {
     }
 }
 
+/// Where an environment with the plugin runtime's HELM reader has iki-wasm's module,
+/// under its prefix: where `iki_runtime.helm` looks for it, as `iki deploy build` puts it.
+const WASM_IN_ENVIRONMENT: [&str; 3] = ["share", "iki-runtime", "iki_wasm.wasm"];
+
+/// Where iki-wasm's module is in an environment at `prefix`.
+fn wasm_in(prefix: &Path) -> PathBuf {
+    WASM_IN_ENVIRONMENT
+        .iter()
+        .fold(prefix.to_path_buf(), |path, part| path.join(part))
+}
+
+/// Puts iki-wasm's module where the environment's `iki_runtime.helm` reads it.
+fn place_wasm(prefix: &Path, module: &Path) -> Result<(), String> {
+    let target = wasm_in(prefix);
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("couldn't make {}: {e}", parent.display()))?;
+    }
+    std::fs::copy(module, &target).map(|_| ()).map_err(|e| {
+        format!(
+            "couldn't copy iki-wasm's module to {}: {e}",
+            target.display()
+        )
+    })
+}
+
+/// What the plugin runtime puts in an environment beside its packages: its wheel, and
+/// iki-wasm's module for its HELM reader.
+#[derive(Clone, Copy, Default)]
+struct Runtime<'a> {
+    wheel: Option<&'a Path>,
+    wasm: Option<&'a Path>,
+}
+
 /// Builds the environment at `prefix`, with uv or micromamba, then installs the plugin
 /// runtime into it if it declares one.
 fn install(
@@ -438,13 +472,42 @@ fn install(
     definition: &BTreeMap<&str, String>,
     wanted: &EnvironmentBuildOut,
     file: &Path,
-    runtime: Option<&Path>,
+    runtime: Runtime<'_>,
 ) -> Result<(), String> {
     install_packages(kind, prefix, definition, wanted, file)?;
-    match (runtime, kind) {
+    match (runtime.wheel, kind) {
         (None, _) => Ok(()),
         (Some(wheel), Kind::Python) => install_runtime(prefix, wheel),
         (Some(wheel), Kind::Conda) => install_runtime(&conda_python(prefix), wheel),
+    }?;
+    let Some(module) = runtime.wasm else {
+        return Ok(());
+    };
+    place_wasm(prefix, module)?;
+    // Compiled for this machine in the environment, so a run loads it rather than
+    // compiling it, with the environment's own wasmtime.
+    let python = match kind {
+        Kind::Python => venv_python(prefix),
+        Kind::Conda => conda_python(prefix),
+    };
+    let os = |s: &str| std::ffi::OsString::from(s);
+    run(
+        &python.to_string_lossy(),
+        &[
+            &os("-m"),
+            &os("iki_runtime.helm"),
+            &os("precompile"),
+            wasm_in(prefix).as_os_str(),
+        ],
+    )
+}
+
+/// A virtual environment's Python.
+fn venv_python(prefix: &Path) -> PathBuf {
+    if cfg!(windows) {
+        prefix.join("Scripts").join("python.exe")
+    } else {
+        prefix.join("bin").join("python")
     }
 }
 
@@ -506,6 +569,45 @@ fn install_packages(
     }
 }
 
+/// The plugin runtime's files the bundle carries for an environment, each one's SHA-256
+/// put in its definition, as `iki deploy build` puts them in the digest: its wheel, and
+/// iki-wasm's module for its HELM reader.
+fn runtime_files(
+    dir: &Path,
+    wanted: &EnvironmentBuildOut,
+    definition: &mut BTreeMap<&str, String>,
+) -> Result<(Option<PathBuf>, Option<PathBuf>), String> {
+    // The plugin runtime's wheel, which the bundle carries: its bytes are in the digest.
+    let wheel = match wanted.runtime.as_deref() {
+        None => None,
+        Some(name) => {
+            let wheel = bundled(dir, Some(name))?;
+            let named = wheel.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                n.starts_with("iki_plugin_runtime-")
+                    && Path::new(n).extension().is_some_and(|e| e == "whl")
+            });
+            if !named {
+                return Err(format!("{name} isn't the plugin runtime's wheel"));
+            }
+            definition.insert("iki_runtime_sha256", file_sha256(&wheel)?);
+            Some(wheel)
+        }
+    };
+    // And iki-wasm's module, for its HELM reader: its bytes are in the digest too.
+    let module = match wanted.runtime_wasm.as_deref() {
+        None => None,
+        Some(name) => {
+            let module = bundled(dir, Some(name))?;
+            if module.file_name().and_then(|n| n.to_str()) != Some("iki_wasm.wasm") {
+                return Err(format!("{name} isn't iki-wasm's module"));
+            }
+            definition.insert("iki_wasm_sha256", file_sha256(&module)?);
+            Some(module)
+        }
+    };
+    Ok((wheel, module))
+}
+
 /// The environment `wanted` describes, built in the cache unless it already is.
 fn build(
     cache: &Path,
@@ -558,22 +660,7 @@ fn build(
             return Err("it's a kind this worker doesn't know: update iki-worker".to_owned());
         }
     };
-    // The plugin runtime's wheel, which the bundle carries: its bytes are in the digest.
-    let runtime = match wanted.runtime.as_deref() {
-        None => None,
-        Some(name) => {
-            let wheel = bundled(dir, Some(name))?;
-            let named = wheel.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-                n.starts_with("iki_plugin_runtime-")
-                    && Path::new(n).extension().is_some_and(|e| e == "whl")
-            });
-            if !named {
-                return Err(format!("{name} isn't the plugin runtime's wheel"));
-            }
-            definition.insert("iki_runtime_sha256", file_sha256(&wheel)?);
-            Some(wheel)
-        }
-    };
+    let (runtime, wasm) = runtime_files(dir, wanted, &mut definition)?;
     // The bundle was checked, but check the build gets what the server will expect.
     let computed = digest(&definition);
     if computed != wanted.digest {
@@ -604,7 +691,10 @@ fn build(
         &definition,
         wanted,
         &file,
-        runtime.as_deref(),
+        Runtime {
+            wheel: runtime.as_deref(),
+            wasm: wasm.as_deref(),
+        },
     );
     if let Err(error) = built {
         let _ = std::fs::remove_dir_all(&prefix);
@@ -779,6 +869,39 @@ mod tests {
             ))
         );
         assert_eq!(digest(&definition), expected);
+    }
+
+    #[test]
+    fn iki_wasms_module_is_part_of_the_digest_iki_deploy_build_computes() {
+        // From cli/tests: the module's SHA-256 beside the wheel's and the requirements'.
+        let definition = BTreeMap::from([
+            ("kind", "python".to_owned()),
+            ("python", "3.12".to_owned()),
+            ("requirements_sha256", "ab".to_owned()),
+            ("iki_runtime_sha256", "cd".to_owned()),
+            ("iki_wasm_sha256", "ef".to_owned()),
+        ]);
+        let expected = format!(
+            "sha256:{}",
+            hex(&Sha256::digest(
+                br#"{"iki_runtime_sha256":"cd","iki_wasm_sha256":"ef","kind":"python","python":"3.12","requirements_sha256":"ab"}"#
+            ))
+        );
+        assert_eq!(digest(&definition), expected);
+    }
+
+    #[test]
+    fn puts_iki_wasms_module_where_the_helm_reader_finds_it() {
+        let dir = scratch("wasm");
+        let module = dir.join("iki_wasm.wasm");
+        std::fs::write(&module, b"\0asm").unwrap();
+        let prefix = dir.join("env");
+        place_wasm(&prefix, &module).unwrap();
+        assert_eq!(
+            std::fs::read(prefix.join("share/iki-runtime/iki_wasm.wasm")).unwrap(),
+            b"\0asm"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

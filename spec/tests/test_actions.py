@@ -24,12 +24,15 @@ from iki_spec.validate import Result, check_settings_text, load_plugin
 
 PLUGINS = Path(__file__).parent / "plugins"
 DNA, PROTEIN, PREDICTION = PLUGINS / "dna", PLUGINS / "protein", PLUGINS / "structure_prediction"
+FIRST_PARTY = Path(__file__).parents[2] / "plugins"
+EQUIPMENT, LAB_ROLES = FIRST_PARTY / "equipment", FIRST_PARTY / "lab_roles"
 
 PLUGIN = """\
 apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 TYPES = """\
@@ -147,7 +150,7 @@ def action(**changes: str) -> str:
 
 def test_the_example_actions_and_environments_are_valid() -> None:
     protein = load_plugin(PROTEIN, dependencies=[DNA])
-    assert protein.problems == []
+    assert [p for p in protein.problems if p.code != "provisional-key"] == []
     assert protein.plugin is not None
     compute = protein.plugin.actions["compute_properties"]
     assert compute.qualified_name == "acme/protein.compute_properties"
@@ -201,7 +204,7 @@ def test_quantities_and_durations() -> None:
 
 def test_actions_live_under_actions(tmp_path: Path) -> None:
     result = make(tmp_path, files={"types/action.yaml": ACTION})
-    assert "Files under types/ hold entity types and extensions, not an action" in only(
+    assert "Files under types/ hold entity types, extensions and lab lists, not an action" in only(
         result, "wrong-file"
     )
     assert result.problems[0].hint == "Move it to a file under actions/."
@@ -324,6 +327,57 @@ def test_a_script_that_reads_with_the_plugin_runtime_runs_where_its_installed(
         "requirements: requirements.txt }", "requirements: requirements.txt, iki_runtime: 1.2 }"
     )
     assert "schema" in codes(make(tmp_path, ACTION, bad))
+
+
+def test_a_script_that_reads_helm_with_the_runtime_needs_its_helm_reader(tmp_path: Path) -> None:
+    """ADR 0288: `iki_runtime.helm` needs iki-wasm's module beside the package, which an
+    environment gets with `iki_runtime: { helm: true }`, and wasmtime, which it pins."""
+    files = {
+        "run.py": "import chemistry\n",
+        "chemistry.py": "from iki_runtime import helm as reader\n",
+    }
+    plain = BACKEND.replace(
+        "requirements: requirements.txt }", "requirements: requirements.txt, iki_runtime: true }"
+    )
+    message = only(make(tmp_path, ACTION, plain, files=files), "runtime-not-installed")
+    assert "`run.py` imports `iki_runtime.helm`" in message
+    for imported in ("import iki_runtime.helm\n", "from iki_runtime.helm import read\n"):
+        found = make(tmp_path, ACTION, plain, files={"run.py": imported})
+        assert codes(found) == ["runtime-not-installed"], imported
+    # Without the runtime at all, the hint says how to get its HELM reader with it.
+    missing = make(tmp_path, ACTION, BACKEND, files=files)
+    assert "iki_runtime: { helm: true }" in (missing.problems[0].hint or "")
+    helm = BACKEND.replace(
+        "requirements: requirements.txt }",
+        "requirements: requirements.txt, iki_runtime: { helm: true } }",
+    )
+    # Its requirements must pin wasmtime, which runs the module.
+    assert only(make(tmp_path, ACTION, helm, files=files), "helm-needs-wasmtime")
+    wasmtime = REQUIREMENTS + "wasmtime==51.0.0 \\\n    --hash=sha256:" + "b" * 64 + "\n"
+    loaded = make(tmp_path, ACTION, helm, files={**files, "requirements.txt": wasmtime})
+    assert loaded.problems == [], loaded.problems
+    assert loaded.plugin is not None
+    env = loaded.plugin.environments["tools"]
+    assert (env.iki_runtime, env.iki_runtime_helm) == (True, True)
+    assert plugin_from_dict(plugin_to_dict(loaded.plugin)) == loaded.plugin
+    # `{}` is the runtime without its HELM reader; a script that reads only FASTQ is fine.
+    bare = BACKEND.replace(
+        "requirements: requirements.txt }", "requirements: requirements.txt, iki_runtime: {} }"
+    )
+    fastq = make(tmp_path, ACTION, bare, files={"run.py": "from iki_runtime import fastq\n"})
+    assert fastq.problems == []
+    assert fastq.plugin is not None
+    assert (
+        fastq.plugin.environments["tools"].iki_runtime,
+        fastq.plugin.environments["tools"].iki_runtime_helm,
+    ) == (True, False)
+    assert "iki_runtime_helm" not in json.dumps(plugin_to_dict(fastq.plugin))
+    # Only a yes or no for the reader.
+    wrong = BACKEND.replace(
+        "requirements: requirements.txt }",
+        "requirements: requirements.txt, iki_runtime: { helm: 1, fasta: true } }",
+    )
+    assert "schema" in codes(make(tmp_path, ACTION, wrong))
 
 
 def test_an_environment_can_ask_its_deployment_for_an_image(tmp_path: Path) -> None:
@@ -705,6 +759,27 @@ def test_creates(tmp_path: Path) -> None:
 def test_creates_match_on_a_unique_field(tmp_path: Path, field: str, code: str) -> None:
     creates = f"{{ creates: [{{ type: Assay, cardinality: many, match_on: {field} }}] }}"
     assert codes(make(tmp_path, action(effects=creates))) == [code]
+
+
+def test_a_create_keeps_what_it_matches_only_when_it_matches_on_a_field(tmp_path: Path) -> None:
+    """`on_match: keep` leaves the entity a create matches as its first maker made it, so
+    it needs `match_on` to match on; the equipment plugin's impact cases keep theirs."""
+    creates = "{ creates: [{ type: Assay, cardinality: many, on_match: keep }] }"
+    [problem] = make(tmp_path, action(effects=creates)).problems
+    assert (problem.code, problem.hint) == (
+        "on-match-without-match-on",
+        "Give `match_on`, a unique field, or drop `on_match`.",
+    )
+    unknown = "{ creates: [{ type: Assay, match_on: barcode, on_match: replace }] }"
+    assert "schema" in codes(make(tmp_path, action(effects=unknown)))
+    equipment = load_plugin(EQUIPMENT, dependencies=[LAB_ROLES]).plugin
+    assert equipment is not None
+    record = equipment.actions["record_instrument_use"].creates
+    assert [(c.type.rsplit(".", 1)[1], c.on_match) for c in record] == [
+        ("InstrumentUse", "update"),
+        ("CalibrationImpact", "keep"),
+    ]
+    assert equipment.actions["trace_failed_calibrations"].creates[0].on_match == "keep"
 
 
 def test_an_extensions_unique_field_can_be_matched_on() -> None:
@@ -1165,7 +1240,7 @@ def test_an_api_no_action_calls_is_warned_about(tmp_path: Path) -> None:
 
 def test_the_example_plugins_api(tmp_path: Path) -> None:
     result = load_plugin(PLUGINS / "protein", dependencies=[PLUGINS / "dna"])
-    assert result.problems == []
+    assert [p for p in result.problems if p.code != "provisional-key"] == []
     assert result.plugin is not None
     (use,) = result.plugin.actions["predict_hosted"].apis
     assert use.api is not None and use.api.host == "fold.models.example"

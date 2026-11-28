@@ -69,14 +69,13 @@ from django.db.models.functions import Least
 
 from iki_server.org.models import (
     LabRoleGrant,
-    ListCurator,
     OrgRole,
     OrgRoleAssignment,
     Project,
     ProjectMembership,
     ProjectRole,
-    Registrar,
     Registry,
+    RegistryRole,
     Team,
 )
 
@@ -443,26 +442,36 @@ def _held_team_membership(user: Any, team: Team) -> bool:  # noqa: ANN401
     return cache[team.pk]
 
 
-def _held_registrar(user: Any, registry: Registry) -> bool:  # noqa: ANN401
-    """One of the registry's registrars (ADR 0115)."""
-    if not _active(user):
-        return False
-    cache: dict[Any, bool] = user.__dict__.setdefault("_iki_registrars", {})
-    if registry.pk not in cache:
-        cache[registry.pk] = Registrar.objects.filter(registry=registry, user=user).exists()
-    return cache[registry.pk]
+@dataclass(frozen=True)
+class _RegistryRoles:
+    """The roles a user holds in one registry (ADR 0292)."""
+
+    registrar: bool
+    lists: frozenset[str]
 
 
-def _held_list_curations(user: Any, registry: Registry) -> frozenset[str]:  # noqa: ANN401
-    """The registry's lab lists the user was appointed to curate (ADR 0270), by type."""
+_NO_REGISTRY_ROLES = _RegistryRoles(registrar=False, lists=frozenset())
+
+
+def _held_registry_roles(user: Any, registry: Registry) -> _RegistryRoles:  # noqa: ANN401
+    """The user's grants in the registry (ADR 0292): one of its registrars (ADR 0115), and
+    the lab lists they were appointed to curate, by type (ADR 0270)."""
     if not _active(user):
-        return frozenset()
-    cache: dict[Any, frozenset[str]] = user.__dict__.setdefault("_iki_list_curators", {})
+        return _NO_REGISTRY_ROLES
+    cache: dict[Any, _RegistryRoles] = user.__dict__.setdefault("_iki_registry_roles", {})
     if registry.pk not in cache:
-        cache[registry.pk] = frozenset(
-            ListCurator.objects.filter(registry=registry, user=user).values_list(
-                "list_type", flat=True
+        held = list(
+            RegistryRole.objects.filter(registry=registry, user=user).values_list(
+                "role", "list_type"
             )
+        )
+        cache[registry.pk] = _RegistryRoles(
+            registrar=any(role == RegistryRole.Role.REGISTRAR for role, _ in held),
+            lists=frozenset(
+                list_type
+                for role, list_type in held
+                if role == RegistryRole.Role.LIST_CURATOR and list_type
+            ),
         )
     return cache[registry.pk]
 
@@ -470,10 +479,10 @@ def _held_list_curations(user: Any, registry: Registry) -> frozenset[str]:  # no
 def _curates(user: Any, registry: Registry, list_type: str | None) -> bool:  # noqa: ANN401
     """Whether the user curates this lab list of the registry, or with None, any of its
     lists: as one of its registrars, who curate them all, or as the list's curator."""
-    if _held_registrar(user, registry):
+    held = _held_registry_roles(user, registry)
+    if held.registrar:
         return True
-    lists = _held_list_curations(user, registry)
-    return bool(lists) if list_type is None else list_type in lists
+    return bool(held.lists) if list_type is None else list_type in held.lists
 
 
 def _held_lab_roles(user: Any, project: Project) -> frozenset[str]:  # noqa: ANN401
@@ -506,7 +515,7 @@ def _held_role_allows(user: Any, action: Action, target: Team | Project | Regist
             raise TypeError(f"{action} needs a Registry")
         if action is Action.LISTS_CURATE:
             return _curates(user, target, None)
-        return _held_registrar(user, target)
+        return _held_registry_roles(user, target).registrar
 
     if action in TEAM_ACTIONS:
         if not isinstance(target, Team):
@@ -681,8 +690,7 @@ def forget(user: Any) -> None:  # noqa: ANN401
             "_iki_org_roles",
             "_iki_project_roles",
             "_iki_team_memberships",
-            "_iki_registrars",
-            "_iki_list_curators",
+            "_iki_registry_roles",
             "_iki_lab_roles",
         ):
             each.__dict__.pop(attr, None)

@@ -1,6 +1,6 @@
 # 0230. Plugins write export formats in a Wasm sandbox that holds only the requester's data
 
-- Status: Accepted
+- Status: Accepted (amended by [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md): the host accepts a range of ABIs)
 - Date: 2026-11-25
 - Refines: [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
   [0213](0213-plugins-declare-their-file-formats.md),
@@ -262,7 +262,6 @@ A record's request is:
   "name": "Assay plate 42",
   "type": "acme/plates.Transfer",
   "revision": 3,
-  "latest": true,
   "revised_at": "2026-11-20T09:14:03Z",
   "roles": { "volume": { "value": 2.5, "unit": "nL" }, "source_plate": { "…": "…" } },
   "withheld": []
@@ -285,6 +284,12 @@ A record's request is:
 - **There is no clock, no randomness, no requester and no export time.**
   The file depends only on the records at their revisions, their order and
   the module. Within ABI 1, the request for a given revision never changes.
+- **Nor is there whether the revision is the record's latest** (2026-11-27).
+  That changes with every later edit, so a writer given it could write the
+  same revision as different bytes. The first ABI 1 request had `latest`;
+  it was removed before any writer outside Iki's examples read it. Whether a
+  download was of the latest revision is in its name and its audit event,
+  as for Iki's own formats (ADR 0171).
   A new field in the request is ABI 2, and a module says which ABI it reads.
 
 The engine runs with:

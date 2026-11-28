@@ -123,7 +123,13 @@ def exercise_review() -> None:
 def exercise_move() -> None:
     from iki_server.entities import entries
     from iki_server.org import registries
-    from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
+    from iki_server.org.models import (
+        Project,
+        ProjectMembership,
+        ProjectRole,
+        Registry,
+        RegistryRole,
+    )
 
     world = build_world()
     reviewer = f"{PLUGIN}.construct_reviewer"
@@ -162,7 +168,9 @@ def exercise_move() -> None:
     set_(world, "editor", ref, "status", "built")
 
     auditor = world.users["auditor"]
-    registries.appoint(Registry.default(), auditor, by=world.users["org_admin"])
+    registries.grant_role(
+        Registry.default(), RegistryRole.Role.REGISTRAR, auditor, by=world.users["org_admin"]
+    )
     assert wrong.entry_id is not None and right.entry_id is not None
     entries.supersede(
         auditor,

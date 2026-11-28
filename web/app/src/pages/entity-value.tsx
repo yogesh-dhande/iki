@@ -67,7 +67,13 @@ function RefLink({ found, project }: { found: Ref; project: string | undefined }
 /** A lab list's option (ADR 0270): its label, as it's called now, and what's become of it
  * if no dropdown offers it any more. It's nobody's record: it leads to its list, in the
  * registry of the project the record is in, where its history and curators are. */
-export function OptionRef({ found, project }: { found: Ref; project: string | undefined }) {
+export function OptionRef({
+  found,
+  project,
+}: {
+  found: Pick<Ref, "type" | "code" | "title" | "archived" | "superseded">;
+  project: string | undefined;
+}) {
   const retired = found.superseded ? "superseded" : found.archived ? "archived" : null;
   return (
     <span>

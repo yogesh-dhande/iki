@@ -27,7 +27,7 @@ from test_runs import launch, protein
 from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
-from iki_server.runs import catalog, queue, workers
+from iki_server.runs import catalog, leases, queue, workers
 from iki_server.runs.models import ActionRun, Job, JobLog, JobState, Worker
 from iki_server.runs.wakeup import waker
 from iki_spec import schemas
@@ -549,7 +549,7 @@ def test_logs_arrive_in_order(world: World, monkeypatch: pytest.MonkeyPatch) -> 
     gap = problem(pod.report(job, "logs", offset=10, text="x"), 409, "log_gap")
     assert gap["errors"] == [{"pointer": "#/offset", "detail": "Send from byte 7."}]
     assert gap["next_offset"] == 7
-    monkeypatch.setattr(queue, "MAX_LOG_BYTES", 10)
+    monkeypatch.setattr(leases, "MAX_LOG_BYTES", 10)
     assert pod.report(job, "logs", offset=7, text="world\n").json() == {"next_offset": 13}
     assert pod.report(job, "logs", offset=13, text="more\x00").json() == {"next_offset": 18}
     texts = list(JobLog.objects.filter(job_id=job["job"]["id"]).values_list("text", flat=True))

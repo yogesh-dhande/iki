@@ -202,7 +202,9 @@ measured.
 | `compute_plasmid_prep`  | Concentration from A260                                                                        |
 | `compute_protein_lot`   | ε280 used, from a protein or a complex; concentration from A280                                |
 | `compute_conjugate_lot` | DAR and unconjugated share from the drug load distribution; ε280 used, concentration from A280 |
-| `compute_polymer_lot`   | Dispersity                                                                                     |
+
+A polymer lot's dispersity needs no action: its type works it out from its Mn
+and Mw at every save (ADR 0297).
 
 ### What's computed
 
@@ -259,7 +261,7 @@ measured.
   stated where they'd make a difference, or its complex's disulfides may not
   all be counted. The run says what to confirm, and the concentration still
   follows the reading, so it's clear what it rests on. Hen lysozyme's sequence (UniProt P00698, 19–147) gives 37,970 L/(mol·cm) and
-  14,313.0 g/mol, less 8.06 for its four cystines: 37,970 / 14,304.94 = 2.6543
+  14,313.18 g/mol, less 8.06 for its four cystines: 37,970 / 14,305.12 = 2.6543
   mL/(mg·cm), within 0.6% of the 2.64 measured at 281.5 nm (Aune & Tanford,
   1969, Biochemistry 8:4579). Trastuzumab (KEGG D03257), two heavy and two light
   chains, is 145,197.41 g/mol and 213,380 L/(mol·cm) free; with its 16
@@ -285,7 +287,9 @@ measured.
   UV/Vis or by intact LC-MS beside a HIC distribution, is kept as entered, and
   the distribution's DAR is kept beside it, so the two can be compared.
 - **A polymer's dispersity**: its molar-mass dispersity, Đ = Mw/Mn (IUPAC,
-  2009), never below 1: the rule `mw_is_at_least_mn` refuses an Mw below its
+  2009), to three places, worked out at every save of the lot by its type's
+  expression, `double(int(record.mw / record.mn * 1000.0 + 0.5)) / 1000.0`, and
+  empty without both or with an Mn of 0. It's never below 1: the rule `mw_is_at_least_mn` refuses an Mw below its
   Mn. It's 1 when every chain has the same molar mass, which chains of one
   length but different composition needn't. Mn and Mw each say how they were
   measured. PSS's polystyrene standard PSS120219 (Mw 241,000, Mn 236,000) is

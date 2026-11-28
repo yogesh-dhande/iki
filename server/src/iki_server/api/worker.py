@@ -414,6 +414,12 @@ class EnvironmentBuildOut(Schema):
         description="The plugin runtime's wheel in the bundle, which the environment installs "
         "after its packages (ADR 0288). Its SHA-256 is part of the digest.",
     )
+    runtime_wasm: str | None = Field(
+        None,
+        description="iki-wasm's module in the bundle, for the plugin runtime's HELM reader: "
+        "the environment has it at `share/iki-runtime/iki_wasm.wasm` under its prefix "
+        "(ADR 0288). Its SHA-256 is part of the digest.",
+    )
 
 
 class AvailableOut(Schema):

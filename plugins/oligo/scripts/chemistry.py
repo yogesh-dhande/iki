@@ -17,6 +17,14 @@ its monoisotopic mass from each element's most abundant isotope, as RDKit has th
 atom a structure labels with its isotope ([13CH], [2H]) weighs that nuclide's mass, as
 RDKit has it from AME2020, in both, and is written as itself in its formula:
 C4[13C]5H12N2O6.
+
+HELM is read by iki-wasm, Iki's own reader, through the plugin runtime (``iki_runtime.helm``,
+ADR 0288): the reading Iki's forms and identities have (ADR 0144). It's canonical, so its
+polymers are numbered as the canonical form numbers them, a repeat of a fixed count is
+written out, a ring starts at the unit it reads least from, and a missing monomer (``_``)
+alone or as a base is left out, as HELM says it adds nothing. What has no one structure is
+refused: a monomer that's one of several or a mixture, a repeat of a range of counts, an
+unknown monomer or position, a polymer group, a monomer in in-line SMILES, a BLOB.
 """
 
 from __future__ import annotations
@@ -31,31 +39,17 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
-from helm import Helm, HelmError, Node, Polymer, node_of
 from rdkit import Chem, RDLogger
 from rdkit.Chem import Descriptors, rdCIPLabeler
+from weights import AVERAGE
+
+from iki_runtime import helm as iki_helm
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
 #: The library Iki seeds the registry of monomers from (see data/README.md).
 LIBRARY = Path(__file__).resolve().parent.parent / "data" / "monomers.json"
 
-#: CIAAW's abridged standard atomic weights (Prohaska et al., Pure Appl. Chem. 94, 573,
-#: 2022; the table at ciaaw.org), for the elements oligonucleotides have.
-ATOMIC_WEIGHTS = {
-    "H": 1.0080,
-    "B": 10.81,
-    "C": 12.011,
-    "N": 14.007,
-    "O": 15.999,
-    "F": 18.998,
-    "Na": 22.990,
-    "P": 30.974,
-    "S": 32.06,
-    "Cl": 35.45,
-    "Br": 79.904,
-    "I": 126.90,
-}
 
 ROLES = ("sugar", "base", "linker", "modifier")
 
@@ -117,6 +111,217 @@ def from_entity(entity: Mapping[str, Any]) -> Monomer:
         extinction_260=extinction["value"] if isinstance(extinction, dict) else extinction,
         id=entity.get("id"),
     )
+
+
+# --- HELM, read for its chemistry -----------------------------------------------------------
+
+
+class HelmError(ValueError):
+    """Why HELM can't be built into a molecule."""
+
+
+@dataclass
+class Node:
+    """A monomer in a polymer: its ID, and the backbone monomer it hangs from, if it's a
+    branch (a nucleotide's base)."""
+
+    id: str
+    #: Its index in its polymer's nodes, from 0.
+    index: int
+    #: The index of the backbone monomer it hangs from, for a branch.
+    branch_of: int | None
+    #: The unit it's in (its nucleotide, for RNA), from 0.
+    unit: int
+
+
+@dataclass
+class Polymer:
+    #: Its canonical ID.
+    id: str
+    type: str
+    nodes: list[Node] = field(default_factory=list)
+    #: Each position (from 1, as connections count) to its node's index.
+    positions: dict[int, int] = field(default_factory=dict)
+
+    @property
+    def units(self) -> int:
+        return (self.nodes[-1].unit + 1) if self.nodes else 0
+
+
+@dataclass(frozen=True)
+class End:
+    polymer: str
+    position: int
+    attachment: str  # R1, R2, … or pair
+
+
+@dataclass(frozen=True)
+class Connection:
+    one: End
+    other: End
+
+    @property
+    def pair(self) -> bool:
+        return self.one.attachment == "pair"
+
+
+@dataclass
+class Helm:
+    polymers: list[Polymer]
+    connections: list[Connection]
+    #: Each polymer's canonical notation, such as CHEM1{[5FAM]}, by its canonical ID.
+    notation: dict[str, str] = field(default_factory=dict)
+    #: The HELM as it was written.
+    text: str = ""
+
+    def polymer(self, name: str) -> Polymer:
+        for p in self.polymers:
+            if p.id == name:
+                return p
+        raise HelmError(f"It has no polymer {name}.")
+
+    def numbered(self, *ids: str) -> str:
+        """For a message naming these polymers: what each is, if the HELM as written
+        doesn't number it as the canonical form does. A strand is named as it's written."""
+        named = [
+            f"{i} is {self.notation[i]}"
+            for i in dict.fromkeys(ids)
+            if not i.startswith("RNA") and i in self.notation and self.notation[i] not in self.text
+        ]
+        if not named:
+            return ""
+        return f" Its polymers are numbered as its canonical HELM numbers them: {_and(named)}."
+
+
+#: The monomers HELM keeps for one that isn't known (its "ambiguous monomers"), which no
+#: structure is: any number, a missing one, an unknown amino acid or base, and `?`.
+UNKNOWN = ("*", "_", "X", "N", "?")
+_RANGE = re.compile(r"'(\d+)-(\d+)'")
+_POLYMER_START = re.compile(r"(?:PEPTIDE|RNA|CHEM|BLOB)[1-9][0-9]*(?=\{)")
+
+
+def read(text: str) -> Helm:
+    """``text``, HELM 2 or 1, read for its chemistry by iki-wasm. Raises :class:`HelmError`
+    saying what isn't HELM, or has no one structure."""
+    try:
+        reading = iki_helm.read(text)
+    except iki_helm.HelmError as error:
+        raise HelmError(_unreadable(text, error)) from None
+    # Its polymers' notations, in their canonical order: none has in-line SMILES (a `$` or
+    # `|` in one), by the time one's named.
+    notations = reading.canonical.split("$", 1)[0].split("|")
+    helm = Helm([], [], text=text)
+    if len(notations) == len(reading.polymers):
+        helm.notation = {p.id: n for p, n in zip(reading.polymers, notations, strict=True)}
+    for found in reading.polymers:
+        helm.polymers.append(_polymer(found, reading.canonical, helm))
+    if reading.groups:
+        raise HelmError(
+            "It has polymer groups: a molecule's weight and formula need each polymer known."
+        )
+    for c in reading.connections:
+        ends = []
+        for end in (c.one, c.other):
+            if end.position is None or end.attachment == "?":
+                raise HelmError(
+                    f"The connection {c.text} has an end that isn't one monomer's position and "
+                    "attachment point, such as 3:R2: a molecule needs each bond known."
+                    + helm.numbered(c.one.polymer, c.other.polymer)
+                )
+            ends.append(End(end.polymer, end.position, end.attachment))
+        helm.connections.append(Connection(ends[0], ends[1]))
+    for c in helm.connections:
+        for side in (c.one, c.other):
+            p = helm.polymer(side.polymer)
+            if side.position not in p.positions:
+                raise HelmError(
+                    f"A connection names monomer {side.position} of {p.id}, which has "
+                    f"{max(p.positions, default=0)}." + helm.numbered(p.id)
+                )
+    return helm
+
+
+def _polymer(found: iki_helm.Polymer, canonical: str, helm: Helm) -> Polymer:
+    where = found.id
+    if found.type == "BLOB":
+        raise HelmError(
+            f"{where} is a BLOB, which HELM doesn't give a structure: its weight and "
+            "formula can't be computed." + helm.numbered(where)
+        )
+    polymer = Polymer(found.id, found.type)
+    backbone: int | None = None
+    unit = 0
+    for m in found.monomers:
+        if m.smiles:
+            raise HelmError(
+                f"{where} has a monomer in in-line SMILES ([{m.id}]): register it as a "
+                "monomer, so its structure is the registry's, and use its symbol."
+            )
+        if m.list:
+            raise HelmError(
+                f"{where} has a monomer that's one of several, or a mixture ({m.id[1:-1]}): "
+                "a molecule's weight and formula need each monomer known." + helm.numbered(where)
+            )
+        if m.id in UNKNOWN:
+            raise HelmError(
+                f"{where} has an unknown monomer ({m.id}): a molecule's weight and "
+                "formula need each monomer known." + helm.numbered(where)
+            )
+        if m.unit != unit:
+            unit, backbone = m.unit, None
+        if m.position in polymer.positions:
+            # Only a group of units has one position for several monomers, and the
+            # canonical form writes out every group it can.
+            break
+        index = len(polymer.nodes)
+        if m.branch and backbone is None:
+            raise HelmError(f"{where}: a branch is one monomer after the one it hangs from.")
+        polymer.nodes.append(Node(m.id, index, backbone if m.branch else None, m.unit - 1))
+        if not m.branch:
+            backbone = index
+        polymer.positions[m.position] = index
+    if found.ambiguous or len(polymer.positions) != len(found.monomers):
+        # What's left of what has no one structure: a repeat of a range of counts.
+        start = canonical.find(f"{where}{{")
+        ranged = _RANGE.search(canonical, start, canonical.find("}", start)) if start >= 0 else None
+        if ranged is not None:
+            low, high = ranged.groups()
+            raise HelmError(
+                f"{where} repeats a unit {low} to {high} times: a molecule's weight and "
+                "formula need one count." + helm.numbered(where)
+            )
+        raise HelmError(
+            f"{where} has no one structure: a molecule's weight and formula need each "
+            "monomer known." + helm.numbered(where)
+        )
+    return polymer
+
+
+def _unreadable(text: str, error: iki_helm.HelmError) -> str:
+    """Why ``text`` isn't HELM, as iki-wasm says, and where."""
+    at = error.at
+    if (
+        error.message.startswith("Expected a monomer")
+        and 0 < at < len(text)
+        and text[at] in ".}"
+        and text[at - 1] in "{."
+    ):
+        # A unit that's empty: say what a unit is.
+        names = _POLYMER_START.findall(text, 0, at)
+        if names:
+            return (
+                f"{names[-1]} has a unit with no monomer in it: HELM separates monomer units "
+                "with “.”, such as R(A)P.R(C)."
+            )
+    if at > 0:
+        return f"It isn't HELM, at character {at + 1}: {error.message}"
+    return error.message
+
+
+def node_of(helm: Helm, end: End) -> tuple[Polymer, Node]:
+    """The polymer and monomer a connection's end is at."""
+    p = helm.polymer(end.polymer)
+    return p, p.nodes[p.positions[end.position]]
 
 
 # --- A monomer's structure ---------------------------------------------------------------
@@ -290,10 +495,12 @@ def build(helm: Helm, monomers: Mapping[tuple[str, str], Monomer]) -> Built:
                 raise HelmError(
                     f"{piece[0]}'s monomer {piece[1] + 1}, {m.label}, has no R{r} to join: "
                     f"it has {', '.join(f'R{x}' for x in sorted(pieces[piece].caps))}."
+                    + helm.numbered(piece[0])
                 )
             if (piece, r) in used:
                 raise HelmError(
                     f"{piece[0]}'s monomer {piece[1] + 1}, {m.label}, joins two bonds at R{r}."
+                    + helm.numbered(piece[0])
                 )
             used.add((piece, r))
             labels[(piece, r)] = label
@@ -331,7 +538,7 @@ def _node(helm: Helm, piece: tuple[str, int]) -> Node:
 
 _ACID = Chem.MolFromSmarts("[OX2H1,SX2H1][P]")
 #: What a sodium salt weighs more than the free acid for each sodium in place of a proton.
-SODIUM_FOR_PROTON = ATOMIC_WEIGHTS["Na"] - ATOMIC_WEIGHTS["H"]
+SODIUM_FOR_PROTON = AVERAGE["Na"] - AVERAGE["H"]
 
 
 def acidic_protons(mol: Chem.Mol) -> int:
@@ -417,8 +624,8 @@ def atom_counts(mol: Chem.Mol) -> Counter[str]:
 
 
 def average_weight(mol: Chem.Mol) -> float:
-    """Its average molecular weight, g/mol, from CIAAW's abridged atomic weights, and each
-    labelled isotope's nuclide mass."""
+    """Its average molecular weight, g/mol, from CIAAW's standard atomic weights (the table
+    every Iki plugin weighs by, weights.py), and each labelled isotope's nuclide mass."""
     table = Chem.GetPeriodicTable()
     terms: list[float] = []
     unknown = set()
@@ -426,13 +633,15 @@ def average_weight(mol: Chem.Mol) -> float:
         element, isotope = _element(token)
         if isotope:
             terms.append(table.GetMassForIsotope(element, isotope) * n)
-        elif element in ATOMIC_WEIGHTS:
-            terms.append(ATOMIC_WEIGHTS[element] * n)
+        elif element in AVERAGE:
+            terms.append(AVERAGE[element] * n)
         else:
             unknown.add(element)
     if unknown:
         named = ", ".join(sorted(unknown))
-        raise HelmError(f"It has {named}, whose atomic weight Iki doesn't hold.")
+        raise HelmError(
+            f"It has {named}, which has no standard atomic weight: label it with its isotope."
+        )
     return sum(terms)
 
 
@@ -482,6 +691,7 @@ def strand_polymer(helm: Helm) -> Polymer:
         raise HelmError(
             f"It has {', '.join(other)}: an oligonucleotide's HELM has its strand and the "
             "chemical groups on it (CHEM). A peptide conjugate is a conjugate of the two."
+            + helm.numbered(*other)
         )
     return strands[0]
 
@@ -504,7 +714,7 @@ def check_joined(helm: Helm) -> None:
         raise HelmError(
             f"{_and(apart)} {'is' if len(apart) == 1 else 'are'}n't joined to the strand: an "
             "oligonucleotide is one molecule, so connect each chemical group to it, as "
-            f"{strand},{apart[0]},1:R1-1:R1 joins one to its 5′ end."
+            f"{strand},{apart[0]},1:R1-1:R1 joins one to its 5′ end." + helm.numbered(*apart)
         )
 
 

@@ -5,19 +5,23 @@ from __future__ import annotations
 
 import ast
 import bz2
+import gc
 import gzip
 import hashlib
 import lzma
+import shutil
 import subprocess
 import sys
+import threading
 import tomllib
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
-from iki_runtime import airr, fastq, text
+from iki_runtime import airr, fastq, helm, text
+from iki_spec import helm as iki_spec_helm
 from iki_spec import plugin_runtime
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -169,17 +173,189 @@ def test_a_rows_locus_is_its_own_or_the_one_its_calls_share(
     assert airr.locus(row) == locus
 
 
+# --- HELM --------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fresh(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """The HELM reader as a new process has it: no module compiled, no instance."""
+    kept = (helm._compiled, helm._local)
+    helm._compiled, helm._local = None, threading.local()
+    monkeypatch.delenv(helm.ENVIRONMENT_VARIABLE, raising=False)
+    yield
+    helm._compiled, helm._local = kept
+    # What the test compiled is freed now, while wasmtime can free it, not at exit.
+    gc.collect()
+
+
+@pytest.mark.wasm
+@pytest.mark.usefixtures("fresh")
+def test_helm_is_read_as_iki_reads_it_canonical_and_in_canonical_order() -> None:
+    """The reading iki-spec's (and so the server's) is, as values: polymers in canonical
+    order and numbered again, a repeat written out, each connection's ends."""
+    text = (
+        "CHEM1{[BHQ1]}|RNA2{P.([dR](A)P)'2'.[dR](C)}\"probe\"|CHEM2{[5FAM]}"
+        "$RNA2,CHEM2,1:R1-1:R1|RNA2,CHEM1,3:R2-1:R1$$$V2.0"
+    )
+    reading = helm.read(text)
+    assert reading.canonical == iki_spec_helm.canonical(text)
+    assert [(p.id, p.type) for p in reading.polymers] == [
+        ("RNA1", "RNA"),
+        ("CHEM1", "CHEM"),
+        ("CHEM2", "CHEM"),
+    ]
+    strand = reading.polymer("RNA1")
+    assert [(m.position, m.id, m.branch, m.unit) for m in strand.monomers] == [
+        (1, "P", False, 1),
+        (2, "dR", False, 2),
+        (3, "A", True, 2),
+        (4, "P", False, 2),
+        (5, "dR", False, 3),
+        (6, "A", True, 3),
+        (7, "P", False, 3),
+        (8, "dR", False, 4),
+        (9, "C", True, 4),
+    ]
+    assert (strand.units, strand.length, strand.ambiguous) == (4, helm.Length(3, 3), False)
+    # As written, the 3′ quencher hangs from position 3, the repeated group counting once
+    # (HELM 2.04, 5.2.3); it's the last sugar, 8, once the repeat is written out. 5FAM and
+    # BHQ1 are numbered in their canonical order, the other way round.
+    assert [c.text for c in reading.connections] == [
+        "RNA1,CHEM1,1:R1-1:R1",
+        "RNA1,CHEM2,8:R2-1:R1",
+    ]
+    _, three = reading.connections
+    assert three.one == helm.End("RNA1", 8, "R2", "8")
+    assert three.other == helm.End("CHEM2", 1, "R1", "1")
+    assert not three.pair
+    assert [reading.polymer(c).monomers[0].id for c in ("CHEM1", "CHEM2")] == ["5FAM", "BHQ1"]
+    assert (reading.groups, reading.version1) == ((), False)
+
+
+@pytest.mark.wasm
+@pytest.mark.usefixtures("fresh")
+def test_what_has_no_one_structure_is_read_and_says_so() -> None:
+    """HELM a plugin may refuse is still HELM: a list, a range of repeats, a base pair in
+    HELM 1's third section, an end that names monomers rather than a position, a group."""
+    pairs = helm.read("RNA1{R(A)P.R(C)}|RNA2{R(G)P.R(U)}$$RNA1,RNA2,2:pair-5:pair$$")
+    assert pairs.version1
+    assert pairs.connections[0].pair
+    ranged = helm.read("RNA1{R(A)P.(R(C)P)'2-3'}$$$$V2.0").polymers[0]
+    assert ranged.ambiguous
+    assert ranged.length == helm.Length(3, 4)
+    listed = helm.read("RNA1{[dR](A,C)P}$$$$V2.0").polymers[0].monomers[1]
+    assert (listed.id, listed.list, listed.branch) == ("(A,C)", True, True)
+    unknown = helm.read("RNA1{R(A)P}|CHEM1{[X]}$RNA1,CHEM1,(A,P):R1-1:?$$$V2.0")
+    (end, other) = (unknown.connections[0].one, unknown.connections[0].other)
+    assert (end.position, end.at, end.attachment) == (None, "(A,P)", "R1")
+    assert (other.position, other.attachment) == (1, "?")
+    grouped = helm.read("RNA1{R(A)}|RNA2{R(G)}$$G1(RNA1+RNA2:0.50)$$V2.0")
+    assert grouped.groups == (
+        helm.Group("G1", True, (helm.GroupMember("RNA1", None), helm.GroupMember("RNA2", "0.5"))),
+    )
+
+
+@pytest.mark.wasm
+@pytest.mark.usefixtures("fresh")
+def test_what_isnt_helm_is_refused_saying_where() -> None:
+    with pytest.raises(helm.HelmError, match="Expected a monomer") as refused:
+        helm.read("RNA1{R(A)P..R(C)}$$$$V2.0")
+    assert refused.value.at == 11
+    (good, bad) = helm.read_all(["RNA1{R(A)}$$$$V2.0", "RNA1{R(A)}$$$"])
+    assert isinstance(good, helm.Reading)
+    assert isinstance(bad, helm.HelmError)
+    assert "four sections" in bad.message
+    assert helm.read_all([]) == []
+
+
+@pytest.mark.usefixtures("fresh")
+def test_the_module_is_the_environments_then_iki_specs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An environment Iki builds has it under its prefix; a lab's image names it; a Python
+    with iki-spec (Iki's checkout, `iki plugin test`) has iki-spec's."""
+    assert helm.module_path() == plugin_runtime.WASM
+    own = tmp_path / "env" / helm.IN_ENVIRONMENT
+    own.parent.mkdir(parents=True)
+    own.write_bytes(b"\0asm")
+    monkeypatch.setattr(sys, "prefix", str(tmp_path / "env"))
+    assert helm.module_path() == own
+    named = tmp_path / "named.wasm"
+    monkeypatch.setenv(helm.ENVIRONMENT_VARIABLE, str(named))
+    with pytest.raises(helm.UnavailableError, match="isn't a file"):
+        helm.module_path()
+    named.write_bytes(b"\0asm")
+    assert helm.module_path() == named
+
+
+@pytest.mark.usefixtures("fresh")
+def test_without_wasmtime_it_says_to_install_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(sys.modules, "wasmtime", None)
+    with pytest.raises(helm.UnavailableError, match=r"add it to the environment's requirements"):
+        helm.read("RNA1{R(A)}$$$$V2.0")
+
+
+@pytest.mark.wasm
+@pytest.mark.usefixtures("fresh")
+def test_an_environments_build_compiles_the_module_once_for_its_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Compiling iki-wasm takes seconds, which every run would spend: the environment's
+    build compiles it beside the module, named by the module's digest, and a run loads
+    that. Compiled code no one else could have written is used, and anything else isn't."""
+    module = tmp_path / "iki_wasm.wasm"
+    shutil.copyfile(plugin_runtime.WASM, module)
+    done = subprocess.run(  # noqa: S603 - this Python, the runtime's own command
+        [sys.executable, "-m", "iki_runtime.helm", "precompile", str(module)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    compiled = Path(done.stdout.strip())
+    digest = hashlib.sha256(module.read_bytes()).hexdigest()
+    assert compiled == tmp_path / f"iki_wasm.{digest[:32]}.cwasm"
+    assert compiled == helm.precompiled(module)
+    monkeypatch.setenv(helm.ENVIRONMENT_VARIABLE, str(module))
+    loads: list[str] = []
+    wasmtime = helm._wasmtime()
+    real = wasmtime.Module.deserialize_file
+
+    def deserialize_file(engine: object, path: str) -> object:
+        loads.append(path)
+        return real(engine, path)
+
+    monkeypatch.setattr(wasmtime.Module, "deserialize_file", staticmethod(deserialize_file))
+    assert helm.canonical("RNA1{[R](A)}$$$$") == "RNA1{R(A)}$$$$V2.0"
+    assert loads == [str(compiled)]
+    # Code others could have changed isn't run: the module is compiled again instead.
+    compiled.chmod(0o666)
+    helm._compiled, helm._local = None, threading.local()
+    assert helm.canonical("RNA1{[R](A)}$$$$") == "RNA1{R(A)}$$$$V2.0"
+    assert loads == [str(compiled)]
+
+
 # --- The package -------------------------------------------------------------------------
 
 
 def test_it_is_pythons_standard_library_for_python_3_8_or_later() -> None:
     """It installs into environments Iki builds and into labs' own images, as the action
-    helper runs in them (ADR 0287)."""
+    helper runs in them (ADR 0287). Only its HELM reader imports anything else: wasmtime,
+    declared as its optional `helm` extra, and imported only when HELM is read."""
     config = tomllib.loads((RUNTIME / "pyproject.toml").read_text())
     assert config["project"]["requires-python"] == ">=3.8"
     assert config["project"]["dependencies"] == []
+    optional = config["project"]["optional-dependencies"]
+    assert optional == {"helm": ["wasmtime>=51.0.0"]}
+    lazily = {"helm.py": {"wasmtime"}}
     for source in SOURCES:
         tree = ast.parse(source.read_text(), feature_version=(3, 8))
+        # What's imported when the module is: at its top level, not in a function.
+        top_level = {
+            id(node)
+            for statement in tree.body
+            for node in ast.walk(statement)
+            if not isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        }
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
@@ -189,6 +365,9 @@ def test_it_is_pythons_standard_library_for_python_3_8_or_later() -> None:
                 continue
             for name in names:
                 top = name.split(".")[0]
+                if top in lazily.get(source.name, set()):
+                    assert id(node) not in top_level, (source.name, name, "imported eagerly")
+                    continue
                 assert top in sys.stdlib_module_names or top in {"iki_runtime", "__future__"}, (
                     source.name,
                     name,

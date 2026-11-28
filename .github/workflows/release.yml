@@ -5,7 +5,7 @@ name: Release
 #     each with a cosign keyless signature bundle, SLSA build provenance and a
 #     CycloneDX SBOM attestation, plus a SHA256SUMS file;
 #   - the Helm chart, with a CycloneDX SBOM, also signed and attested in ghcr.io;
-#   - @ikisci/science and @ikisci/ui on npm, at the release version;
+#   - @ikisci/component, @ikisci/science and @ikisci/ui on npm, at the release version;
 #   - iki-plugin-runtime on PyPI: the wheel the release ships in iki-spec (ADR 0288);
 #   - iki-writer, the SDK plugins' writers build against, on crates.io, at the release
 #     version: packaged in the writer builder, checked against the checksum committed
@@ -385,7 +385,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package: [science, ui]
+        package: [component, science, ui]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

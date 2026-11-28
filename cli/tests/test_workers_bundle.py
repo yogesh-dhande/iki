@@ -21,16 +21,19 @@ PLUGINS = Path(__file__).parents[2] / "spec" / "tests" / "plugins"
 HASH = "sha256:" + "0" * 64
 
 
-def _protein(tmp_path: Path, requirements: str, *, runtime: bool = False) -> workers.WorkerPlugin:
+def _protein(
+    tmp_path: Path, requirements: str, *, runtime: bool = False, helm: bool = False
+) -> workers.WorkerPlugin:
     directory = tmp_path / "protein"
     shutil.copytree(PLUGINS / "protein", directory)
     (directory / "requirements.txt").write_text(requirements)
-    if runtime:
+    if runtime or helm:
         env = directory / "environments" / "protein-tools.yaml"
+        declared = "{ helm: true }" if helm else "true"
         env.write_text(
             env.read_text().replace(
                 "requirements: requirements.txt }",
-                "requirements: requirements.txt, iki_runtime: true }",
+                f"requirements: requirements.txt, iki_runtime: {declared} }}",
             )
         )
     loaded = load_plugin(directory, dependencies=[PLUGINS / "dna"])
@@ -79,6 +82,7 @@ def test_no_distribution_carries_a_first_party_plugins_web_or_image_sources(
     for relative, text in {
         "plugin.yaml": (
             "apiVersion: iki/v1\nkind: Plugin\nname: iki/small_molecule\nversion: 1.0.0\n"
+            "iki: '>=0.1'\n"
         ),
         "components/depiction.yaml": (
             "apiVersion: iki/v1\nkind: Component\nname: depiction\nlabel: Structure\n"
@@ -194,6 +198,147 @@ def test_a_bundle_carries_the_runtime_for_the_worker_to_build_with(tmp_path: Pat
     (item.directory / ".iki-runtime" / "x.whl").write_text("not it")
     with pytest.raises(ValueError, match="carries the plugin runtime"):
         workers.bundle("acme/protein", item.directory, out, runtime=True)
+
+
+#: Requirements that pin wasmtime, which the plugin runtime's HELM reader runs iki-wasm with.
+WASMTIME = "wasmtime==51.0.0 --hash=sha256:" + "b" * 64 + "\n"
+
+
+@pytest.fixture
+def carried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> plugin_runtime.Module:
+    """iki-wasm's module as iki-spec carries it, with the digest Iki pins for it: a module
+    of its own, so what's checked doesn't depend on the platform this runs on."""
+    path = tmp_path / "carried" / "iki_wasm.wasm"
+    path.parent.mkdir()
+    path.write_bytes(b"\x00asm\x01\x00\x00\x00 iki-wasm")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    module = plugin_runtime.Module(path, digest, digest)
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: module)
+    return module
+
+
+def test_an_environment_with_the_helm_reader_gets_iki_wasm_by_its_digest(
+    tmp_path: Path, carried: plugin_runtime.Module
+) -> None:
+    """ADR 0288: `iki_runtime: { helm: true }` puts iki-wasm's module beside the wheel, in
+    the environment where `iki_runtime.helm` reads it, compiled there for its runs; and its
+    SHA-256 is in the digest, beside the wheel's."""
+    item = _protein(tmp_path, WASMTIME, helm=True)
+    assert workers.wants_runtime(item.plugin)
+    assert workers.wants_helm(item.plugin)
+    manifest = workers.write([item], tmp_path / "bundle", "/envs")
+    bundle = tmp_path / "bundle"
+    assert (bundle / workers.RUNTIME_WASM).read_bytes() == carried.path.read_bytes()
+    script = (bundle / workers.SCRIPT).read_text()
+    prefix = "/envs/acme__protein/protein-tools"
+    assert (
+        f"mkdir -p {prefix}/share/iki-runtime\n"
+        f'cp "$here"/runtime/iki_wasm.wasm {prefix}/share/iki-runtime/iki_wasm.wasm\n'
+        f"{prefix}/bin/python -m iki_runtime.helm precompile "
+        f"{prefix}/share/iki-runtime/iki_wasm.wasm >/dev/null\n"
+    ) in script
+    # After the runtime's wheel, which has the command that compiles it.
+    assert script.index("--requirement runtime/requirements.txt") < script.index("precompile")
+    definition = {
+        "iki_runtime_sha256": plugin_runtime.wheel().sha256,
+        "iki_wasm_sha256": carried.sha256,
+        "kind": "python",
+        "python": "3.12",
+        "requirements_sha256": hashlib.sha256(WASMTIME.encode()).hexdigest(),
+    }
+    canonical = json.dumps(definition, sort_keys=True, separators=(",", ":")).encode()
+    digest = manifest["plugins"][0]["environments"]["protein-tools"]["digest"]
+    assert digest == "sha256:" + hashlib.sha256(canonical).hexdigest()
+    # The runtime alone has neither the module nor its digest.
+    plain = workers.write(
+        [_protein(tmp_path / "plain", WASMTIME, runtime=True)], tmp_path / "plain" / "b"
+    )
+    assert plain["plugins"][0]["environments"]["protein-tools"]["digest"] != digest
+    assert not (tmp_path / "plain" / "b" / workers.RUNTIME_WASM).exists()
+    assert "precompile" not in (tmp_path / "plain" / "b" / workers.SCRIPT).read_text()
+
+
+def test_a_bundle_carries_iki_wasm_for_the_worker_to_put_in_place(
+    tmp_path: Path, carried: plugin_runtime.Module
+) -> None:
+    item = _protein(tmp_path, WASMTIME, helm=True)
+    (entry,) = workers.environments(item.plugin, item.directory).values()
+    assert entry["runtime"] == f".iki-runtime/{plugin_runtime.wheel().name}"
+    assert entry["runtime_wasm"] == ".iki-runtime/iki_wasm.wasm"
+    out = tmp_path / "protein.tar.gz"
+    workers.bundle("acme/protein", item.directory, out, runtime=True, helm=True, pinned=True)
+    with tarfile.open(out) as tar:
+        member = tar.extractfile(entry["runtime_wasm"])
+        assert member is not None
+        assert member.read() == carried.path.read_bytes()
+
+
+def test_iki_wasm_that_isnt_the_module_its_pin_names_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carried: plugin_runtime.Module
+) -> None:
+    """The server image's iki-spec carries the module its wasm stage verified, with the pin
+    beside it: other bytes there are refused, by any build, on any platform."""
+    item = _protein(tmp_path, WASMTIME, helm=True)
+    out = tmp_path / "protein.tar.gz"
+    other = plugin_runtime.Module(carried.path, carried.sha256, "c" * 64)
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: other)
+    for pinned in (True, False):
+        with pytest.raises(ValueError, match="isn't the module Iki pins"):
+            workers.bundle("acme/protein", item.directory, out, helm=True, pinned=pinned)
+    with pytest.raises(ValueError, match="isn't the module Iki pins"):
+        workers.write([item], tmp_path / "bundle")
+
+
+def test_a_checkouts_iki_wasm_goes_by_its_digest_in_a_development_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carried: plugin_runtime.Module
+) -> None:
+    """A checkout's module is cargo's build on its own host, which no pin describes (its
+    bytes differ by the paths it was built in, even on Linux x86-64): a development build
+    bundles it as it is, on any platform, and the digest names exactly those bytes."""
+    item = _protein(tmp_path, WASMTIME, helm=True)
+    built = plugin_runtime.Module(carried.path, carried.sha256, None)
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: built)
+    monkeypatch.setattr(workers, "_digests_hold_here", lambda: True)
+    out = tmp_path / "protein.tar.gz"
+    workers.bundle("acme/protein", item.directory, out, helm=True)
+    with tarfile.open(out) as tar:
+        member = tar.extractfile(".iki-runtime/iki_wasm.wasm")
+        assert member is not None
+        assert member.read() == carried.path.read_bytes()
+    workers.write([item], tmp_path / "bundle")
+    assert (tmp_path / "bundle" / workers.RUNTIME_WASM).read_bytes() == carried.path.read_bytes()
+
+
+def test_a_pinned_build_needs_iki_wasm_with_its_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, carried: plugin_runtime.Module
+) -> None:
+    """A pinned build, as a release's is, bundles only the module the server image
+    verified, which carries its pin beside it: a checkout's own is refused."""
+    item = _protein(tmp_path, WASMTIME, helm=True)
+    built = plugin_runtime.Module(carried.path, carried.sha256, None)
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: built)
+    out = tmp_path / "protein.tar.gz"
+    with pytest.raises(ValueError, match="A pinned build needs iki-wasm's module"):
+        workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
+    assert not out.exists()
+    # With its pin, it's bundled.
+    monkeypatch.setattr(plugin_runtime, "wasm", lambda: carried)
+    workers.bundle("acme/protein", item.directory, out, helm=True, pinned=True)
+    assert out.is_file()
+
+
+def test_iki_spec_reads_iki_wasms_pin_only_from_beside_the_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """As the server image puts it (server/Dockerfile): not the checkout's
+    server/iki_wasm.wasm.sha256, which a checkout's own build isn't."""
+    module = tmp_path / "iki_wasm.wasm"
+    module.write_bytes(b"\x00asm\x01\x00\x00\x00 built here")
+    monkeypatch.setattr(plugin_runtime, "WASM", module)
+    assert plugin_runtime.wasm().pinned is None
+    (tmp_path / "iki_wasm.wasm.sha256").write_text("d" * 64 + "\n")
+    assert plugin_runtime.wasm().pinned == "d" * 64
+    assert (Path(__file__).parents[2] / "server" / "iki_wasm.wasm.sha256").is_file()
 
 
 def test_names_with_spaces_or_quotes_are_quoted(tmp_path: Path) -> None:
@@ -512,7 +657,7 @@ def test_deploy_puts_verified_annotation_assets_in_both_worker_distributions(
     data = source / "data"
     data.mkdir(parents=True)
     (source / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: iki/plasmid\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: iki/plasmid\nversion: 1.0.0\niki: '>=0.1'\n"
     )
     marker = data / "dna-annotation.wasm.sha256"
     marker.write_text(hashlib.sha256(module).hexdigest() + "\n")
@@ -587,7 +732,7 @@ def test_deploy_resolves_ignored_modules_from_iki_spec(
     data = source / "data"
     data.mkdir(parents=True)
     (source / "plugin.yaml").write_text(
-        f"apiVersion: iki/v1\nkind: Plugin\nname: iki/{plugin}\nversion: 1.0.0\n"
+        f"apiVersion: iki/v1\nkind: Plugin\nname: iki/{plugin}\nversion: 1.0.0\niki: '>=0.1'\n"
     )
     (source / ".gitignore").write_text("*.wasm\n")
     marker = data / f"{name}.sha256"

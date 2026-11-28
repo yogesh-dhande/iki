@@ -38,6 +38,7 @@ from rdkit import Chem, rdBase
 from rdkit.Chem import QED, Crippen, Descriptors, rdDepictor, rdinchi
 from rdkit.Chem import rdMolDescriptors as Calc
 from rdkit.Chem.MolStandardize import rdMolStandardize
+from weights import AVERAGE
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -362,14 +363,34 @@ def unstated_equivalents(parent: Chem.Mol, salt: str) -> Balance:
     )
 
 
+def average_weight(mol: Chem.Mol) -> float:
+    """Its average molecular weight, g/mol, as RDKit's Descriptors.MolWt weighs it but by
+    CIAAW's standard atomic weights, the table every Iki plugin weighs by (weights.py): each
+    atom, and the hydrogens it carries, its element's; an atom drawn as an isotope, that
+    nuclide's mass (RDKit's); a dummy atom (*), nothing."""
+    table = Chem.GetPeriodicTable()
+    total = 0.0
+    for atom in mol.GetAtoms():
+        number, isotope, symbol = atom.GetAtomicNum(), atom.GetIsotope(), atom.GetSymbol()
+        if isotope:
+            total += table.GetMassForIsotope(number, isotope)
+        elif number:
+            if symbol not in AVERAGE:
+                raise ValueError(
+                    f"{symbol} has no standard atomic weight, so its molecular weight isn't "
+                    f"known: draw it as the isotope it is, such as [99{symbol}]."
+                )
+            total += AVERAGE[symbol]
+        total += atom.GetTotalNumHs() * AVERAGE["H"]
+    return total
+
+
 def contribution(counterion: Counterion) -> float:
     """What one equivalent adds to the parent's formula weight, in g/mol."""
     if counterion.metal:
-        table = Chem.GetPeriodicTable()
-        hydrogen = table.GetAtomicWeight("H")
-        metal = table.GetAtomicWeight(counterion.metal)
-        return float(metal - METAL_CHARGE[counterion.metal] * hydrogen)
-    return float(Descriptors.MolWt(Chem.MolFromSmiles(counterion.adds)))
+        metal = AVERAGE[counterion.metal]
+        return float(metal - METAL_CHARGE[counterion.metal] * AVERAGE["H"])
+    return average_weight(Chem.MolFromSmiles(counterion.adds))
 
 
 def formula_weight(
@@ -387,15 +408,14 @@ def formula_weight(
     each unit of its charge stands for a hydrogen the salt doesn't add: choline chloride
     is choline's cation and Cl, not choline's cation and HCl.
     """
-    weight = float(Descriptors.MolWt(parent))
+    weight = average_weight(parent)
     if salt:
         if salt_equivalents is None:
             salt_equivalents = unstated_equivalents(parent, salt).equivalents
             if salt_equivalents is None:
                 return None
         weight += contribution(SALTS[salt]) * salt_equivalents
-        hydrogen = Chem.GetPeriodicTable().GetAtomicWeight("H")
-        weight -= Chem.GetFormalCharge(parent) * hydrogen
+        weight -= Chem.GetFormalCharge(parent) * AVERAGE["H"]
     if solvate:
         each = contribution(SOLVENTS[solvate])
         weight += each * (1.0 if solvate_equivalents is None else solvate_equivalents)
@@ -677,7 +697,7 @@ def _parent(cleaned: Chem.Mol) -> Registered:
         # Everything drawn is the parent, its salt and its solvent, so the formula weight
         # from them must be the drawn structure's, for each parent. With parts left out,
         # there's no formula weight to check (`weight_withheld` says so).
-        drawn = Descriptors.MolWt(cleaned) / parents
+        drawn = average_weight(cleaned) / parents
         computed = formula_weight(
             neutral, found.salt, found.salt_equivalents, found.solvate, found.solvate_equivalents
         )
@@ -701,7 +721,7 @@ def stereocentres(mol: Chem.Mol) -> tuple[int, int]:
 
 def descriptors(mol: Chem.Mol) -> dict[str, Any]:
     """Its descriptors, as the Compound type's computed fields hold them."""
-    weight = Descriptors.MolWt(mol)
+    weight = average_weight(mol)
     logp = Crippen.MolLogP(mol)
     centres, undefined = stereocentres(mol)
     violations = sum(
@@ -949,7 +969,7 @@ def weight_withheld(registered: Registered) -> str | None:
     without them would be too low, and a dose weighed out by it too little compound."""
     if not registered.left_out:
         return None
-    drawn = Descriptors.MolWt(Chem.MolFromSmiles(registered.as_drawn)) / registered.parents
+    drawn = average_weight(Chem.MolFromSmiles(registered.as_drawn)) / registered.parents
     one = len(registered.left_out) == 1
     return (
         f"Its batch has no formula weight: {', '.join(registered.left_out)} "

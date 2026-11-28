@@ -79,14 +79,17 @@ urlpatterns: list[URLPattern | URLResolver] = [
     path("entities/<str:ref>/viewers/<str:viewer>/", web.app, name="entity_viewer"),
     path("entities/<str:ref>/components/<qualified:name>/", web.app, name="entity_component"),
     path("entities/<str:ref>/apps/<str:app>/", web.app, name="entity_app"),
+    # A record as it was at a revision, read only (ADR 0189).
+    path("entities/<str:ref>/revisions/<int:number>/", web.app, name="entity_revision"),
     # Registry entries (ADR 0115): a registry's, for its registrars, and one entry.
     path("registries/<uuid:registry_id>/entries/", web.app, name="registry_entries"),
     path("entries/<str:ref>/", web.app, name="entry"),
+    path("entries/<str:ref>/revisions/<int:number>/", web.app, name="entry_revision"),
     # Plugins' components, for the web app's sandboxed frames (ADR 0084).
     # The frames Iki's own viewers run in (ADR 0085).
     path("viewers/structure/", viewers.structure_frame, name="structure_frame"),
     path(
-        "plugin-components/<qualified:name>/<str:digest>/",
+        "plugin-components/<qualified:name>/<str:digest>/<str:bridge>/",
         components.frame,
         name="component_frame",
     ),

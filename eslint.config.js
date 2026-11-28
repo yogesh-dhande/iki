@@ -74,15 +74,10 @@ export default tseslint.config(
       "server/src/iki_server/web/static/app/**",
       "server/src/iki_server/web/static/viewers/**",
       "web/packages/sdk/src/schema.ts",
-      // Built by plugins/small_molecule/web/build.js: RDKit.js, minified, and the
-      // component's source, which is linted where it's written (web/src).
-      "plugins/small_molecule/components/depiction.js",
-      // The source adapters are linted before bundling for the component sandbox.
-      "plugins/equipment/components/booking-calendar.js",
-      "plugins/plasmid/components/plasmid-map.js",
-      "plugins/oligo/components/chemistry.js",
-      "plugins/oligo/components/duplex.js",
-      "plugins/complex/components/composition.js",
+      // Plugins' component modules are built from their web/src by iki-component-bundle
+      // (small_molecule's by its own build.js, with RDKit.js): linted where they're written.
+      "plugins/*/components/*.js",
+      "examples/plugins/*/components/*.js",
     ],
   },
   js.configs.recommended,
@@ -179,11 +174,7 @@ export default tseslint.config(
   },
   {
     // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084).
-    files: [
-      "**/plugins/**/components/**/*.{js,mjs}",
-      "plugins/*/web/src/**/*.js",
-      "plugin-template/components/**/*.{js,mjs}",
-    ],
+    files: ["plugins/*/web/src/**/*.js", "examples/plugins/*/web/src/**/*.js"],
     languageOptions: {
       globals: {
         CustomEvent: "readonly",

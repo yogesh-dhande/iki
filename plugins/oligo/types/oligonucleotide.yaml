@@ -82,7 +82,7 @@ fields:
     label: Molecular weight (free acid)
     description: >-
       Its average molecular weight as the free acid, from its monomers' structures
-      and CIAAW's abridged standard atomic weights (2021). A sodium salt weighs
+      and CIAAW's standard atomic weights (2024). A sodium salt weighs
       21.98 g/mol more for each sodium.
   # Marketed oligonucleotides are sodium salts, and their published weights say which
   # form each is: nusinersen is 7,127 g/mol as the free acid and 7,501.0 as nusinersen

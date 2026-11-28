@@ -3,14 +3,19 @@
 A plugin's upgrade can add a rule, tighten one, or migrate values: records saved before
 may break it. Edits ratchet (:mod:`iki_server.entities.checking`), so they can still be
 changed in other ways, but they mustn't be left to fail silently later. So
-``sync_plugins`` checks again every record of each type whose checks, or whose plugins'
-versions, changed since it last did (:class:`RulesChecked` keeps a digest):
+``sync_plugins`` checks again every record of each type whose checks, computed fields'
+expressions or plugins' versions changed since it last did (:class:`RulesChecked` keeps a
+digest), once it's worked their computed values out again (ADR 0297):
 
 - a record breaking a rule that holds is held, by the deploy, as a save would have held
   it, and the rule's reviewers are told;
 - a record breaking any other rule is reported: a :class:`RuleBreach` on it, shown on
   its page and in the API, that the next save checking the rule clears when it's kept;
 - a record that keeps a rule it was reported for is cleared.
+
+A change to a registry entry's values is checked so against the other records of it
+(:func:`check_holders`): it's their identity's, not their project's change, so it isn't
+refused for them, and their projects aren't named to whoever made it (ADR 0115).
 
 Each type with records checked is audited (``plugin.rules_checked``) with its counts,
 and Org Admins are told when records break rules. A type without records has nothing to
@@ -28,11 +33,11 @@ import structlog
 from django.db.models.functions import Now
 
 from iki_server.audit import log as audit
-from iki_server.entities import checking, holds, registry
+from iki_server.entities import checking, computing, holds, registry
 from iki_server.entities.models import Entity, RuleBreach, RuleHold, RulesChecked
 from iki_server.notifications import kinds
 
-__all__ = ["BROKEN", "Checked", "check_brought", "recheck"]
+__all__ = ["BROKEN", "Checked", "check_brought", "check_holders", "recheck"]
 
 log = structlog.get_logger(__name__)
 
@@ -86,6 +91,8 @@ def recheck() -> list[Checked]:
         known = RulesChecked.objects.filter(type=type_name).first()
         if known is not None and known.digest == digest:
             continue
+        # Its computed values first (ADR 0297): its rules read them as they'll be.
+        _rework(type_name)
         if not checks:
             # Its rules are gone: what was reported of them goes too. Holds stay, to review.
             RuleBreach.objects.filter(entity__type=type_name).delete()
@@ -96,6 +103,31 @@ def recheck() -> list[Checked]:
         )
     _tell(out)
     return out
+
+
+def _rework(type_name: str) -> None:
+    """Works a type's records' computed values out again, by its expressions as they are
+    now: they may be new, or changed, since they were worked out (ADR 0297)."""
+    if not computing.fields_of(type_name):
+        return
+    done = computing.rework(
+        type_name,
+        None,
+        computing.reason(type_name, "its expressions are new, or changed, since it was saved."),
+    )
+    if not done.records:
+        return
+    audit.record(
+        "plugin.computed_worked_out",
+        data={
+            "type": type_name,
+            "records": done.records,
+            "changed": done.changed,
+            "locked": done.locked,
+        },
+    )
+    if done.locked:
+        log.warning("plugins.computed_kept_locked", type=type_name, locked=done.locked)
 
 
 def _check(type_name: str) -> Checked:
@@ -156,6 +188,76 @@ def check_brought(entity_ids: list[Any], *, user: Any, reason: str) -> Checked: 
         "They came from another deployment, and break rules that hold records here.",
     )
     return done
+
+
+def check_holders(
+    entry: Entity,
+    changed: frozenset[str],
+    *,
+    user: Any,  # noqa: ANN401 - a User, or None
+    reason: str,
+    entry_revision: int,
+    besides: frozenset[Any] = frozenset(),
+) -> None:
+    """After a change to a registry entry's values (ADR 0115), the records of it, but
+    ``besides`` (those the change's own save checked), checked against the rules reading
+    what changed (ADR 0127). The change isn't their project's, and it mustn't learn of
+    them, so it isn't refused for them: as a deploy finds records breaking a rule, one
+    breaking a rule that holds is held, by ``user`` for ``reason``, and one breaking any
+    other is reported. A rule it keeps again is cleared."""
+    if not changed or not _read_by_holders(entry.type, changed):
+        return
+    from iki_server.entities import services
+
+    records = (
+        Entity.objects.filter(entry_id=entry.pk, registry_id__isnull=True, purged_at__isnull=True)
+        .exclude(pk__in=besides)
+        .select_related("owner_project")
+        .order_by("pk")
+    )
+    by_type: dict[str, list[Entity]] = defaultdict(list)
+    for record in records:
+        if record.type in registry.types():
+            by_type[record.type].append(record)
+    for type_name, chunk in sorted(by_type.items()):
+        values = services.current_values_of(chunk)
+        savings = [
+            checking.Saving(values.get(e.pk, {}).get, changed, id=e.pk, hrid=e.hrid) for e in chunk
+        ]
+        for record, found in zip(chunk, checking.broken(type_name, savings), strict=True):
+            for b in found:
+                if not b.held:
+                    RuleBreach.objects.update_or_create(
+                        entity=record,
+                        rule=b.rule.key,
+                        defaults={"label": b.rule.label[:100], "message": b.message},
+                    )
+            holding = [b for b in found if b.held]
+            if holding:
+                holds.hold(
+                    record,
+                    holding,
+                    user=user,
+                    reason=reason,
+                    revision=record.revision,
+                    entry_revision=entry_revision,
+                )
+            checking.kept(record, changed, found)
+
+
+def _read_by_holders(type_name: str, changed: frozenset[str]) -> bool:
+    """Whether a rule of a type whose records an entry of ``type_name`` could have reads
+    one of ``changed``: so an entry no rule reads costs no query."""
+    owner = registry.identity_owner(registry.types()[type_name])
+    if owner is None:
+        return False
+    for t in registry.types().values():
+        found = registry.identity_owner(t)
+        if t.abstract or found is None or found.qualified_name != owner.qualified_name:
+            continue
+        if any(not r.reads or set(r.reads) & changed for r in checking.checks_of(t.qualified_name)):
+            return True
+    return False
 
 
 @dataclass

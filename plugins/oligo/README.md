@@ -19,8 +19,9 @@ extinction and bases are computed from the monomers' structures.
   - Its HELM is one RNA polymer (HELM writes DNA as RNA with deoxyribose) and
     the chemical groups (CHEM) on it. Two strands are two oligonucleotides and
     a duplex. A position that's one of several monomers, a mixture, a repeat of
-    unknown count, an inline SMILES or an unknown monomer (`*`, `_`, `X`, `N`,
-    `?`) has no one formula, so it's refused, saying which.
+    unknown count, an inline SMILES or an unknown monomer (`*`, `X`, `N`, `?`)
+    has no one formula, so it's refused, saying which. A gap (`_`) is no
+    monomer: canonical HELM leaves it out, so it adds nothing.
   - Its entry keeps what's computed from it: the monomers it's made of
     (references to the registry), its bases, length, formula, average
     molecular weight, monoisotopic mass, ε260 with a note on how it was
@@ -96,6 +97,19 @@ copyable action and two worked fixtures.
 
 ### What's computed
 
+Its HELM is read by iki-wasm, the reader Iki's forms and identities read it
+with, through the plugin runtime's `iki_runtime.helm` (its environment declares
+`iki_runtime: { helm: true }`,
+[ADR 0288](../../docs/adr/0288-plugins-share-readers-from-the-runtime-each-release-ships.md)).
+What's computed is read from its canonical form, so one molecule written two
+ways computes the same: a repeat is written out, a gap (`_`) adds nothing (it's
+no part of the identity either), a cyclic strand's bases and positions start where
+its canonical form starts it, and a message names polymers as the canonical
+form numbers them (saying what each is when that isn't how it was written).
+What has no one structure is refused: a monomer that's one of several or a
+mixture, a repeat of a range of counts, an unknown monomer or position, a
+polymer group, a monomer in in-line SMILES, a BLOB.
+
 A molecule is built from its monomers with RDKit: along a polymer, each
 backbone monomer's R2 joins the next one's R1 (a sugar's 3′-O to a
 phosphate, the phosphate to the next sugar's 5′-O); a base's R1 joins its
@@ -111,11 +125,10 @@ bond, keeping every atom's stereochemistry.
   sodium, 7,501.0 g/mol; patisiran sodium, 14,304 Da), is beside it: 21.98
   g/mol more for each acidic proton of its phosphates and phosphorothioates,
   and none for a molecule with no acidic proton, such as a methylphosphonate
-  or a morpholino. The average molecular weight is from CIAAW's abridged standard
-  atomic weights (Prohaska et al., _Pure Appl. Chem._ 94, 573, 2022), sulfur
-  32.06; the monoisotopic mass from each element's most abundant isotope.
-  RDKit's own table, which the small_molecule plugin uses, has sulfur at
-  32.067, so a phosphorothioate weighs a little more there. An atom a
+  or a morpholino. The average molecular weight is from CIAAW's standard atomic
+  weights 2024, sulfur 32.06 and phosphorus 30.973761998, the table every Iki
+  plugin weighs by ([ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)); the monoisotopic mass from each element's most
+  abundant isotope. An atom a
   monomer's structure labels with its isotope (`[13CH]`, `[2H]`) weighs its
   nuclide's mass (RDKit's, from AME2020) in both, and the formula writes it as
   itself: ribose-¹³C₅ uridine is C4[13C]5H12N2O6, 249.16 g/mol.
@@ -154,7 +167,12 @@ They're checked against published molecules in `tests/` (`iki plugin test
 plugins/oligo`), each cited: nusinersen, fomivirsen, both strands
 of patisiran and of inclisiran (with its GalNAc), and patisiran and inclisiran
 as duplexes, against PubChem, ChEMBL and EMA's assessment reports; and
-Sigma-Aldrich's and ATDBio's worked extinction coefficients.
+Sigma-Aldrich's and ATDBio's worked extinction coefficients. Iki's own tests
+(`server/tests/test_oligo_chemistry.py`) check the weight each modified
+nucleotide and modifier adds against IDT's and LGC Biosearch's published
+values (2′-OMe, 2′-F, LNA, 2′-MOE, 5-methyl-dC, phosphorothioate, 6-FAM, BHQ-1,
+BHQ-2, Cy3, Cy5, biotin-TEG, amino C6, C3 spacer), and inotersen's formula and
+weight against its FDA label.
 
 ## The monomer library
 

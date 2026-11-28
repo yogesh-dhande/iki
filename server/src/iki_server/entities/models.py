@@ -43,6 +43,9 @@ TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z]
 UNIQUE_CONSTRAINT = "iki_unique_value_once"
 #: The one a second entry in a registry with a unique fact's value breaks (ADR 0115).
 UNIQUE_IN_REGISTRY = "iki_unique_value_once_in_registry"
+#: The unique indexes a second option of a lab list in a registry with a label in another
+#: case breaks start with this (ADR 0270), one for each list.
+LIST_LABEL_INDEX = "iki_list_label__"
 #: The constraints two of a project's records break whose ranges a rule says mustn't
 #: overlap (ADR 0127): of dates and datetimes, and of numbers.
 RANGE_CONSTRAINT = "iki_range_value_apart"
@@ -790,8 +793,9 @@ class RuleHoldOccurrence(models.Model):
 
 class RuleBreach(models.Model):
     """A record that breaks a rule it was saved before (ADR 0127): one its plugin added
-    or changed later, or one a bundle brought from another deployment. It's reported, not
-    refused, until a save that checks the rule finds it kept."""
+    or changed later, one a bundle brought from another deployment, or one a change to its
+    registry entry's values broke (ADR 0115). It's reported, not refused, until a save that
+    checks the rule finds it kept."""
 
     id = models.BigAutoField(primary_key=True)
     entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="breaches")

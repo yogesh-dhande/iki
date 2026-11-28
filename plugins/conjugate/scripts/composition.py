@@ -1,11 +1,12 @@
 """Compute the neutral composition of a declared conjugate species.
 
 Each attachment contributes copies × (its registered formula less its stated loss).
-Masses use the periodic table in the plugin's pinned RDKit release:
-https://www.rdkit.org/docs/cppapi/classRDKit_1_1PeriodicTable.html
-An unlabelled atom contributes its atomic weight to the average mass and its most
-abundant isotope to the monoisotopic mass (IUPAC, doi:10.1351/goldbook.12495).
-Explicitly labelled atoms contribute their isotope mass to both.
+An unlabelled atom contributes its standard atomic weight to the average mass, from
+CIAAW's table every Iki plugin weighs by (weights.py), and its most abundant isotope to
+the monoisotopic mass (IUPAC, doi:10.1351/goldbook.12495), from the periodic table in the
+plugin's pinned RDKit release
+(https://www.rdkit.org/docs/cppapi/classRDKit_1_1PeriodicTable.html). Explicitly labelled
+atoms contribute their isotope's mass, RDKit's, to both.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import Any
 import iki_action as iki
 from rdkit import Chem
 from rdkit.Chem import rdMolDescriptors
+from weights import AVERAGE
 
 TABLE = Chem.GetPeriodicTable()
 ELEMENTS = {TABLE.GetElementSymbol(n): n for n in range(1, TABLE.GetMaxAtomicNumber() + 1)}
@@ -108,9 +110,13 @@ def properties(atoms: Formula) -> dict[str, Any]:
         else:
             token = element
             exact = TABLE.GetMostCommonIsotopeMass(n)
-            if not exact or not TABLE.GetAbundanceForIsotope(n, TABLE.GetMostCommonIsotope(n)):
+            if (
+                not exact
+                or not TABLE.GetAbundanceForIsotope(n, TABLE.GetMostCommonIsotope(n))
+                or element not in AVERAGE
+            ):
                 raise ValueError(f"{element} requires an isotope label to assign a mass.")
-            weight = TABLE.GetAtomicWeight(n)
+            weight = AVERAGE[element]
         terms.append(token if count == 1 else f"{token}{count}")
         averages.append(weight * count)
         monoisotopic.append(exact * count)

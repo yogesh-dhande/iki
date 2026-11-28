@@ -28,9 +28,10 @@ def broken(tmp_path: Path) -> Path:
 def test_valid_plugins_pass(capsys: pytest.CaptureFixture[str]) -> None:
     code = main(["plugin", "validate", str(PLUGINS / "protein"), "--with", str(PLUGINS / "dna")])
     assert code == 0
-    assert capsys.readouterr().out == (
+    # Its samples draw by purpose, a provisional key: a lab plugin is told (ADR 0293).
+    assert capsys.readouterr().out.endswith(
         "✓ acme/protein 3.0.0 is valid: 25 entity types, 0 extensions, 0 settings, 12 actions, "
-        "1 environment, 6 workflows, 6 triggers, 2 components, 0 writers.\n"
+        "1 environment, 6 workflows, 6 triggers, 2 components, 0 writers, with 1 warning.\n"
     )
 
 
@@ -38,7 +39,7 @@ def test_the_summary_counts_a_plugins_writers(capsys: pytest.CaptureFixture[str]
     example = Path(__file__).parents[2] / "examples" / "plugins" / "liquid_handling"
     assert main(["plugin", "validate", str(example)]) == 0
     assert capsys.readouterr().out == (
-        "✓ acme/liquid_handling 0.1.1 is valid: 2 entity types, 0 extensions, 0 settings, "
+        "✓ acme/liquid_handling 0.1.2 is valid: 2 entity types, 0 extensions, 0 settings, "
         "0 actions, 0 environments, 0 workflows, 0 triggers, 0 components, 1 writer.\n"
     )
 
@@ -82,7 +83,14 @@ def test_problems_show_where_and_how_to_fix_them(
         "    |                                             ^",
         "  hint: `u` is the unified atomic mass unit (the dalton); `g/mol` is molar mass.",
         "",
-        "1 error in protein.",
+        "protein/types/sample.yaml:11:1: warning: `draw_purposes` is provisional: a minor "
+        "release of Iki may change its shape, with a codemod and a release note. "
+        "[provisional-key]",
+        " 11 | draw_purposes: { qa_sampling: { by: [qa] } }",
+        "    | ^",
+        "  hint: Use it if you need it, and read each release's notes before upgrading.",
+        "",
+        "1 error and 1 warning in protein.",
     ]
 
 
@@ -105,7 +113,7 @@ def test_warnings_pass_unless_strict(tmp_path: Path, capsys: pytest.CaptureFixtu
     plugin = tmp_path / "acme"
     plugin.mkdir()
     (plugin / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/lab\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/lab\nversion: 1.0.0\niki: '>=0.1'\n"
         "settings:\n  api_key: { type: string, required: false }\n"
     )
     assert main(["plugin", "validate", str(plugin)]) == 0
@@ -139,7 +147,7 @@ def test_json_output(broken: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert report["valid"] is False
     assert report["plugin"] is None
     assert report["errors"] == 1
-    assert report["problems"] == [
+    assert [p for p in report["problems"] if p["code"] != "provisional-key"] == [
         {
             "code": "unknown-unit",
             "severity": "error",
@@ -182,7 +190,11 @@ def test_github_annotations(
         "::error file=protein/types/protein.yaml,line=13,col=45,title=unknown-unit::"
         "`Da` isn't a UCUM unit.%0A`u` is the unified atomic mass unit (the dalton); "
         "`g/mol` is molar mass.",
-        "1 error in protein.",
+        "::warning file=protein/types/sample.yaml,line=11,col=1,title=provisional-key::"
+        "`draw_purposes` is provisional: a minor release of Iki may change its shape, with a "
+        "codemod and a release note.%0AUse it if you need it, and read each release's notes "
+        "before upgrading.",
+        "1 error and 1 warning in protein.",
     ]
 
 

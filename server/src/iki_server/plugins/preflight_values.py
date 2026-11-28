@@ -12,11 +12,10 @@ from django.core.management.base import CommandError
 from django.db import connection
 from psycopg import sql
 
-from iki_server.entities.values import is_list_table
 from iki_server.plugins.makemigrations import linear_conversion
 from iki_server.plugins.preflight_types import Finding, Record
 from iki_spec import units
-from iki_spec.model import Field
+from iki_spec.model import Field, stored_in_list_table
 from iki_spec.units import UnitError
 from iki_spec.validate import value_problems
 
@@ -161,7 +160,7 @@ class _Review:
 
     def field(self, old: Field | None, field: Field, rows: list[Record], subject: str) -> None:
         name = field.name
-        if old is None and is_list_table(field):
+        if old is None and stored_in_list_table(field):
             # The new child table starts empty for every existing record.
             for row in rows:
                 row.values[name] = []
