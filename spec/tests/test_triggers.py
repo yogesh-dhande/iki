@@ -666,16 +666,14 @@ READS = {
     "types": """\
 ---
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: Method
 schema_version: 1
-hrid: { prefix: MTH }
-list:
-  options:
-    - { code: a280, label: A280, calculation: a280 }
-    - { code: bca, label: BCA assay }
 fields:
   calculation: { type: enum, values: [a280], immutable: true }
+options:
+  - { code: a280, label: A280, calculation: a280 }
+  - { code: bca, label: BCA assay }
 ---
 apiVersion: iki/v1
 kind: EntityType

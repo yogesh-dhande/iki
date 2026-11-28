@@ -283,11 +283,11 @@ def test_starting_options_are_each_the_lists_once(tmp_path: Path) -> None:
 def test_a_starting_options_code_and_label_name_it_alone(tmp_path: Path) -> None:
     """A sheet names an option by its code or its label, in any case, so another option's
     code or label may be neither; its own may be both."""
-    clash = CATEGORY + "    - { code: sec, label: Size exclusion }\n"
-    clash += "    - { code: gf, label: SEC }\n"
-    clash += "    - { code: CHROMATOGRAPHY, label: Other chromatography }\n"
-    clash += "    - { code: desalting, label: Buffer exchange }\n"
-    clash += "    - { code: buffer_exchange, label: Desalting }\n"
+    clash = CATEGORY + "  - { code: sec, label: Size exclusion }\n"
+    clash += "  - { code: gf, label: SEC }\n"
+    clash += "  - { code: CHROMATOGRAPHY, label: Other chromatography }\n"
+    clash += "  - { code: desalting, label: Buffer exchange }\n"
+    clash += "  - { code: buffer_exchange, label: Desalting }\n"
     result = make(tmp_path, {"types/category.yaml": clash})
     assert codes(result) == ["list-name-twice"] * 3, problems(result)
     assert "“SEC” is option 2's code, in any case" in str(problems(result))
