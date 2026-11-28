@@ -3254,6 +3254,15 @@ def set_entity_state(
             headers={"ETag": f'"{stale.current}"'},
         ) from None
     except Invalid as error:
+        if getattr(error, "broken", ()):
+            # It breaks the type's rules (ADR 0127): each named, as for a save.
+            found = _invalid(error)
+            if isinstance(error, checking.Held):
+                found.detail = (
+                    "It breaks rules that hold records for review. To set it anyway, say why "
+                    "in `reason`: the record is held until it's reviewed."
+                )
+            raise found from None
         raise Problem(
             422,
             "Setting that state needs more.",
