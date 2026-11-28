@@ -129,10 +129,22 @@ def properties(atoms: Formula) -> dict[str, Any]:
     }
 
 
+def role(record: dict[str, Any], name: str) -> Any:  # noqa: ANN401 - a field's value
+    """The value of the field playing ``name`` in ``record``, as its type's roles name it
+    in the run's input (ADR 0284): ``formula``, or ``residues`` as (alphabet, residues)."""
+    found = (record.get("roles") or {}).get(name)
+    if not found:
+        return None
+    if name == "residues":
+        return found["alphabet"], record["values"].get(found["field"])
+    return record["values"].get(found)
+
+
 def composition(entity: dict[str, Any]) -> dict[str, Any]:
     included = entity.get("included") or {}
     carriers = included.get("carrier.molecule") or []
-    carrier = carriers[0]["values"] if len(carriers) == 1 else {}
+    molecule = carriers[0] if len(carriers) == 1 else {"values": {}}
+    carrier = molecule["values"]
     values: dict[str, Any] = {
         "carrier_heavy_copies": None,
         "carrier_light_copies": None,
@@ -142,9 +154,9 @@ def composition(entity: dict[str, Any]) -> dict[str, Any]:
     }
     if carrier.get("components"):
         # Of the permitted carrier types, only antibodies have component rows.
-        for role in ("heavy", "light"):
-            values[f"carrier_{role}_copies"] = sum(
-                row["copies"] for row in carrier["components"] if row["role"] == role
+        for chain in ("heavy", "light"):
+            values[f"carrier_{chain}_copies"] = sum(
+                row["copies"] for row in carrier["components"] if row["role"] == chain
             )
     try:
         if not carrier:
@@ -157,11 +169,12 @@ def composition(entity: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("A polydisperse PEG grade has no single molecular formula or mass.")
         if any(row.get("copies") is None for row in rows):
             raise ValueError("Unspecified or distributed loading has no single formula or mass.")
-        if "sequence" in carrier:
-            atoms = protein(carrier["sequence"])
+        residues = role(molecule, "residues")
+        if residues is not None and residues[0] == "protein":
+            atoms = protein(residues[1] or "")
             basis = PROTEIN_BASIS
         else:
-            atoms = parse(carrier.get("molecular_formula") or "")
+            atoms = parse(role(molecule, "formula") or "")
             basis = PROTEIN_BASIS if "components" in carrier else OLIGO_BASIS
         for row, part in zip(rows, parts, strict=True):
             loss = row.get("loss_formula")
@@ -172,7 +185,7 @@ def composition(entity: dict[str, Any]) -> dict[str, Any]:
                 raise ValueError(
                     "Use the neutral, single-component attachment without counterions or solvent."
                 )
-            part_formula = compound.get("molecular_formula")
+            part_formula = role(part, "formula")
             if not part_formula:
                 name = compound.get("name") or part["hrid"]
                 raise ValueError(f"The registered attachment {name} has no molecular formula.")

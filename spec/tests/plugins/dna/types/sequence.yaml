@@ -14,6 +14,7 @@ extends: Sequence
 schema_version: 2
 hrid: { prefix: DNA }
 identity: [bases]
+roles: { residues: bases }
 fields:
   bases: { type: string, format: dna_sequence, required: true, immutable: true }
   topology:

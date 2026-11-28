@@ -1,6 +1,7 @@
 # 0105. An input can include what its references name
 
 - Status: Accepted
+- Extended by [0284](0284-run-inputs-say-what-each-record-is.md): each entity carries its lineage and roles, and an input can say what it reads
 - Date: 2026-11-16
 - Refines: [0042](0042-action-runs-and-jobs.md), [0066](0066-a-run-reads-only-whats-in-its-project.md)
 

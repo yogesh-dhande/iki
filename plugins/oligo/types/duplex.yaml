@@ -13,6 +13,8 @@ description: >-
   Its duplex region and overhangs are found from its strands' bases.
 hrid: { prefix: DUP }
 identity: [strands]
+# The fields Iki reads its formula by (ADR 0284).
+roles: { formula: molecular_formula }
 fields:
   strands:
     type: list

@@ -685,6 +685,14 @@ class EntityTypeOut(Schema):
         "among its ancestors."
     )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
+    roles: dict[str, Any] = Field(
+        default_factory=dict,
+        description="The field playing each role it has (ADR 0284), its own or a parent's, "
+        "as a run's input gives them: `material` (what its amount is of: `id` or a field), "
+        "`residues` (`field` and `alphabet`: dna, rna, protein or helm) and `formula`. Read a "
+        "sequence's residues or a molecule's formula by these, whatever its type calls the "
+        "field.",
+    )
     hrid_prefix: str | None
     identity: list[str] = Field(
         description="The fields that tell two entities apart. With one, its entities are "
@@ -1599,6 +1607,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "lab_list": entity_type.is_list,
         "detached": services.frozen(form) is not None,
         "ancestors": list(registry.effective(name).ancestors),
+        "roles": registry.effective(name).run_roles(),
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
         "identity": list(owner.identity) if owner is not None else [],

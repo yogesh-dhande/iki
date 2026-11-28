@@ -337,7 +337,7 @@ def opening(qc_actions: ModuleType, **more: Any) -> dict[str, Any]:
     material = record("material1", 4, name="Synthetic assay standard")
     schedule["included"] = {"versions": [version], "material": [material]}
     lot = record("lot1", 8, of="material1", lot_number="Synthetic lot 1")
-    lot["material_field"] = "of"
+    lot["roles"] = {"material": "of"}
     return {
         "run": {"requested_by": "analyst1"},
         "settings": {"review_flow": "regulated_qc"},
@@ -353,10 +353,10 @@ def test_a_lot_is_matched_to_its_specification_by_its_declared_material(
     (case,) = qc_actions.open_release(run)["creates"]
     assert case["values"] | {"cycle": 1, "context": "Release"} == case["values"]
     # A strain isolate is its own material: its schedule names the isolate.
-    isolate = run["inputs"]["lot"][0] | {"id": "material1", "material_field": "id"}
+    isolate = run["inputs"]["lot"][0] | {"id": "material1", "roles": {"material": "id"}}
     qc_actions.open_release(run | {"inputs": run["inputs"] | {"lot": [isolate]}})
     # A protein lot reads its protein, not a field of the same name on another lot type.
-    other = run["inputs"]["lot"][0] | {"material_field": "protein"}
+    other = run["inputs"]["lot"][0] | {"roles": {"material": "protein"}}
     with pytest.raises(ValueError, match="material registered on this lot"):
         qc_actions.open_release(run | {"inputs": run["inputs"] | {"lot": [other]}})
 
@@ -756,7 +756,7 @@ def test_no_policy_moves_a_testing_date_a_case_has_pinned(
 
 def test_opening_a_case_records_the_latest_testing_date(qc_actions: ModuleType) -> None:
     lot = record("lot1", 1, of="material1", lot_number="Synthetic lot")
-    lot["material_field"] = "of"
+    lot["roles"] = {"material": "of"}
     for before, tested, latest in (
         (None, LONG_AGO + timedelta(days=5), LONG_AGO + timedelta(days=5)),
         (TODAY.isoformat(), LONG_AGO + timedelta(days=5), TODAY),

@@ -97,6 +97,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
                     "hrid": "PRT-000001",
                     "type": "iki/protein.Protein",
                     "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
+                    "roles": {"residues": {"field": "sequence", "alphabet": "protein"}},
                     "schema_version": 1,
                     "revision": 1,
                     "values": {"sequence": "MKVLA"},

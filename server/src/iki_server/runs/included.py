@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +27,7 @@ from iki_server.files.scan_state import ScanStatus, statuses_for_blobs
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun, RunInclusion, RunInput
+from iki_spec.effective import carried
 from iki_spec.model import Action, included_reference
 
 
@@ -296,20 +297,40 @@ def _value_path(prefix: str, at: tuple[str | int, ...]) -> str:
     return f"{prefix}/values/{'/'.join(map(str, at))}"
 
 
+def kept(type_name: str, put: Mapping[str, Any] | None) -> frozenset[str] | None:
+    """The fields a run's input carries of an entity of ``type_name`` given to ``put`` (an
+    action's input, as the run's spec keeps it): those it ``reads``, its roles' and its
+    included references (ADR 0284), or None for all of them."""
+    if not put or not put.get("reads"):
+        return None
+    return carried(registry.effective(type_name), put["reads"], put.get("include") or ())
+
+
 def reference_mask(
     project: Project,
+    action: Action,
     entities: Mapping[str, Sequence[Entity]],
     entry_revisions: Mapping[UUID, int | None],
     pins: Sequence[Pin],
 ) -> list[str]:
-    """Pin the positions shown as unreadable in the command's input document."""
+    """Pin the positions shown as unreadable in the command's input document: of the
+    fields it carries, as :func:`manifest` gives them."""
     from iki_server.entities.services import values_and_entry_at
 
     slots: dict[str, UUID] = {}
     entries: set[UUID] = set()
+    puts = {n: asdict(i) for n, i in action.inputs.items()}
 
-    def collect(entity: Entity, revision: int, entry_revision: int | None, prefix: str) -> None:
+    def collect(
+        entity: Entity,
+        revision: int,
+        entry_revision: int | None,
+        prefix: str,
+        put: Mapping[str, Any] | None = None,
+    ) -> None:
         values, entry = values_and_entry_at(entity, revision, entry_revision)
+        if (keep := kept(entity.type, put)) is not None:
+            values = {n: v for n, v in values.items() if n in keep}
         fields = shape(entity.type).fields()
         slots.update(
             (_value_path(prefix, at), pk) for at, pk in reference_positions(fields, values)
@@ -319,7 +340,9 @@ def reference_mask(
 
     for name, group in entities.items():
         for index, given in enumerate(group):
-            collect(given, given.revision, entry_revisions[given.pk], f"/{name}/{index}")
+            collect(
+                given, given.revision, entry_revisions[given.pk], f"/{name}/{index}", puts[name]
+            )
     for pin in pins:
         collect(pin.entity, pin.revision, pin.entry_revision, _included_path(pin))
     readable = entries | access.project_reference_ids(project, set(slots.values()) - entries)
@@ -447,10 +470,18 @@ def manifests(runs: Sequence[ActionRun]) -> dict[UUID, Manifest | Unavailable]:
     }
     hrids = dict(Entity.objects.filter(pk__in=moved).values_list("pk", "hrid")) if moved else {}
 
-    def document(at: _Reading, row: RunInput | RunInclusion, prefix: str) -> dict[str, Any]:
+    def document(
+        at: _Reading,
+        row: RunInput | RunInclusion,
+        prefix: str,
+        put: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
         entity = row.entity
         at.records.add(entity.pk)
         values, entry = read[id(row)]
+        # An input that reads some fields is given those, and its roles' (ADR 0284).
+        if (keep := kept(entity.type, put)) is not None:
+            values = {n: v for n, v in values.items() if n in keep}
         fields = shape(entity.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values.items() if n in fields}
         for position, pk in reference_positions(fields, values):
@@ -470,14 +501,15 @@ def manifests(runs: Sequence[ActionRun]) -> dict[UUID, Manifest | Unavailable]:
             "id": str(entity.pk),
             "hrid": entity.hrid,
             "type": entity.type,
+            # Its lineage, which an action compares with to know a subtype's records for its
+            # type's (ADR 0284); and the field playing each role it has.
             "types": list(declared.lineage),
             "schema_version": registry.types()[entity.type].schema_version,
             "revision": row.revision,
             "values": shown,
         }
-        amount = declared.amount
-        if amount is not None and amount.material is not None:
-            item["material_field"] = amount.material
+        if roles := declared.run_roles():
+            item["roles"] = roles
         if (request := sides.get(entity.pk)) is not None:
             item["request"] = request
         if entity.entry_id is not None and entry is not None:
@@ -510,7 +542,9 @@ def manifests(runs: Sequence[ActionRun]) -> dict[UUID, Manifest | Unavailable]:
                 item["covered_materials"] = pin.covered_materials
             nested[(pin.input, pin.position)].setdefault(pin.field, []).append(item)
         for row in given[run.pk]:
-            item = document(at, row, f"/{row.name}/{row.position}")
+            item = document(
+                at, row, f"/{row.name}/{row.position}", run.spec["inputs"].get(row.name)
+            )
             if includes := run.spec["inputs"].get(row.name, {}).get("include"):
                 pinned_here = nested[(row.name, row.position)]
                 item["included"] = {name: pinned_here.get(name, []) for name in includes}
@@ -602,10 +636,17 @@ def still_scanning(
     for name, f in action.params.items():
         if params.get(name) is not None:
             ids |= input_files.file_ids(f, params[name])
-    read = [(e, e.revision, entry_revisions.get(e.pk)) for g in entities.values() for e in g]
-    read += [(p.entity, p.revision, p.entry_revision) for p in pins]
-    for entity, revision, entry_revision in read:
+    puts = {n: asdict(i) for n, i in action.inputs.items()}
+    read: list[tuple[Entity, int, int | None, Mapping[str, Any] | None]] = [
+        (e, e.revision, entry_revisions.get(e.pk), puts.get(n))
+        for n, g in entities.items()
+        for e in g
+    ]
+    read += [(p.entity, p.revision, p.entry_revision, None) for p in pins]
+    for entity, revision, entry_revision, put in read:
         values, _ = values_and_entry_at(entity, revision, entry_revision)
+        if (keep := kept(entity.type, put)) is not None:
+            values = {n: v for n, v in values.items() if n in keep}
         fields = shape(entity.type).fields()
         for name, value in values.items():
             if name in fields:

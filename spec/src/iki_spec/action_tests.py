@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from iki_spec import API_VERSION, schemas
-from iki_spec.effective import lineage, resolve_one
+from iki_spec.effective import carried, lineage, resolve_one
 from iki_spec.formats import FormatRegistry
 from iki_spec.model import Action, EntityType, Field, Input, Plugin, included_reference
 from iki_spec.problems import Path as DocPath
@@ -453,27 +453,32 @@ def run_input(
     inputs: dict[str, list[dict[str, Any]]] = {name: [] for name in action.inputs}
     n = 0
 
-    def made(entity: dict[str, Any], type_name: str) -> dict[str, Any]:
+    def made(entity: dict[str, Any], type_name: str, put: Input | None = None) -> dict[str, Any]:
         nonlocal n
         n += 1
         entity_type = every[type_name]
         prefix = entity_type.hrid_prefix or "ENT"
-        amount = resolve_one(every, type_name).amount
+        declared = resolve_one(every, type_name)
+        values = _with_ids(entity["values"], file_ids)
+        # An input that reads some fields is given those, as the server gives them.
+        if put is not None and (kept := carried(declared, put.reads, put.include)) is not None:
+            values = {k: v for k, v in values.items() if k in kept}
+        roles = declared.run_roles()
         return {
-            **({"material_field": amount.material} if amount and amount.material else {}),
             "id": _id(3, n),
             "hrid": entity.get("hrid") or f"{prefix}-{n:0{entity_type.hrid_digits}d}",
             "type": type_name,
-            "types": list(lineage(every, type_name)),
+            "types": list(declared.lineage),
+            **({"roles": roles} if roles else {}),
             "schema_version": entity_type.schema_version,
             "revision": 1,
-            "values": _with_ids(entity["values"], file_ids),
+            "values": values,
         }
 
     for name, entities in test.inputs.items():
         put = action.inputs[name]
         for entity in entities:
-            document = made(entity, entity.get("type") or put.type)
+            document = made(entity, entity.get("type") or put.type, put)
             if "request" in entity:
                 # A request's two sides, as the server gives them (ADR 0232): by default
                 # sent from another project to the test's, which serves it.

@@ -9023,6 +9023,13 @@ export interface components {
             /** @description Its records are a request's results (ADR 0132), which the service owns and releases back to the asking project. */
             result?: components["schemas"]["ResultTypeOut"] | null;
             /**
+             * Roles
+             * @description The field playing each role it has (ADR 0284), its own or a parent's, as a run's input gives them: `material` (what its amount is of: `id` or a field), `residues` (`field` and `alphabet`: dna, rna, protein or helm) and `formula`. Read a sequence's residues or a molecule's formula by these, whatever its type calls the field.
+             */
+            roles?: {
+                [key: string]: unknown;
+            };
+            /**
              * Rule Variables
              * @description What its rules' `check` reads, as the schemas iki-wasm evaluates them against: so a form checks them as you type, as the server will.
              */
@@ -14040,6 +14047,13 @@ export interface components {
              * @constant
              */
             apiVersion: "iki/v1";
+            /**
+             * Effective
+             * @description The effective declarations the build wrote beside it (ADR 0282). The check resolves them again from the plugin's types, so what's here isn't read.
+             */
+            effective?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * Plugin
              * @description The plugin object in the built manifest.json.

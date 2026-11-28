@@ -18,11 +18,15 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from iki_server.observability.telemetry import configure_telemetry
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from django.test import Client
     from fake_gcs import FakeGcs
     from fake_idp import FakeIdP
     from fake_saml_idp import FakeSamlIdP
     from playwright.sync_api import Browser, BrowserContext
+
+    from iki_spec.model import EntityType
 
 # Same major version as production; pinned by digest so tests are reproducible.
 POSTGRES_IMAGE = (
@@ -480,6 +484,28 @@ def _keeps_what_sync_made(
         f"The test left the database without what sync_plugins made ({lost}) or with more "
         f"({added}). Run iki_server.plugins.sync.sync() after migrating, as the deploy does."
     )
+
+
+@pytest.fixture
+def redeclare(monkeypatch: pytest.MonkeyPatch) -> "Callable[[str, EntityType], None]":
+    """Declare an installed type differently for one test: its declaration, and the
+    effective declarations (ADR 0282) of it and its subtypes, which the build would have
+    written into the manifests, resolved again from the declarations as they now are."""
+    from iki_server.entities import registry
+    from iki_spec import effective
+
+    def redeclare(name: str, declared: "EntityType") -> None:
+        monkeypatch.setitem(registry.types(), name, declared)
+        resolved = effective.resolve(registry.types())
+
+        def effective_of(qualified: str) -> effective.Effective:
+            if qualified not in resolved:
+                raise KeyError(qualified)
+            return resolved[qualified]
+
+        monkeypatch.setattr(registry, "effective", effective_of)
+
+    return redeclare
 
 
 @pytest.fixture

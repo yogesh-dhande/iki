@@ -326,6 +326,14 @@
           "description": "A run can start without it. Otherwise whoever launches the run must choose its entities, and a workflow step or trigger must give them.",
           "type": "boolean"
         },
+        "reads": {
+          "description": "The fields of its entities the run reads (ADR 0284): their values carry these, the fields their roles name, and the references `include` names, and no others. A field of the input's type, its own or a parent's. Left out, the run reads every field.",
+          "type": "array",
+          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+          "uniqueItems": true,
+          "minItems": 1,
+          "maxItems": 64
+        },
         "from_project": {
           "description": "Not chosen by whoever launches the run: each run is given every record of its type that its project owns and hasn't archived, at their current revisions, such as a core's ranking of the projects it serves (ADR 0232). It takes many, at most its `max` and 1000; with none there, a run that needs it can't start.",
           "type": "boolean"

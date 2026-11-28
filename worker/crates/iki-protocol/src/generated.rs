@@ -27,9 +27,9 @@ pub struct RunInputFile {
 pub struct RunInputEntity {
     pub id: String,
     pub hrid: String,
-    /// The type’s declared or inherited amount.material. For id, read this record’s top-level id. For a reference field, read that field from values.
+    /// The field playing each role its type declares (ADR 0284), its own or a parent's. Left out when it declares none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub material_field: Option<String>,
+    pub roles: Option<RunInputEntityRoles>,
     /// For a registered record, the registry entry it held at the pinned record revision.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry_id: Option<String>,
@@ -38,7 +38,7 @@ pub struct RunInputEntity {
     pub entry_revision: Option<i64>,
     /// The qualified type, such as `iki/protein.Protein`.
     pub r#type: String,
-    /// The type and each type it extends, nearest first, ending with `iki/core.Entity`. A command that asks whether a record is, say, a protein looks for `iki/protein.Protein` here, not in `type`, so that a lab’s subtype of it is one too.
+    /// Its type, then each type it extends, nearest first, ending with `iki/core.Entity` (ADR 0284): a record is one of a type's when the type is here. A lab's subtype of the type an action takes is listed, then the action's. Compare with this, never `type`.
     pub types: Vec<String>,
     pub schema_version: i64,
     /// The revision the run reads.
@@ -54,6 +54,42 @@ pub struct RunInputEntity {
     /// The entities its references name, when the action's input includes them: for each reference, a list (one entity for a reference, a list's in order, none when it's empty), at the revisions the run was launched on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub included: Option<std::collections::BTreeMap<String, Vec<RunInputEntity>>>,
+}
+
+/// The field playing each role its type declares (ADR 0284), its own or a parent's. Left out when it declares none.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputEntityRoles {
+    /// What its amount is of: its type's amount.material. For id, read this record's top-level id; for a reference field, read that field from values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<String>,
+    /// Its sequence of residues: the field in values, and their alphabet.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub residues: Option<RunInputEntityRolesResidues>,
+    /// The field in values holding its molecular formula.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
+}
+
+/// Its sequence of residues: the field in values, and their alphabet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunInputEntityRolesResidues {
+    pub field: String,
+    pub alphabet: RunInputEntityRolesResiduesAlphabet,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RunInputEntityRolesResiduesAlphabet {
+    #[serde(rename = "dna")]
+    Dna,
+    #[serde(rename = "rna")]
+    Rna,
+    #[serde(rename = "protein")]
+    Protein,
+    #[serde(rename = "helm")]
+    Helm,
+    /// A value this version of the protocol doesn't know.
+    #[serde(other)]
+    Unknown,
 }
 
 /// For a request between projects (ADR 0132): the project that asked, which owns it, and the service it was sent to (null until it's sent), each by ID, slug and name, as either side's people see them (ADR 0232).

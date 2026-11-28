@@ -13,6 +13,8 @@ description: >-
   from the Pistoia Alliance's HELM monomer library; a lab registers its own.
 hrid: { prefix: MON }
 identity: [polymer_type, symbol]
+# The fields Iki reads its formula by (ADR 0284).
+roles: { formula: molecular_formula }
 fields:
   polymer_type:
     type: enum

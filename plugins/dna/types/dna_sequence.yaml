@@ -13,6 +13,8 @@ description: >-
   double-stranded one from either strand.
 hrid: { prefix: DNA }
 identity: [bases, topology, strandedness]
+# The fields Iki reads its residues by (ADR 0284).
+roles: { residues: bases }
 fields:
   bases:
     type: string

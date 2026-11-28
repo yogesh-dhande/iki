@@ -380,6 +380,9 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__protein_lot",
         "acme__protein_lot__history",
         "acme__protein_lot__inputs",
+        # A subtype that only narrows its lot's fields (ADR 0283): no columns of its own.
+        "acme__protein_gmplot",
+        "acme__protein_gmplot__history",
         "acme__protein_batch",
         "acme__protein_batch__history",
         "acme__protein_batch__proteins",

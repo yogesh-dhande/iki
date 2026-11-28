@@ -1,6 +1,7 @@
 # 0165. A subtype of a registered type has registry fields of its own
 
 - Status: Accepted
+- Extended by [0284](0284-run-inputs-say-what-each-record-is.md): beside its `types`, each record carries its roles, and an input can say what it reads
 - Date: 2026-11-19
 - Refines: [0115](0115-registries-keep-identities-projects-keep-records.md),
   [0161](0161-a-complex-is-its-parts-and-their-copies.md)

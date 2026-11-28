@@ -110,8 +110,8 @@ def schedule(run: dict[str, Any]) -> dict[str, Any]:
     includes = study["included"]
     tubes = {record["id"]: record for record in includes["assignments.tube"]}
     lot = includes["lot"][0]
-    material_field = lot.get("material_field")
-    material = lot["id"] if material_field == "id" else lot["values"].get(material_field)
+    material_field = (lot.get("roles") or {}).get("material")
+    material = lot["id"] if material_field == "id" else lot["values"].get(material_field or "")
     if not material:
         raise ValueError("The selected lot must identify its material before scheduling pulls.")
     if material != values["material"]:

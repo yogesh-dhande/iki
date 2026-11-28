@@ -3,6 +3,7 @@ aliquots and adjusted, never below zero, each a movement of its ledger, safe whe
 people draw at once."""
 
 import threading
+from collections.abc import Callable
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any
@@ -28,6 +29,7 @@ from iki_server.entities.values import Invalid
 from iki_server.graph.models import Edge
 from iki_server.org import permissions
 from iki_server.org.models import LabRoleGrant, ProjectMembership, ProjectRole
+from iki_spec.model import EntityType
 
 pytestmark = pytest.mark.django_db
 
@@ -794,16 +796,13 @@ def test_what_its_unit_cant_hold_exactly_isnt_moved(world: World) -> None:
 
 
 def test_whole_units_are_enforced_after_conversion_on_every_ledger_operation(
-    world: World, monkeypatch: pytest.MonkeyPatch
+    world: World, redeclare: Callable[[str, EntityType], None]
 ) -> None:
     # Use a whole-uL type and a normal mL lot to check conversions in both directions.
     # CountStockLot uses the same declaration for indivisible consumables.
-    types = registry.types()
-    item_type = types[SAMPLE]
+    item_type = registry.types()[SAMPLE]
     assert item_type.amount is not None
-    monkeypatch.setitem(
-        types, SAMPLE, replace(item_type, amount=replace(item_type.amount, whole_units=True))
-    )
+    redeclare(SAMPLE, replace(item_type, amount=replace(item_type.amount, whole_units=True)))
     api = api_as(world)
     half = {"value": "0.0005", "unit": "mL"}
     refused = create(api, world.project, {"label": "fraction"}, SAMPLE, amount=half)

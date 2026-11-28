@@ -11,6 +11,8 @@ description: >-
   species with integer copy counts, or a product with distributed loading
   and a measured distribution on each physical lot.
 identity: [carrier, attachments]
+# The fields Iki reads its formula by (ADR 0284).
+roles: { formula: molecular_formula }
 fields:
   name: { type: string, max_length: 255, indexed: true }
   description: { type: text, max_length: 10000 }

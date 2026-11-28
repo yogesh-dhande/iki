@@ -90,7 +90,9 @@
     "list": {
       "description": "Its entities are the options of a list the lab curates (ADR 0270), such as lot methods or deviation categories, offered as a dropdown wherever a field refers to it. Each option is a registry entry, identified by its `code`, with a `label`, a `description` and a place in the list's order, which its registry's registrars and list curators change, each with a reason; projects in the registry pick from it. Its other fields are its options' too. `true` for a list with no starting options. Only descriptive vocabulary is a list: a value a guard, state, rule, signature or computation reads stays an `enum`. Inheritance: `own`. Not inherited: each type's own.",
       "oneOf": [
-        { "const": true },
+        {
+          "const": true
+        },
         {
           "type": "object",
           "additionalProperties": false,
@@ -293,6 +295,22 @@
         }
       }
     },
+    "roles": {
+      "description": "The field playing each role Iki knows (ADR 0284), its own or a parent's: viewers, exports, runs and agents read a record's residues or formula by it, whatever its type calls the field. A run's input says which field plays each. Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "residues": {
+          "description": "The field holding its residues: a string with a sequence `format` (`dna_sequence`, `rna_sequence`, `protein_sequence` or `helm`), which is their alphabet. Every concrete type extending `iki/core.Sequence` names one.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "formula": {
+          "description": "The string field holding its molecular formula, such as a compound's or an oligonucleotide's.",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
+      }
+    },
     "rules": {
       "description": "Rules every save of its records keeps (ADR 0127): CEL checks of the record, fields no two of a project's records share, and ranges none of them overlap. Inheritance: `accumulate`. Inherited and added to: a subtype has every ancestor's and its own, none named as an ancestor's is.",
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
@@ -372,7 +390,9 @@
           "minItems": 1,
           "maxItems": 10,
           "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef" }
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleRef"
+          }
         },
         "ready": {
           "description": "A computed field set when the record is prepared: until it has a value, the record takes no draw.",
@@ -450,7 +470,9 @@
           "type": "array",
           "maxItems": 20,
           "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
         },
         "receives": {
           "description": "What the service receives against the request (ADR 0180): a list of references it `sends`, to a type with `storage`, such as its tubes. The service checks each in with a receipt, as matched, missing, damaged or rejected, with what's extra.",
@@ -815,7 +837,9 @@
           "description": "The field each of the writer's roles reads, by role: `volume: transfer_volume`. Every required role is mapped, each to a field of its role's type.",
           "type": "object",
           "maxProperties": 64,
-          "propertyNames": { "pattern": "^[a-z][a-z0-9_]{0,62}$" },
+          "propertyNames": {
+            "pattern": "^[a-z][a-z0-9_]{0,62}$"
+          },
           "additionalProperties": {
             "description": "The field this role reads, such as `transfer_volume`.",
             "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
@@ -825,8 +849,14 @@
     },
     "gridSize": {
       "oneOf": [
-        { "type": "integer", "minimum": 1, "maximum": 48 },
-        { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 48
+        },
+        {
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        }
       ]
     },
     "export": {
@@ -836,7 +866,9 @@
         "export": {
           "description": "What it writes: one of Iki's (`sequence`, `protein`, `compound`, `signed_report`), or a plugin's writer (ADR 0230), such as `acme/lab.tecan-worklist`, with `fields`.",
           "anyOf": [
-            { "enum": ["sequence", "protein", "compound", "signed_report"] },
+            {
+              "enum": ["sequence", "protein", "compound", "signed_report"]
+            },
             {
               "type": "string",
               "maxLength": 125,
@@ -847,32 +879,71 @@
       },
       "allOf": [
         {
-          "if": { "required": ["export"], "properties": { "export": { "const": "sequence" } } },
-          "then": { "$ref": "#/$defs/sequenceExport" }
-        },
-        {
-          "if": { "required": ["export"], "properties": { "export": { "const": "protein" } } },
-          "then": { "$ref": "#/$defs/proteinExport" }
-        },
-        {
-          "if": { "required": ["export"], "properties": { "export": { "const": "compound" } } },
-          "then": { "$ref": "#/$defs/compoundExport" }
-        },
-        {
           "if": {
             "required": ["export"],
-            "properties": { "export": { "const": "signed_report" } }
+            "properties": {
+              "export": {
+                "const": "sequence"
+              }
+            }
           },
-          "then": { "$ref": "#/$defs/reportExport" }
+          "then": {
+            "$ref": "#/$defs/sequenceExport"
+          }
         },
         {
           "if": {
             "required": ["export"],
             "properties": {
-              "export": { "not": { "enum": ["sequence", "protein", "compound", "signed_report"] } }
+              "export": {
+                "const": "protein"
+              }
             }
           },
-          "then": { "$ref": "#/$defs/pluginExport" }
+          "then": {
+            "$ref": "#/$defs/proteinExport"
+          }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": {
+                "const": "compound"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/compoundExport"
+          }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": {
+                "const": "signed_report"
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/reportExport"
+          }
+        },
+        {
+          "if": {
+            "required": ["export"],
+            "properties": {
+              "export": {
+                "not": {
+                  "enum": ["sequence", "protein", "compound", "signed_report"]
+                }
+              }
+            }
+          },
+          "then": {
+            "$ref": "#/$defs/pluginExport"
+          }
         }
       ]
     },
@@ -968,7 +1039,9 @@
           "minItems": 1,
           "maxItems": 10,
           "uniqueItems": true,
-          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          "items": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          }
         }
       }
     },

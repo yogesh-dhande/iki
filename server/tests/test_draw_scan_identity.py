@@ -1,5 +1,6 @@
 """A physical draw needs independent evidence of the particular tube used."""
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 from uuid import UUID
@@ -14,6 +15,7 @@ from iki_server.amounts.models import Movement
 from iki_server.audit.models import AuditEvent
 from iki_server.entities import registry
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
+from iki_spec.model import EntityType
 
 pytestmark = pytest.mark.django_db
 
@@ -77,7 +79,7 @@ def test_a_shared_vendor_label_cannot_debit_the_selected_tube() -> None:
 
 @pytest.mark.parametrize("storable", [True, False], ids=["tube", "nonstorable-sample"])
 def test_an_optional_scan_can_only_be_recorded_if_verified(
-    monkeypatch: pytest.MonkeyPatch, storable: bool
+    redeclare: Callable[[str, EntityType], None], storable: bool
 ) -> None:
     world = build_world()
     api = Api(world.browser("editor"))
@@ -85,9 +87,7 @@ def test_an_optional_scan_can_only_be_recorded_if_verified(
     if storable:
         declared = registry.types()[TUBE]
         assert declared.storage is not None
-        monkeypatch.setitem(
-            registry.types(), TUBE, replace(declared, storage=replace(declared.storage, confirm=()))
-        )
+        redeclare(TUBE, replace(declared, storage=replace(declared.storage, confirm=())))
         record = tube(api, world.project, "OPTIONAL-35", amount=quantity)
     else:
         record = sample(world, "S-1", quantity)

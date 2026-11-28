@@ -1,5 +1,6 @@
 """A required move scan has to identify the particular tube in the physical operation."""
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -13,6 +14,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.entities import registry
 from iki_server.entities.models import Entity
 from iki_server.storage.models import Event
+from iki_spec.model import EntityType
 
 pytestmark = pytest.mark.django_db
 
@@ -70,13 +72,11 @@ def tubes() -> Tubes:
     return shared_tubes(TUBE)
 
 
-def require_move_proof(monkeypatch: pytest.MonkeyPatch) -> None:
+def require_move_proof(redeclare: Callable[[str, EntityType], None]) -> None:
     # The fixture type requires only draw confirmation. Add the supported move declaration.
-    types = registry.types()
-    declared = types[TUBE]
+    declared = registry.types()[TUBE]
     assert declared.storage is not None
-    monkeypatch.setitem(
-        types,
+    redeclare(
         TUBE,
         replace(
             declared, storage=replace(declared.storage, confirm=(*declared.storage.confirm, "move"))
@@ -191,7 +191,7 @@ def test_confirming_a_selection_rechecks_every_source_box(check_in: bool) -> Non
 
 @pytest.mark.parametrize("concealed", [False, True], ids=["readable", "concealed"])
 def test_a_single_move_checks_the_other_occupants(
-    tubes: Tubes, monkeypatch: pytest.MonkeyPatch, concealed: bool
+    tubes: Tubes, redeclare: Callable[[str, EntityType], None], concealed: bool
 ) -> None:
     api, first, second = tubes.api, tubes.first, tubes.second
     moved(api, (first, tubes.source, "A1"), (second, tubes.source, "A2"))
@@ -199,7 +199,7 @@ def test_a_single_move_checks_the_other_occupants(
         removed = tubes.partner.delete(tubes.link)
         assert removed.status_code == 204, removed.content
         assert api.get(f"/entities/{second['id']}").status_code == 404
-    require_move_proof(monkeypatch)
+    require_move_proof(redeclare)
     before = writes()
     item = (first, tubes.destination, "B1")
     confirmations = {first["id"]: VENDOR}
@@ -253,7 +253,7 @@ def test_a_single_move_checks_the_other_occupants(
 
 
 def test_a_batch_requires_an_independent_proof_for_every_selected_tube(
-    tubes: Tubes, monkeypatch: pytest.MonkeyPatch
+    tubes: Tubes, redeclare: Callable[[str, EntityType], None]
 ) -> None:
     first, second, api = tubes.first, tubes.second, tubes.api
     # Without the move declaration, unsolicited text cannot become evidence of a scan.
@@ -270,7 +270,7 @@ def test_a_batch_requires_an_independent_proof_for_every_selected_tube(
     assert "confirmed" not in initial_audit.data
 
     # Each source has just one tube, yet both labelled tubes participate in this operation.
-    require_move_proof(monkeypatch)
+    require_move_proof(redeclare)
     items = ((first, tubes.destination, "A2"), (second, tubes.source, "A2"))
     before = writes()
     links = {r["id"]: link_proof(r) for r in (first, second)}
@@ -295,7 +295,7 @@ def test_a_batch_requires_an_independent_proof_for_every_selected_tube(
 
 
 def test_explicit_iki_id_distinguishes_an_hrid_from_its_vendor_namesake(
-    tubes: Tubes, monkeypatch: pytest.MonkeyPatch
+    tubes: Tubes, redeclare: Callable[[str, EntityType], None]
 ) -> None:
     api, first, second = tubes.api, tubes.first, tubes.second
     path = f"/entities/{second['id']}"
@@ -306,7 +306,7 @@ def test_explicit_iki_id_distinguishes_an_hrid_from_its_vendor_namesake(
     )
     assert renamed.status_code == 200, renamed.content
     moved(api, (first, tubes.source, "A1"), (second, tubes.source, "A2"))
-    require_move_proof(monkeypatch)
+    require_move_proof(redeclare)
     before = writes()
     item = (first, tubes.destination, "A1")
     refused = moves(api, item, confirmations={first["id"]: first["hrid"]})
@@ -323,11 +323,11 @@ def test_explicit_iki_id_distinguishes_an_hrid_from_its_vendor_namesake(
 
 @pytest.mark.parametrize("relocate", [False, True], ids=["reserved", "explicit-destination"])
 def test_check_in_requires_a_proof_before_custody_or_position_changes(
-    tubes: Tubes, monkeypatch: pytest.MonkeyPatch, relocate: bool
+    tubes: Tubes, redeclare: Callable[[str, EntityType], None], relocate: bool
 ) -> None:
     api, first, second = tubes.api, tubes.first, tubes.second
     moved(api, (first, tubes.source, "A1"), (second, tubes.source, "A2"))
-    require_move_proof(monkeypatch)
+    require_move_proof(redeclare)
     out = api.post("/storage/check-out", {"records": [first["id"], second["id"]]})
     assert out.status_code == 200, out.content
     custodian = str(tubes.world.users["admin"].pk)
@@ -371,10 +371,10 @@ def test_check_in_requires_a_proof_before_custody_or_position_changes(
 
 
 def test_an_unplaced_tube_must_be_identified_within_the_readable_inventory(
-    tubes: Tubes, monkeypatch: pytest.MonkeyPatch
+    tubes: Tubes, redeclare: Callable[[str, EntityType], None]
 ) -> None:
     api, first = tubes.api, tubes.first
-    require_move_proof(monkeypatch)
+    require_move_proof(redeclare)
     for record in (first, tubes.second):
         location = api.get(f"/entities/{record['id']}/location")
         assert location.status_code == 200, location.content

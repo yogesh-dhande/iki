@@ -272,7 +272,7 @@ def named(material: dict[str, Any]) -> str:
 
 def lot_material(lot: dict[str, Any]) -> object:
     """The material a lot is of, by its type's declared material field, as the run reads it."""
-    field = lot.get("material_field")
+    field = (lot.get("roles") or {}).get("material")
     if field == "id":
         return lot["id"]
     return lot["values"].get(field) if field else None

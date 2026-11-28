@@ -59,6 +59,8 @@ def digest_types() -> dict[str, dict[str, Any]]:
             "abstract": False,
             "sample": False,
             "detached": False,
+            "ancestors": ["iki/core.Entity"],
+            "roles": {},
             "subtypes": [],
             "hrid_prefix": spec.hrid_prefix,
             "identity": list(spec.identity),

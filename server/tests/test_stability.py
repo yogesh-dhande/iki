@@ -50,7 +50,7 @@ def schedule_input() -> dict[str, Any]:
     study.update(id="study", revision=1)
     study["values"]["lot"] = "lot"
     study["values"]["assignments"][0]["tube"] = "tube"
-    study["included"]["lot"][0].update(id="lot", material_field="of")
+    study["included"]["lot"][0].update(id="lot", roles={"material": "of"})
     study["included"]["assignments.tube"] = [{"id": "tube", "values": {"contents": "lot"}}]
     return {"inputs": {"study": [study]}}
 
@@ -69,12 +69,12 @@ def test_schedule_checks_the_material_declared_by_the_lot(
     schedule = runpy.run_path(str(PLUGIN / "scripts" / "stability.py"))["schedule"]
     study = schedule_input["inputs"]["study"][0]
     lot = study["included"]["lot"][0]
-    lot.update(type=type_name, material_field=material_field, values={material_field: "other"})
+    lot.update(type=type_name, roles={"material": material_field}, values={material_field: "other"})
     with pytest.raises(ValueError, match="material"):
         schedule(schedule_input)
     lot["values"][material_field] = study["values"]["material"]
     assert len(schedule(schedule_input)["creates"]) == 1
-    del lot["material_field"]
+    del lot["roles"]
     with pytest.raises(ValueError, match="material"):
         schedule(schedule_input)
 
@@ -83,7 +83,7 @@ def test_schedule_uses_the_physical_isolate_as_the_material(schedule_input: dict
     schedule = runpy.run_path(str(PLUGIN / "scripts" / "stability.py"))["schedule"]
     study = schedule_input["inputs"]["study"][0]
     lot = study["included"]["lot"][0]
-    lot.update(type="iki/lots.StrainIsolate", material_field="id", values={"strain": "design"})
+    lot.update(type="iki/lots.StrainIsolate", roles={"material": "id"}, values={"strain": "design"})
     for material in ("design", "other-isolate"):
         study["values"]["material"] = material
         with pytest.raises(ValueError, match="material does not match"):

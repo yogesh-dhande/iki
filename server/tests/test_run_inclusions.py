@@ -94,6 +94,19 @@ def test_a_run_reads_what_its_inputs_references_name_as_of_launch(world: World) 
         "iki/core.Entity",
     ]
     assert chains[0]["entry_id"] == abl["entry"]["id"]
+    # Each says what it is, its type's ancestors' too, and which field holds what Iki knows
+    # of it (ADR 0284), so an action reads a lab's subtype as it does its own type.
+    assert chains[0]["types"] == [
+        "acme/protein.Protein",
+        "acme/dna.Sequence",
+        "iki/core.Sequence",
+        "iki/core.Entity",
+    ]
+    assert chains[0]["roles"] == {"residues": {"field": "sequence", "alphabet": "protein"}}
+    assert given["types"] == ["acme/protein.ProteinStructure", "iki/core.Entity"]
+    assert "roles" not in given
+    # The action reads only the structure's coordinates, and the chains it includes.
+    assert set(given["values"]) == {"structure", "chains"}
 
 
 @pytest.mark.parametrize("through_reference", [False, True])

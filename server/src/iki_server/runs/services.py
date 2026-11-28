@@ -635,7 +635,7 @@ def _made(
     entry_revisions = {
         e.pk: entity_services.entry_revision(e) for group in entities.values() for e in group
     }
-    mask = included.reference_mask(project, entities, entry_revisions, pins)
+    mask = included.reference_mask(project, action, entities, entry_revisions, pins)
     key = reuse.key(
         action,
         sha,

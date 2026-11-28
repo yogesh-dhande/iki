@@ -507,7 +507,8 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {}
       },
       "iki/core.App": {
         "plugin": "iki/core",
@@ -1051,7 +1052,8 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {}
       },
       "iki/core.Collection": {
         "plugin": "iki/core",
@@ -1363,7 +1365,8 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {}
       },
       "iki/core.Complex": {
         "plugin": "iki/core",
@@ -2693,7 +2696,10 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {
+          "formula": "molecular_formula"
+        }
       },
       "iki/core.Entity": {
         "plugin": "iki/core",
@@ -2724,7 +2730,8 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {}
       },
       "iki/core.Organism": {
         "plugin": "iki/core",
@@ -2956,7 +2963,8 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {}
       },
       "iki/core.Sequence": {
         "plugin": "iki/core",
@@ -3137,7 +3145,8 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {}
       },
       "iki/core.View": {
         "plugin": "iki/core",
@@ -4048,7 +4057,8 @@
         "draw_purposes": {},
         "storage": null,
         "sample": false,
-        "refines": {}
+        "refines": {},
+        "roles": {}
       }
     },
     "extensions": [],
@@ -7561,6 +7571,9 @@
         "components"
       ],
       "display_title": "{{ name or hrid }}",
+      "roles": {
+        "formula": "molecular_formula"
+      },
       "sources": {
         "fields.name": "iki/core.Complex",
         "fields.description": "iki/core.Complex",
@@ -7577,7 +7590,8 @@
         "fields.part_disulfides": "iki/core.Complex",
         "fields.part_bonds_complete": "iki/core.Complex",
         "identity": "iki/core.Complex",
-        "display.title": "iki/core.Complex"
+        "display.title": "iki/core.Complex",
+        "roles.formula": "iki/core.Complex"
       }
     },
     "iki/core.Entity": {
