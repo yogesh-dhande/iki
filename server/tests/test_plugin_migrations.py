@@ -332,6 +332,17 @@ def test_fixture_plugins_migrate_forwards_and_back(migrated: Path, database: str
         "acme__dna_vector__entry__history",
         "acme__protein_protein",
         "acme__protein_protein__history",
+        # A reviewed purity check, its release case and the case's findings (ADR 0302),
+        # and a GMP lot.
+        "acme__protein_puritycheck",
+        "acme__protein_puritycheck__history",
+        "acme__protein_puritycheck__analysts",
+        "acme__protein_releasecase",
+        "acme__protein_releasecase__history",
+        "acme__protein_casefinding",
+        "acme__protein_casefinding__history",
+        "acme__protein_gmplot",
+        "acme__protein_gmplot__history",
         "acme__protein_protein__entry",
         "acme__protein_protein__entry__history",
         "acme__protein_compound",
@@ -570,8 +581,13 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         "  starting options of acme/protein.MethodCategory in Main: chromatography",
         "  starting options of acme/protein.PurificationMethod in Main: protein_a, sec, dialysis",
     ]
+    # It installs each declared review procedure once (ADR 0302), and reports it then.
+    procedures = sorted(q for plugin in declared for q in plugin.procedures)
+    installed = [line for line in report.splitlines() if line.startswith("  review procedure ")]
+    assert installed == [f"  review procedure {q}" for q in procedures]
     again = sync(out, database)
-    assert again.splitlines() == [line for line in report.splitlines() if line not in seeded]
+    once = {*seeded, *installed}
+    assert again.splitlines() == [line for line in report.splitlines() if line not in once]
     result = orm(
         out,
         database,
