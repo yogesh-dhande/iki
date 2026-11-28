@@ -45,10 +45,16 @@ __all__ = ["database"]
 
 
 def _lots() -> Any:
+    # The worker runs it from its scripts directory, where it imports `weights` beside it.
+    scripts = str(LOTS / "scripts")
     spec = importlib.util.spec_from_file_location("lots_script", LOTS / "scripts" / "lots.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.path.insert(0, scripts)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(scripts)
     return module
 
 

@@ -18,7 +18,7 @@ def test_published_trastuzumab_peak_and_theoretical_mass(browser: Browser, schem
     compare = runpy.run_path(str(PLUGIN / "scripts/characterize.py"))["mass_rows"]
     report = compare(
         PLUGIN / "tests/data/trastuzumab-intact.tsv",
-        {"values": {"molecular_weight": 145197.41}},
+        {"values": {"molecular_weight": 145199.44}},
         {},
         32,
         "average",

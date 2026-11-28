@@ -6,7 +6,7 @@ inputs:
   antibody:
     - values:
         name: Trastuzumab
-        molecular_weight: 145197.41
+        molecular_weight: 145199.44
         components:
           - part: 00000000-0000-7000-8003-000000000002
             role: heavy
@@ -40,7 +40,7 @@ expect:
             basis: average
             peaks:
               - observed_da: 148058.4
-                expected_da: 148055.836
+                expected_da: 148057.866
                 within_tolerance: true
 ---
 apiVersion: iki/v1
@@ -51,7 +51,7 @@ inputs:
   antibody:
     - values:
         name: Trastuzumab
-        molecular_weight: 145197.41
+        molecular_weight: 145199.44
         components:
           - part: 00000000-0000-7000-8003-000000000002
             role: heavy
@@ -99,7 +99,7 @@ inputs:
   antibody:
     - values:
         name: Trastuzumab
-        molecular_weight: 145197.41
+        molecular_weight: 145199.44
         components:
           - part: 00000000-0000-7000-8003-000000000002
             role: heavy
@@ -146,7 +146,7 @@ inputs:
   antibody:
     - values:
         name: Trastuzumab
-        molecular_weight: 145197.41
+        molecular_weight: 145199.44
         components:
           - part: 00000000-0000-7000-8003-000000000002
             role: heavy
