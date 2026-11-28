@@ -1086,7 +1086,7 @@ class Resolver:
     def find(self, f: Field, texts: set[str]) -> dict[str, str | uuid.UUID]:
         """What each text names: a record's ID, or why it names none."""
         target = f.items if f.type == "list" and f.items is not None else f
-        if len(target.to) == 1 and lists.is_list(target.to[0]):
+        if len(target.to) == 1 and registry.is_lab_list(target.to[0]):
             return self._options(target.to[0], texts)
         types = referable(target)
         out: dict[str, str | uuid.UUID] = {}

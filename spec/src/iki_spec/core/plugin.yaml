@@ -5,6 +5,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: iki/core
 version: 0.1.0
+iki: ">=0.1"
 title: Core
 description: The types every Iki deployment has.
 license: Apache-2.0

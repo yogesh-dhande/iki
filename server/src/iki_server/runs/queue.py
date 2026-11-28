@@ -38,8 +38,6 @@ from django.db import DatabaseError, InterfaceError, connection, transaction
 from django.db.models import (
     Case,
     Count,
-    DateTimeField,
-    ExpressionWrapper,
     F,
     OuterRef,
     Q,
@@ -54,7 +52,6 @@ from django.utils import timezone
 from opentelemetry import metrics
 
 from iki_server.audit import log as audit
-from iki_server.core import sweeps
 from iki_server.entities import registry
 from iki_server.org import permissions
 from iki_server.org.permissions import Action
@@ -67,6 +64,7 @@ from iki_server.runs import (
     endings,
     included,
     launches,
+    leases,
     live,
     outside,
     quotas,
@@ -74,14 +72,7 @@ from iki_server.runs import (
     slurm,
     workers,
 )
-from iki_server.runs.leases import (
-    HEARTBEAT_EVERY,
-    LEASE_TTL,
-    MAX_LOG_BYTES,
-    TIMEOUT_GRACE,
-    LogGap,
-    Stale,
-)
+from iki_server.runs.leases import HEARTBEAT_EVERY, LEASE_TTL, LogGap, Stale
 from iki_server.runs.models import (
     FINISHED,
     HELD,
@@ -133,8 +124,6 @@ queue_wait = metrics.get_meter("iki.compute").create_histogram(
 CHANNEL = "iki_jobs"
 #: Retries wait this long times their attempt number, so a failing dependency gets a moment.
 RETRY_BACKOFF = timedelta(seconds=10)
-#: The most attempts one recovery pass looks at in each sweep.
-RECOVER_AT_MOST = 500
 
 #: Why an attempt ended → the run's status, if it isn't retried.
 _FINAL = {
@@ -823,14 +812,6 @@ def _proxy(job: Job, run: ActionRun) -> dict[str, str]:
 # --- Reports from the worker -------------------------------------------------------------------
 
 
-def _holds(job: Job | None, token: uuid.UUID) -> Job:
-    if job is None or job.state not in HELD or job.lease_token != token:
-        raise Stale
-    if job.lease_expires_at is None or job.lease_expires_at <= timezone.now():
-        raise Stale
-    return job
-
-
 def _in_scope(worker: Worker, job: Job) -> Job:
     """A self-hosted worker reports only on jobs in projects it still covers: an admin who
     narrows its teams takes those away at once (ADR 0112)."""
@@ -841,14 +822,15 @@ def _in_scope(worker: Worker, job: Job) -> Job:
 
 def held(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> Job:
     """The job, locked, if this worker holds its current lease."""
-    job = _holds(Job.objects.select_for_update().filter(pk=job_id, worker=worker).first(), token)
+    found = Job.objects.select_for_update().filter(pk=job_id, worker=worker).first()
+    job = leases.fenced(found, token, HELD)
     return _in_scope(worker, job)
 
 
 def cancel_requested(worker: Worker, job_id: uuid.UUID, token: uuid.UUID) -> bool:
     """Whether the job's run was cancelled, if this worker holds its lease. Reads only:
     it doesn't renew the lease, as heartbeats do."""
-    job = _holds(Job.objects.filter(pk=job_id, worker=worker).first(), token)
+    job = leases.fenced(Job.objects.filter(pk=job_id, worker=worker).first(), token, HELD)
     return _cancelled(_in_scope(worker, job))
 
 
@@ -866,16 +848,16 @@ class Watched(NamedTuple):
     stale: list[uuid.UUID]
 
 
-def watched(worker: Worker, leases: Mapping[uuid.UUID, uuid.UUID]) -> Watched:
-    """Of the jobs in `leases` (each with the lease token the worker holds it by), those
+def watched(worker: Worker, tokens: Mapping[uuid.UUID, uuid.UUID]) -> Watched:
+    """Of the jobs in `tokens` (each with the lease token the worker holds it by), those
     whose runs were cancelled and those it doesn't hold, as :func:`cancel_requested` says of
     one, in as many queries however many there are. Reads only."""
-    found = {j.pk: j for j in Job.objects.filter(pk__in=leases, worker=worker)}
+    found = {j.pk: j for j in Job.objects.filter(pk__in=tokens, worker=worker)}
     held: list[Job] = []
     stale: list[uuid.UUID] = []
-    for job_id, token in leases.items():
+    for job_id, token in tokens.items():
         try:
-            held.append(_holds(found.get(job_id), token))
+            held.append(leases.fenced(found.get(job_id), token, HELD))
         except Stale:
             stale.append(job_id)
     if worker.tier == workers.SELF_HOSTED and held:
@@ -949,9 +931,7 @@ def progress(
 ) -> None:
     with transaction.atomic():
         job = held(worker, job_id, token)
-        job.progress = max(0.0, min(1.0, fraction))
-        job.progress_message = message[:500]
-        job.save(update_fields=["progress", "progress_message"])
+        leases.set_progress(job, fraction, message)
         live.changed(job.run_id)
         for member in packed(job):
             member.progress, member.progress_message = job.progress, job.progress_message
@@ -960,33 +940,19 @@ def progress(
 
 
 def append_log(worker: Worker, job_id: uuid.UUID, token: uuid.UUID, offset: int, text: str) -> int:
-    """Adds a chunk at `offset` (in bytes of UTF-8) and returns where the next one goes.
-
-    A chunk already received (the worker retried) is accepted again, unchanged; a gap or an
-    overlap raises ``LogGap``, so the log stays exactly what the command wrote.
-    """
-    size = len(text.encode())
+    """Adds a chunk at `offset` (in bytes of UTF-8) and returns where the next one goes, by
+    the rules of :func:`leases.append_log`. Its run's log, and the log of each run packed
+    into it, shows it live."""
     with transaction.atomic():
         job = held(worker, job_id, token)
-        end = job.log_size
-        if offset < end and offset + size <= end:
-            return end  # already received: the worker retried
-        if offset != end:
-            raise LogGap(end)
-        job.log_size = end + size
-        job.save(update_fields=["log_size"])
-        live.logged(job.run_id, job.attempt, job.log_size)
-        for member in Job.objects.filter(packed_into=job).only("run_id", "attempt"):
-            live.logged(member.run_id, member.attempt, job.log_size)
-        if end >= MAX_LOG_BYTES:
-            return job.log_size  # past the limit: counted, not kept
-        if end + size > MAX_LOG_BYTES:
-            text = text.encode()[: MAX_LOG_BYTES - end].decode(errors="ignore")
-            text += (
-                f"\n[iki: the log is over {MAX_LOG_BYTES // 1024**2} MiB; the rest isn't kept]\n"
-            )
-        # Postgres text can't hold NUL.
-        JobLog.objects.create(job=job, offset=offset, text=text.replace("\x00", "\ufffd"))
+
+        def keep(text: str) -> None:
+            JobLog.objects.create(job=job, offset=offset, text=text)
+
+        if leases.append_log(job, offset, text, keep):
+            live.logged(job.run_id, job.attempt, job.log_size)
+            for member in Job.objects.filter(packed_into=job).only("run_id", "attempt"):
+                live.logged(member.run_id, member.attempt, job.log_size)
         return job.log_size
 
 
@@ -1264,25 +1230,20 @@ def recover_expired() -> int:
     within their timeouts, the ones past theirs are found. Each attempt ends in its own
     transaction (``sweeps.each``): one that can't is logged and left for the next pass."""
     now = timezone.now()
-    lost = Job.objects.filter(state__in=HELD, lease_expires_at__lt=now).order_by("lease_expires_at")
-    ended = _each(lost, _worker_lost)
-    ended += _each(_overdue(now), _timed_out)
+    holding = Job.objects.filter(state__in=HELD)
+    ended = _each(leases.lost(holding, now), _worker_lost)
+    ended += _each(_overdue(holding, now), _timed_out)
     ended += _each(_incompatible_pull_secrets(), _unplaceable)
     return ended
 
 
-def _overdue(now: datetime) -> QuerySet[Job]:
-    """Held attempts more than ``TIMEOUT_GRACE`` past their run's timeout, longest first. A
-    Slurm job's time counts from when the cluster started it, not from waiting in its queue
-    (ADR 0133), so one still waiting there isn't overdue."""
+def _overdue(holding: QuerySet[Job], now: datetime) -> QuerySet[Job]:
+    """Of the `holding` attempts, those well past their run's timeout, longest first. Packed
+    attempts end with the one they're packed into. A Slurm job's time counts from when the
+    cluster started it, not from waiting in its queue (ADR 0133), so one still waiting there
+    isn't overdue."""
     began = Case(When(slurm__isnull=True, then=F("started_at")), default=F("slurm__started_at"))
-    timeout = F("run__timeout") * timedelta(seconds=1)
-    return (
-        Job.objects.filter(state__in=HELD, packed_into__isnull=True)
-        .annotate(due=ExpressionWrapper(began + timeout, output_field=DateTimeField()))
-        .filter(due__lt=now - TIMEOUT_GRACE)
-        .order_by("due")
-    )
+    return leases.overdue(holding.filter(packed_into__isnull=True), began, "run__timeout", now)
 
 
 def _incompatible_pull_secrets() -> QuerySet[Job]:
@@ -1304,23 +1265,9 @@ def _incompatible_pull_secrets() -> QuerySet[Job]:
 
 
 def _each(found: QuerySet[Job], end: Callable[[Job], object]) -> int:
-    """Ends each of `found`'s first ``RECOVER_AT_MOST`` attempts in its own transaction:
-    locked, skipping one another runner holds, and still one of `found` when it is."""
-    ids = list(found.values_list("pk", flat=True)[:RECOVER_AT_MOST])
-
-    def end_one(pk: uuid.UUID) -> bool:
-        job = (
-            found.select_for_update(skip_locked=True, of=("self",))
-            .filter(pk=pk)
-            .select_related("run")
-            .first()
-        )
-        if job is None:
-            return False
-        end(job)
-        return True
-
-    return sweeps.each(ids, end_one, failed="job_recovery_failed", key="job")
+    """Ends each of `found`, with its run, as :func:`leases.end_each` does."""
+    with_runs = found.select_related("run")
+    return leases.end_each(with_runs, end, failed="job_recovery_failed", key="job")
 
 
 def _worker_lost(job: Job) -> None:

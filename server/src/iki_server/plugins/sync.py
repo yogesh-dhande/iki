@@ -79,7 +79,7 @@ from iki_server.graph import edges
 from iki_server.plugins import baseline
 from iki_server.plugins.models import PluginState
 from iki_spec import naming
-from iki_spec.model import EntityType, Extension, Field, split_entry
+from iki_spec.model import EntityType, Extension, Field, split_entry, stored_in_list_table
 
 VIEWS_SCHEMA = "iki_views"
 
@@ -262,11 +262,7 @@ def analyst_role() -> str | None:
 
 
 def _prefixes() -> set[str]:
-    return {
-        t.hrid_prefix
-        for t in registry.types().values()
-        if t.hrid_prefix is not None and not t.abstract
-    }
+    return {t.numbering_prefix for t in registry.types().values() if t.numbering_prefix}
 
 
 # --- Models ------------------------------------------------------------------------------------
@@ -291,12 +287,6 @@ def _history_model(plugin: str, model: type[models.Model]) -> type[models.Model]
 
 def _list_model(plugin: str, owner: type[models.Model], f: Field) -> type[models.Model]:
     return apps.get_model(naming.app_label(plugin), naming.list_model(owner.__name__, f.name))
-
-
-def _is_list_table(f: Field) -> bool:
-    from iki_server.entities.values import is_list_table
-
-    return is_list_table(f)
 
 
 def _column(model: type[models.Model], name: str) -> str:
@@ -401,7 +391,7 @@ def _comments() -> list[sql.Composable]:
             out.append(_comment_on_column(history._meta.db_table, _column(history, f.name), text))
             if f.removed:
                 continue
-            if _is_list_table(f):
+            if stored_in_list_table(f):
                 items = _list_model(plugin, model, f)
                 out.append(
                     _comment_on_table(
@@ -512,7 +502,7 @@ def _view(t: EntityType) -> tuple[str, sql.Composable, list[sql.Composable]]:
                     "FROM {} l WHERE l.entity_id = {}), '[]'::jsonb) AS {}"
                 ).format(pairs, sql.Identifier(items._meta.db_table), on, sql.Identifier(f.name))
                 label = f.name
-            elif _is_list_table(f):
+            elif stored_in_list_table(f):
                 items = _list_model(plugin, model, f)
                 column = sql.SQL(
                     "ARRAY(SELECT l.item_id FROM {} l WHERE l.entity_id = {} "
@@ -542,7 +532,7 @@ def _analyst_grants(role: str) -> list[sql.Composable]:
         tables += [
             _list_model(plugin, model, f)._meta.db_table
             for f in fields.values()
-            if _is_list_table(f) and not f.removed
+            if stored_in_list_table(f) and not f.removed
         ]
     return [
         sql.SQL("GRANT USAGE ON SCHEMA {}, public TO {}").format(sql.Identifier(VIEWS_SCHEMA), who),

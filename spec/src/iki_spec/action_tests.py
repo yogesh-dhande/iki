@@ -487,7 +487,7 @@ def run_input(
         nonlocal n
         n += 1
         entity_type = every[type_name]
-        prefix = entity_type.hrid_prefix or "ENT"
+        prefix = entity_type.numbering_prefix or "ENT"
         amount = amount_of(type_name, every)
         return {
             **({"material_field": amount.material} if amount and amount.material else {}),

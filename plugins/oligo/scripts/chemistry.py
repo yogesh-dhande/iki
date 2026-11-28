@@ -34,28 +34,13 @@ from typing import Any
 from helm import Helm, HelmError, Node, Polymer, node_of
 from rdkit import Chem, RDLogger
 from rdkit.Chem import Descriptors, rdCIPLabeler
+from weights import AVERAGE
 
 RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
 
 #: The library Iki seeds the registry of monomers from (see data/README.md).
 LIBRARY = Path(__file__).resolve().parent.parent / "data" / "monomers.json"
 
-#: CIAAW's abridged standard atomic weights (Prohaska et al., Pure Appl. Chem. 94, 573,
-#: 2022; the table at ciaaw.org), for the elements oligonucleotides have.
-ATOMIC_WEIGHTS = {
-    "H": 1.0080,
-    "B": 10.81,
-    "C": 12.011,
-    "N": 14.007,
-    "O": 15.999,
-    "F": 18.998,
-    "Na": 22.990,
-    "P": 30.974,
-    "S": 32.06,
-    "Cl": 35.45,
-    "Br": 79.904,
-    "I": 126.90,
-}
 
 ROLES = ("sugar", "base", "linker", "modifier")
 
@@ -331,7 +316,7 @@ def _node(helm: Helm, piece: tuple[str, int]) -> Node:
 
 _ACID = Chem.MolFromSmarts("[OX2H1,SX2H1][P]")
 #: What a sodium salt weighs more than the free acid for each sodium in place of a proton.
-SODIUM_FOR_PROTON = ATOMIC_WEIGHTS["Na"] - ATOMIC_WEIGHTS["H"]
+SODIUM_FOR_PROTON = AVERAGE["Na"] - AVERAGE["H"]
 
 
 def acidic_protons(mol: Chem.Mol) -> int:
@@ -417,8 +402,8 @@ def atom_counts(mol: Chem.Mol) -> Counter[str]:
 
 
 def average_weight(mol: Chem.Mol) -> float:
-    """Its average molecular weight, g/mol, from CIAAW's abridged atomic weights, and each
-    labelled isotope's nuclide mass."""
+    """Its average molecular weight, g/mol, from CIAAW's standard atomic weights (the table
+    every Iki plugin weighs by, weights.py), and each labelled isotope's nuclide mass."""
     table = Chem.GetPeriodicTable()
     terms: list[float] = []
     unknown = set()
@@ -426,13 +411,15 @@ def average_weight(mol: Chem.Mol) -> float:
         element, isotope = _element(token)
         if isotope:
             terms.append(table.GetMassForIsotope(element, isotope) * n)
-        elif element in ATOMIC_WEIGHTS:
-            terms.append(ATOMIC_WEIGHTS[element] * n)
+        elif element in AVERAGE:
+            terms.append(AVERAGE[element] * n)
         else:
             unknown.add(element)
     if unknown:
         named = ", ".join(sorted(unknown))
-        raise HelmError(f"It has {named}, whose atomic weight Iki doesn't hold.")
+        raise HelmError(
+            f"It has {named}, which has no standard atomic weight: label it with its isotope."
+        )
     return sum(terms)
 
 

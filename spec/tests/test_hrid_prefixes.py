@@ -28,7 +28,7 @@ def plugin(root: Path, name: str, types: dict[str, str]) -> Path:
     directory = root / naming.short_name(name)
     (directory / "types").mkdir(parents=True)
     (directory / "plugin.yaml").write_text(
-        f"apiVersion: iki/v1\nkind: Plugin\nname: {name}\nversion: 1.0.0\n"
+        f"apiVersion: iki/v1\nkind: Plugin\nname: {name}\nversion: 1.0.0\niki: '>=0.1'\n"
     )
     for type_name, prefix in types.items():
         (directory / "types" / f"{type_name.lower()}.yaml").write_text(

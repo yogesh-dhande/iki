@@ -9,11 +9,11 @@ from typing import TYPE_CHECKING
 
 from psycopg import sql
 
-from iki_server.entities.values import is_list_table
 from iki_server.plugins.preflight_projection import project
 from iki_server.plugins.preflight_rules import projected_changes
 from iki_server.plugins.preflight_sql import Scope, summary
 from iki_server.plugins.preflight_types import Finding
+from iki_spec.model import stored_in_list_table
 
 if TYPE_CHECKING:
     from iki_server.plugins.preflight import _Shape
@@ -147,7 +147,7 @@ def _rows(
     invalid = {
         n: sql.SQL("({} AND ({}) IS NULL)").format(
             sql.SQL("TRUE")
-            if is_list_table(before.fields[n])
+            if stored_in_list_table(before.fields[n])
             else sql.SQL("{} IS NOT NULL").format(scope.column(n)),
             values[n],
         )

@@ -1,6 +1,6 @@
 # 0230. Plugins write export formats in a Wasm sandbox that holds only the requester's data
 
-- Status: Accepted
+- Status: Accepted (amended by [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md): the host accepts a range of ABIs)
 - Date: 2026-11-25
 - Refines: [0171](0171-a-types-records-export-as-files-iki-writes-from-its-fields.md),
   [0213](0213-plugins-declare-their-file-formats.md),

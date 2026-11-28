@@ -1,10 +1,11 @@
-"""Registries (ADR 0115): adding and changing them, their registrars, and projects' choice.
+"""Registries (ADR 0115): adding and changing them, their roles, and projects' choice.
 
 The default registry is every team's, and new projects are in it unless
 they're given another. Org Admins add more, for a CRO's clients or a partner
-program, each used by the teams they name, and appoint each one's
-registrars. A project's registry is chosen when it's made; an Org Admin may
-change it until the project has entities, as they're registered in it.
+program, each used by the teams they name, and grant each one's roles
+(ADR 0292): its registrars, and its lab lists' curators. A project's registry
+is chosen when it's made; an Org Admin may change it until the project has
+entities, as they're registered in it.
 """
 
 from __future__ import annotations
@@ -16,16 +17,14 @@ from django.db.models import Q, QuerySet
 
 from iki_server.accounts.models import User
 from iki_server.audit import log as audit
-from iki_server.org.models import ListCurator, Project, Registrar, Registry, Team, registry_of
+from iki_server.org.models import Project, Registry, RegistryRole, Team, registry_of
 from iki_server.org.services import Refused
 
 __all__ = [
-    "appoint",
-    "appoint_curator",
     "create_registry",
-    "dismiss",
-    "dismiss_curator",
     "for_team",
+    "grant_role",
+    "remove_role",
     "set_project_registry",
     "update_registry",
 ]
@@ -122,85 +121,81 @@ def update_registry(
     return locked
 
 
-def appoint(registry: Registry, user: User, *, by: User) -> bool:
-    """Makes someone one of the registry's registrars. True if they weren't."""
+def grant_role(
+    registry: Registry,
+    role: RegistryRole.Role,
+    user: User,
+    *,
+    by: User,
+    list_type: str | None = None,
+) -> tuple[RegistryRole, bool]:
+    """Gives someone a role in the registry (ADR 0292): a registrar's, over the whole
+    registry, or a curator's of one of its lab lists, which ``list_type`` names. The grant,
+    and True if they hadn't it."""
+    if role in RegistryRole.LIST_ROLES:
+        from iki_server.entities import lists
+
+        if not list_type:
+            raise Refused("Say which lab list they curate.", field="list")
+        try:
+            list_type = lists.list_type(list_type).qualified_name
+        except Refused as refusal:
+            raise Refused(str(refusal), field="list") from None
+    elif list_type:
+        raise Refused("A registrar curates the whole registry, not one list.", field="list")
+    else:
+        list_type = None
     if not user.is_active:
-        raise Refused(f"{user.email} is deactivated.")
+        raise Refused(f"{user.email} is deactivated.", field="user")
     if user.is_service_account:
-        # A registrar's change is a person's, signed with their reason (ADR 0115).
-        raise Refused("A registrar is a person: a service account can't be one.")
+        # A registry role's changes are a person's, with their reason (ADR 0115).
+        raise Refused(
+            f"A {RegistryRole.Role(role).label.lower()} is a person: a service account can't "
+            "be one.",
+            field="user",
+        )
     with transaction.atomic():
-        _, created = Registrar.objects.get_or_create(
-            registry=registry, user=user, defaults={"appointed_by": by}
+        grant, created = RegistryRole.objects.get_or_create(
+            registry=registry,
+            user=user,
+            role=role,
+            list_type=list_type,
+            defaults={"granted_by": by},
         )
         if created:
             audit.record(
-                "registry.registrar_appointed",
+                "registry.role_granted",
                 actor=by,
                 target=registry,
-                data={"user": str(user.pk), "email": user.email},
+                data=_role_data(grant, user),
             )
-    return created
+    return grant, created
 
 
-def dismiss(registry: Registry, user: User, *, by: User) -> bool:
-    """Takes someone's registrar role in the registry away. True if they had it."""
+def remove_role(grant: RegistryRole, *, by: User) -> bool:
+    """Takes a registry role away. True if it was still held. Its list needn't be
+    installed: a curator of a removed plugin's list can still be removed."""
     with transaction.atomic():
-        removed, _ = Registrar.objects.filter(registry=registry, user=user).delete()
+        removed, _ = RegistryRole.objects.filter(pk=grant.pk).delete()
         if removed:
             audit.record(
-                "registry.registrar_removed",
+                "registry.role_removed",
                 actor=by,
-                target=registry,
-                data={"user": str(user.pk), "email": user.email},
+                target=grant.registry,
+                data=_role_data(grant, grant.user),
             )
     return bool(removed)
 
 
-def appoint_curator(registry: Registry, list_type: str, user: User, *, by: User) -> bool:
-    """Makes someone a curator of one of the registry's lab lists (ADR 0270). True if they
-    weren't."""
-    from iki_server.entities import lists
-
-    entity_type = lists.list_type(list_type)
-    if not user.is_active:
-        raise Refused(f"{user.email} is deactivated.")
-    if user.is_service_account:
-        # A curator's change is a person's, with their reason, as a registrar's is.
-        raise Refused("A list's curator is a person: a service account can't be one.")
-    with transaction.atomic():
-        _, created = ListCurator.objects.get_or_create(
-            registry=registry, list_type=list_type, user=user, defaults={"appointed_by": by}
-        )
-        if created:
-            audit.record(
-                "registry.list_curator_appointed",
-                actor=by,
-                target=registry,
-                data={
-                    "list": entity_type.qualified_name,
-                    "user": str(user.pk),
-                    "email": user.email,
-                },
-            )
-    return created
-
-
-def dismiss_curator(registry: Registry, list_type: str, user: User, *, by: User) -> bool:
-    """Takes someone's curation of one of the registry's lab lists away. True if they had
-    it."""
-    with transaction.atomic():
-        removed, _ = ListCurator.objects.filter(
-            registry=registry, list_type=list_type, user=user
-        ).delete()
-        if removed:
-            audit.record(
-                "registry.list_curator_removed",
-                actor=by,
-                target=registry,
-                data={"list": list_type, "user": str(user.pk), "email": user.email},
-            )
-    return bool(removed)
+def _role_data(grant: RegistryRole, user: User) -> dict[str, object]:
+    """What a registry role's audit event says: the role, its list (or null, for the whole
+    registry) and whose it is."""
+    return {
+        "role": grant.role,
+        "list": grant.list_type,
+        "user": str(user.pk),
+        "email": user.email,
+    }
 
 
 def set_project_registry(project: Project, registry: Registry, *, by: User) -> None:

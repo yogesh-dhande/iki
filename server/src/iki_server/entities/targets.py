@@ -21,7 +21,7 @@ from psycopg import sql
 
 from iki_server.entities import registry
 from iki_spec import naming
-from iki_spec.model import Field
+from iki_spec.model import Field, stored_in_list_table
 
 __all__ = ["TRIGGER_PREFIX", "Mismatch", "Table", "checked", "install", "tables"]
 
@@ -79,7 +79,7 @@ def tables(
 ) -> list[Table]:
     """The tables of these (plugin, model, fields) whose references need their types
     checked: the model's own, and those of its lists of references."""
-    from iki_server.entities.values import is_list_table, list_model
+    from iki_server.entities.values import list_model
 
     out: dict[str, list[tuple[str, str]]] = {}
     for plugin, model, fields in parts:
@@ -90,7 +90,7 @@ def tables(
             if f.type == "ref" and (types := allowed(f, entry=entry)) is not None:
                 column = str(model._meta.get_field(f.name).column)  # type: ignore[union-attr]
                 out.setdefault(model._meta.db_table, []).append((column, _literal(types)))
-            elif is_list_table(f) and f.items is not None and f.items.type == "ref":
+            elif stored_in_list_table(f) and f.items is not None and f.items.type == "ref":
                 types = allowed(f.items, entry=entry)
                 if types is not None:
                     table = list_model(plugin, model, f.name)._meta.db_table

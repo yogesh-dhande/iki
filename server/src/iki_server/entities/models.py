@@ -800,8 +800,9 @@ class RuleHoldOccurrence(models.Model):
 
 class RuleBreach(models.Model):
     """A record that breaks a rule it was saved before (ADR 0127): one its plugin added
-    or changed later, or one a bundle brought from another deployment. It's reported, not
-    refused, until a save that checks the rule finds it kept."""
+    or changed later, one a bundle brought from another deployment, or one a change to its
+    registry entry's values broke (ADR 0115). It's reported, not refused, until a save that
+    checks the rule finds it kept."""
 
     id = models.BigAutoField(primary_key=True)
     entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="breaches")

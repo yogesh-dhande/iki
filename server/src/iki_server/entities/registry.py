@@ -55,6 +55,17 @@ def types() -> dict[str, EntityType]:
     return out
 
 
+def lab_lists() -> dict[str, EntityType]:
+    """Every installed lab list (ADR 0270, ADR 0295), by its type's qualified name."""
+    return {name: t for name, t in types().items() if t.is_lab_list}
+
+
+def is_lab_list(type_name: str) -> bool:
+    """Whether ``type_name`` is a lab list (ADR 0270): its entities are a list's options."""
+    found = types().get(type_name)
+    return found is not None and found.is_lab_list
+
+
 def draws_received(type_name: str) -> str | None:
     """The record field its amounts ledger maintains, including an inherited declaration."""
     t = types()[type_name]

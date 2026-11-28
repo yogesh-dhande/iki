@@ -172,9 +172,9 @@ def test_a_batchs_formula_weight_is_its_drawn_materials(tmp_path: Path) -> None:
     choline, citrate = (
         c["values"] for c in output["creates"] if c["type"] == "iki/small_molecule.CompoundBatch"
     )
-    assert (choline["salt"], choline["formula_weight"]) == ("hydrochloride", 139.626)
+    assert (choline["salt"], choline["formula_weight"]) == ("hydrochloride", 139.623)
     assert citrate["salt_equivalents"] == pytest.approx(1 / 3, rel=1e-15)
-    # 12.011·9 + 1.008·23 + 14.007·3 + 15.999·7 = 285.297, IUPAC's abridged weights.
+    # 12.011·9 + 1.008·23 + 14.007·3 + 15.999·7 = 285.297, CIAAW's abridged weights.
     assert citrate["formula_weight"] == pytest.approx(285.297 / 3, abs=1e-3)
     assert not [m for m in output["messages"] if "formula weight" in m["text"]]
 
@@ -185,8 +185,8 @@ def test_a_drawing_whose_charges_dont_balance_says_so(tmp_path: Path) -> None:
     assert output["messages"] == [
         {
             "level": "warning",
-            "text": "Line 1: Its formula weight from its parent, salt and solvent is 276.811 "
-            "g/mol, but its structure as drawn weighs 275.803 g/mol for each parent: its "
+            "text": "Line 1: Its formula weight from its parent, salt and solvent is 276.808 "
+            "g/mol, but its structure as drawn weighs 275.800 g/mol for each parent: its "
             "charges may not balance.",
         }
     ]
@@ -239,16 +239,16 @@ def test_a_salt_is_known_whatever_stereochemistry_its_drawn_with(tmp_path: Path)
         )
         for b in batches
     ]
-    # Each is what RDKit weighs the whole drawing at, for each parent, from IUPAC's
-    # standard atomic weights: PubChem's, to its one decimal.
+    # Each is the whole drawing's weight, for each parent, from CIAAW's standard atomic
+    # weights (2024): PubChem's, to its one decimal.
     assert forms == [
         ("malate", 1.0, None, None, 532.569),
         ("lactate", 1.0, None, None, 301.302),
         ("tartrate", 0.5, None, None, 342.412),
         ("tartrate", 0.5, None, None, 342.412),
         ("tartrate", 0.5, None, None, 342.412),
-        ("hydrochloride", 1.0, "water", 2.0, 365.861),
-        ("hydrochloride", 1.0, None, None, 342.697),
+        ("hydrochloride", 1.0, "water", 2.0, 365.858),
+        ("hydrochloride", 1.0, None, None, 342.688),
     ]
     # The parent is the free base: sunitinib, not its malate.
     assert compounds[0]["values"]["inchikey"] == "WINHZLLDWRZWRT-ATVHPVEESA-N"
@@ -290,7 +290,7 @@ def test_a_part_iki_doesnt_know_leaves_its_batch_without_a_formula_weight(
         "level": "warning",
         "text": f"Line 1: Its batch has no formula weight: {PAMOIC_ACID} is part of the "
         "material, but not a salt or solvent Iki knows, so what it adds isn't known. Its "
-        "structure as drawn weighs 763.287 g/mol for each parent.",
+        "structure as drawn weighs 763.284 g/mol for each parent.",
     } in output["messages"]
 
 
@@ -299,8 +299,6 @@ IMATINIB = "CC1=C(C=C(C=C1)NC(=O)C2=CC=C(C=C2)CN3CCN(CC3)C)NC4=NC=CC(=N4)C5=CN=C
 
 
 def test_a_counterion_drawn_as_an_isotope_isnt_the_salt_iki_knows(tmp_path: Path) -> None:
-    from rdkit import Chem
-    from rdkit.Chem import Descriptors
 
     output = registered(
         tmp_path,
@@ -308,7 +306,7 @@ def test_a_counterion_drawn_as_an_isotope_isnt_the_salt_iki_knows(tmp_path: Path
         # aspirinate's 179.151 g/mol (aspirin, 180.159, less a hydrogen), 185.166 g/mol,
         # not the 186.092 of lithium's standard atomic weight, which is mostly lithium-7's.
         "CC(=O)Oc1ccccc1C(=O)[O-].[6Li+] lithium-6 aspirinate\n"
-        # And with lithium as it is in nature: 186.092 (aspirin's 180.159, less H, plus Li).
+        # And with lithium as it is in nature: 186.091 (aspirin's 180.159, less H, plus Li).
         "CC(=O)Oc1ccccc1C(=O)[O-].[Li+] lithium aspirinate\n"
         # Imatinib mesylate (CID 123596, 589.7 g/mol), its mesylate's methyl deuterated.
         f"{IMATINIB}.[2H]C([2H])([2H])S(=O)(=O)O imatinib mesylate-d3\n"
@@ -322,12 +320,11 @@ def test_a_counterion_drawn_as_an_isotope_isnt_the_salt_iki_knows(tmp_path: Path
     ]
     assert "formula_weight" not in batches[0]
     assert "salt" not in batches[0]
-    assert (batches[1]["salt"], batches[1]["formula_weight"]) == ("lithium", 186.092)
+    assert (batches[1]["salt"], batches[1]["formula_weight"]) == ("lithium", 186.091)
     assert "formula_weight" not in batches[2]
-    assert (batches[3]["salt"], batches[3]["formula_weight"]) == ("mesylate", 589.722)
-    d3 = Descriptors.MolWt(  # type: ignore[attr-defined]
-        Chem.MolFromSmiles(f"{IMATINIB}.[2H]C([2H])([2H])S(=O)(=O)O")
-    )
+    assert (batches[3]["salt"], batches[3]["formula_weight"]) == ("mesylate", 589.715)
+    # C30H32D3N7O4S: three deuteriums (2.014 101 78 each) for three of 1.008.
+    d3 = 592.733
     said = [m["text"] for m in output["messages"]]
     assert (
         "Line 1: Its batch has no formula weight: [6Li+] is part of the material, but not a "
@@ -345,7 +342,7 @@ def test_a_counterion_drawn_as_an_isotope_isnt_the_salt_iki_knows(tmp_path: Path
         **entity(1, structure_as_drawn="CC(=O)Oc1ccccc1C(=O)[O-].[6Li+]", salt="lithium"),
         "included": {"compound": [entity(101, smiles=ASPIRIN)]},
     }
-    lithium_6["values"]["formula_weight"] = 186.092
+    lithium_6["values"]["formula_weight"] = 186.091
     result, recomputed = script(
         tmp_path, "descriptors.py", {"inputs": {"batch": [lithium_6]}}, "batches"
     )
@@ -386,7 +383,7 @@ def test_a_batch_recomputes_its_weight_only_when_all_its_material_is_known(
     assert output["updates"]["batch"] == [
         {"entity": batches[0]["id"], "values": {"formula_weight": 532.569}},
         {"entity": batches[1]["id"], "values": {"formula_weight": None}},
-        {"entity": batches[3]["id"], "values": {"formula_weight": 763.287}},
+        {"entity": batches[3]["id"], "values": {"formula_weight": 763.284}},
     ]
     assert output["messages"] == [
         {
@@ -415,7 +412,7 @@ def test_a_charged_parents_batch_recomputes_to_the_same_weight(tmp_path: Path) -
     assert result.returncode == 0, result.stdout + result.stderr
     assert output is not None
     weights = [u["values"]["formula_weight"] for u in output["updates"]["batch"]]
-    assert weights == pytest.approx([139.626, 154.051, 104.173], abs=1e-3)
+    assert weights == pytest.approx([139.623, 154.051, 104.173], abs=1e-3)
 
 
 def test_without_the_parent_a_salt_is_its_own_compound(tmp_path: Path) -> None:
@@ -1438,7 +1435,7 @@ def test_a_records_salt_is_known_whatever_its_stereochemistry(tmp_path: Path) ->
     assert (
         f"Record 2 (hydroxyzine pamoate): Its batch has no formula weight: {PAMOIC_ACID} is "
         "part of the material, but not a salt or solvent Iki knows, so what it adds isn't "
-        "known. Its structure as drawn weighs 763.287 g/mol for each parent."
+        "known. Its structure as drawn weighs 763.284 g/mol for each parent."
     ) in said
 
 
@@ -1530,7 +1527,7 @@ def test_a_divalent_metals_equivalents_are_from_charge_balance(tmp_path: Path) -
         ("CC(=O)O", "calcium acetate", {"Salt": "Ca"}),
         # Atorvastatin calcium (CID 60822, C66H68CaF2N4O10, 1155.36 g/mol): 577.681 each.
         (ATORVASTATIN, "atorvastatin calcium", {"Salt": "calcium"}),
-        # Zinc gluconate (CID 443445, C12H22O14Zn, 455.68 g/mol): 227.842 each.
+        # Zinc gluconate (CID 443445, C12H22O14Zn, 455.68 g/mol): 227.837 each.
         ("C([C@H]([C@H]([C@@H]([C@H](C(=O)O)O)O)O)O)O", "zinc gluconate", {"Salt": "Zn"}),
         # Magnesium valproate (CID 147515, C16H30MgO4, 310.72 g/mol): 155.358 each.
         ("CCCC(CCC)C(=O)O", "magnesium valproate", {"Salt": "Mg"}),
@@ -1557,12 +1554,12 @@ def test_a_divalent_metals_equivalents_are_from_charge_balance(tmp_path: Path) -
         ] == [
             ("calcium", 0.5, 79.083),
             ("calcium", 0.5, 577.681),
-            ("zinc", 0.5, 227.842),
+            ("zinc", 0.5, 227.837),
             ("magnesium", 0.5, 155.358),
             ("calcium", None, None),
             ("calcium", 1.0, 511.508),
             ("magnesium", None, None),
-            ("magnesium", 0.5, 356.569),
+            ("magnesium", 0.5, 356.562),
         ]
         said = [m["text"] for m in output["messages"] if "salt field says" in m["text"]]
         assert said == [
