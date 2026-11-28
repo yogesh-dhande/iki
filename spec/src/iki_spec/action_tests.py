@@ -457,7 +457,7 @@ def run_input(
         nonlocal n
         n += 1
         entity_type = every[type_name]
-        prefix = entity_type.hrid_prefix or "ENT"
+        prefix = entity_type.numbering_prefix or "ENT"
         declared = resolve_one(every, type_name)
         values = _with_ids(entity["values"], file_ids)
         # An input that reads some fields is given those, as the server gives them.

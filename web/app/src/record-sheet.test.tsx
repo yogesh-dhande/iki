@@ -490,7 +490,7 @@ describe("a sheet's lab list cells (ADR 0270)", () => {
   };
   const option = (n: number, code: string, label: string, archived = false) => ({
     id: `00000000-0000-7000-8000-0000000c000${String(n)}`,
-    hrid: `PUM-00000${String(n)}`,
+    hrid: `OPTION-00000${String(n)}`,
     code,
     label,
     description: "",

@@ -1,9 +1,10 @@
 """Registries and their entries (ADR 0115).
 
 - ``/registries``: the organization's identity boundaries. Org Admins add and
-  change them, choose which teams use each, and appoint their registrars.
-  Others see the registries their teams' projects may be in, and their own
-  projects' registries.
+  change them, and choose which teams use each. Others see the registries
+  their teams' projects may be in, and their own projects' registries.
+- ``/registries/{id}/roles``: who holds each registry role (ADR 0292): its
+  registrars, and its lab lists' curators. Org Admins grant and remove them.
 - ``/entries/{ref}``: a registry entry, by ID or HRID: its identity, derived
   values and facts, for anyone who can read a record of it, and for its
   registry's registrars. It never says which projects hold it; registrars
@@ -14,7 +15,7 @@
 """
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from django.db.models import Q, QuerySet
@@ -46,13 +47,14 @@ from iki_server.api.entities import (
 from iki_server.api.pagination import PageParams, page
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef, RegistryRef, TeamRef, UserOut
-from iki_server.entities import access, entries, lists, services
+from iki_server.entities import access, entries, lists, registry, services
 from iki_server.entities.history import FieldNames
 from iki_server.entities.models import Entity, Revision
 from iki_server.entities.values import Invalid, ids_in, shape, to_json
 from iki_server.org import permissions, registries
-from iki_server.org.models import Project, Registrar, Registry, Team
+from iki_server.org.models import Project, Registry, RegistryRole, Team
 from iki_server.org.permissions import Action
+from iki_server.org.services import Refused
 
 router = Router(tags=["registries"])
 
@@ -61,7 +63,7 @@ router = Router(tags=["registries"])
 
 
 class RegistryCan(Schema):
-    manage: bool = Field(description="Rename it, choose its teams, appoint its registrars.")
+    manage: bool = Field(description="Rename it, choose its teams, grant its roles.")
     curate: bool = Field(
         description="You're one of its registrars: see its entries, change their facts, "
         "supersede them."
@@ -104,12 +106,6 @@ class RegistryPatch(Schema):
     )
 
 
-class RegistrarOut(Schema):
-    user: UserOut
-    appointed_by: UserOut | None
-    appointed_at: datetime
-
-
 class RegistryFilters(PageParams):
     team: UUID | None = Field(
         None, description="Only those this team's new projects may be in, to choose one."
@@ -118,18 +114,14 @@ class RegistryFilters(PageParams):
 
 def _registries_for(user: User) -> QuerySet[Registry]:
     """The registries the user may see: all, for an Org Admin; otherwise those their teams'
-    projects may be in, their projects' own, and those they're a registrar of."""
+    projects may be in, their projects' own, and those they hold a role in."""
     Registry.default()
     if permissions.can(user, Action.REGISTRIES_MANAGE):
         return Registry.objects.all()
     teams = permissions.visible_teams(user).values("pk")
     projects = access.readable_projects(user).values("registry_id")
     return Registry.objects.filter(
-        Q(all_teams=True)
-        | Q(teams__in=teams)
-        | Q(pk__in=projects)
-        | Q(registrars__user=user)
-        | Q(list_curators__user=user)
+        Q(all_teams=True) | Q(teams__in=teams) | Q(pk__in=projects) | Q(roles__user=user)
     ).distinct()
 
 
@@ -226,46 +218,141 @@ def patch_registry(
     return _registry_out(me, changed)
 
 
+# --- Registry roles (ADR 0292) ------------------------------------------------------------------
+
+RoleName = Literal["registrar", "list_curator"]
+
+
+class RegistryRoleOut(Schema):
+    id: UUID = Field(description="The grant's: GET or DELETE /registries/{registry_id}/roles/{id}.")
+    role: RoleName = Field(
+        description="registrar: curates the registry's facts and supersedes its entries, and "
+        "curates every lab list in it. list_curator: curates one lab list (ADR 0270)."
+    )
+    list: str | None = Field(
+        description="A list curator's list, such as iki/lots.PurityMethod. Null for a role over "
+        "the whole registry."
+    )
+    user: UserOut
+    granted_by: UserOut | None
+    granted_at: datetime
+
+
+class RegistryRoleIn(Schema):
+    role: RoleName
+    list: str | None = Field(
+        None, description="The lab list, for a list curator; none for a registrar."
+    )
+    user: UUID = Field(description="The person: never a service account.")
+
+
+class RegistryRoleFilters(PageParams):
+    role: RoleName | None = None
+    list: str | None = Field(None, description="Only the curators of this lab list.")
+    user: UUID | None = Field(None, description="Only this person's roles.")
+
+
+def _role_out(grant: RegistryRole) -> dict[str, Any]:
+    return {
+        "id": grant.pk,
+        "role": grant.role,
+        "list": grant.list_type,
+        "user": grant.user,
+        "granted_by": grant.granted_by,
+        "granted_at": grant.granted_at,
+    }
+
+
+def _grant(registry: Registry, role_id: UUID) -> RegistryRole:
+    found = (
+        RegistryRole.objects.filter(registry=registry, pk=role_id)
+        .select_related("registry", "user", "granted_by")
+        .first()
+    )
+    if found is None:
+        raise Problem(404, "No such role in this registry.")
+    return found
+
+
 @router.get(
-    "/registries/{registry_id}/registrars",
-    response=list[RegistrarOut],
-    summary="A registry's registrars",
+    "/registries/{registry_id}/roles",
+    response=Page[RegistryRoleOut],
+    summary="Who holds a registry's roles",
 )
-def list_registrars(request: HttpRequest, registry_id: UUID) -> list[Registrar]:
-    """Who curates its entries' facts and supersedes them."""
+def list_registry_roles(
+    request: HttpRequest, registry_id: UUID, filters: Query[RegistryRoleFilters]
+) -> dict[str, Any]:
+    """Its registrars, and its lab lists' curators, oldest grant first. A registrar curates
+    every list besides the lists' own curators."""
     me = caller(request)
     found = _registry(me, registry_id)
-    return list(found.registrars.select_related("user", "appointed_by").order_by("user__email"))
+    rows = found.roles.select_related("user", "granted_by")
+    if filters.role is not None:
+        rows = rows.filter(role=filters.role)
+    if filters.list is not None:
+        rows = rows.filter(list_type=filters.list)
+    if filters.user is not None:
+        rows = rows.filter(user_id=filters.user)
+    result = page(rows, filters)
+    result["items"] = [_role_out(r) for r in result["items"]]
+    return result
 
 
-@router.put(
-    "/registries/{registry_id}/registrars/{user_id}",
-    response={200: RegistrarOut, 201: RegistrarOut},
-    summary="Make someone a registrar",
+@router.post(
+    "/registries/{registry_id}/roles",
+    response={200: RegistryRoleOut, 201: RegistryRoleOut},
+    summary="Give someone a registry role",
 )
-def appoint_registrar(request: HttpRequest, registry_id: UUID, user_id: UUID) -> Any:  # noqa: ANN401
-    """Org Admins appoint them, a registry at a time. Being an Org Admin doesn't make
-    someone one."""
+def grant_registry_role(
+    request: HttpRequest, registry_id: UUID, payload: RegistryRoleIn
+) -> Status[dict[str, Any]]:
+    """Org Admins grant them: a registrar, over the whole registry, or a lab list's curator,
+    a list at a time, such as a QC lead for deviation categories. 201 with the new grant,
+    or 200 with the one they hold already. Being an Org Admin doesn't make someone either."""
     me = caller(request)
     require(me, Action.REGISTRIES_MANAGE)
     found = _registry(me, registry_id)
-    created = registries.appoint(found, person(user_id), by=me)
-    row = Registrar.objects.select_related("user", "appointed_by").get(
-        registry=found, user_id=user_id
-    )
-    return Status(201 if created else 200, row)
+    try:
+        grant, created = registries.grant_role(
+            found,
+            RegistryRole.Role(payload.role),
+            person(payload.user),
+            by=me,
+            list_type=payload.list,
+        )
+    except Refused as refusal:
+        if refusal.field != "list":
+            raise
+        # The role and its list don't go together, or there's no such list.
+        raise Problem(
+            422,
+            "Some fields are invalid.",
+            code="validation_failed",
+            errors=[{"pointer": "#/list", "detail": str(refusal)}],
+        ) from None
+    return Status(201 if created else 200, _role_out(_grant(found, grant.pk)))
+
+
+@router.get(
+    "/registries/{registry_id}/roles/{role_id}",
+    response=RegistryRoleOut,
+    summary="A registry role",
+)
+def get_registry_role(request: HttpRequest, registry_id: UUID, role_id: UUID) -> dict[str, Any]:
+    me = caller(request)
+    return _role_out(_grant(_registry(me, registry_id), role_id))
 
 
 @router.delete(
-    "/registries/{registry_id}/registrars/{user_id}",
+    "/registries/{registry_id}/roles/{role_id}",
     response={204: None},
-    summary="Stop someone being a registrar",
+    summary="Take a registry role away",
 )
-def dismiss_registrar(request: HttpRequest, registry_id: UUID, user_id: UUID) -> Status[None]:
+def remove_registry_role(request: HttpRequest, registry_id: UUID, role_id: UUID) -> Status[None]:
+    """Org Admins. A curator of a list whose plugin was removed can still be removed."""
     me = caller(request)
     require(me, Action.REGISTRIES_MANAGE)
-    found = _registry(me, registry_id)
-    registries.dismiss(found, person(user_id), by=me)
+    registries.remove_role(_grant(_registry(me, registry_id), role_id), by=me)
     return Status(204, None)
 
 
@@ -412,7 +499,7 @@ def _curates(user: User, entry: Entity) -> bool:
     """Whether the user curates the entry: its registry's registrars do, and a lab list's
     option's curators (ADR 0270)."""
     assert entry.registry is not None  # noqa: S101 - entries have one
-    if lists.is_list(entry.type):
+    if registry.is_lab_list(entry.type):
         return permissions.can_curate_list(user, entry.registry, entry.type)
     return permissions.can(user, Action.REGISTRY_CURATE, entry.registry)
 
@@ -420,7 +507,7 @@ def _curates(user: User, entry: Entity) -> bool:
 def _not_an_option(entry: Entity, change: str, path: str) -> None:
     """A lab list's option (ADR 0270) is changed on its list, under the list's checks: this
     endpoint reads it, and says where."""
-    if lists.is_list(entry.type):
+    if registry.is_lab_list(entry.type):
         code = lists.option_of(entry).code
         raise Problem(
             409,
@@ -678,7 +765,7 @@ def list_entry_revisions(
     entry, curates = _entry(me, ref)
     # A lab list's option is curated in the open (ADR 0270): every reader is told who
     # changed it, when and why, as no project's work is in it.
-    curates = curates or lists.is_list(entry.type)
+    curates = curates or registry.is_lab_list(entry.type)
     readable = set(access.readable_projects(me).values_list("pk", flat=True))
     names = FieldNames.for_type(entry.type, entry=True)
     revisions = trail.applied(
@@ -729,7 +816,7 @@ def get_entry_revision(request: HttpRequest, ref: str, number: int) -> dict[str,
     names = FieldNames.for_type(entry.type, entry=True)
     told = (
         {**_revision(revision, _runs_of(me, [revision]), names=names), "entry": True}
-        if curates or lists.is_list(entry.type) or services.discloses(revision, readable)
+        if curates or registry.is_lab_list(entry.type) or services.discloses(revision, readable)
         else undisclosed(revision, names)
     )
     return {

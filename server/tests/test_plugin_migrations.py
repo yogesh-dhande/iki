@@ -576,10 +576,10 @@ def test_sync_makes_hrids_identities_views_and_comments(migrated: Path, database
         assert loaded.plugin is not None and not loaded.errors, loaded.problems
         declared.append(loaded.plugin)
     prefixes = {
-        entity_type.hrid_prefix.lower()
+        entity_type.numbering_prefix.lower()
         for plugin in declared
         for entity_type in plugin.types.values()
-        if not entity_type.abstract and entity_type.hrid_prefix is not None
+        if entity_type.numbering_prefix is not None
     }
     expected = [f"  HRID sequence iki_hrid_{prefix}" for prefix in sorted(prefixes)]
     assert [line for line in report.splitlines() if line.startswith("  HRID sequence ")] == expected
@@ -837,6 +837,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 SAMPLE = """\

@@ -25,9 +25,9 @@ from typing import Any
 from psycopg import sql
 
 from iki_server.entities import registry
-from iki_server.entities.values import FOREIGN_KEYS, is_list_table
+from iki_server.entities.values import FOREIGN_KEYS
 from iki_spec import naming
-from iki_spec.model import Field, in_entry
+from iki_spec.model import Field, in_entry, stored_in_list_table
 
 __all__ = ["TRIGGER_PREFIX", "Narrowing", "Unfit", "install", "wanted"]
 
@@ -122,7 +122,7 @@ def wanted() -> tuple[Narrowing, ...]:
         for field_name, f in declared.fields.items():
             if f.removed or declared.sources.get(f"refines.{field_name}") != name:
                 continue
-            if is_list_table(f):
+            if stored_in_list_table(f):
                 continue  # held in every save: it has no column
             owner = types[declared.declared_by(field_name)]
             base = registry.effective(owner.qualified_name).fields[field_name]

@@ -12,7 +12,13 @@ from django.utils import timezone
 from org_world import PRINCIPALS, World, build_world
 
 from iki_server.org import permissions
-from iki_server.org.models import ProjectMembership, ProjectRole, TeamMembership
+from iki_server.org.models import (
+    ProjectMembership,
+    ProjectRole,
+    Registry,
+    RegistryRole,
+    TeamMembership,
+)
 from iki_server.org.permissions import Action
 
 pytestmark = pytest.mark.django_db
@@ -236,13 +242,14 @@ def test_importing_needs_an_org_admin_who_is_the_projects_admin(world: World) ->
 
 def test_only_a_registrys_registrars_curate_it(world: World) -> None:
     from iki_server.org import registries
-    from iki_server.org.models import Registry
 
     main = Registry.default()
     other = registries.create_registry(
         "Client A", "", all_teams=True, teams=[], by=world.users["org_admin"]
     )
-    registries.appoint(main, world.users["viewer"], by=world.users["org_admin"])
+    registries.grant_role(
+        main, RegistryRole.Role.REGISTRAR, world.users["viewer"], by=world.users["org_admin"]
+    )
     for principal in PRINCIPALS:
         curates = permissions.can(subject(world, principal), A.REGISTRY_CURATE, main)
         # Not the Org Admin, by their role: registrars are appointed (ADR 0115).
@@ -251,3 +258,42 @@ def test_only_a_registrys_registrars_curate_it(world: World) -> None:
     world.users["viewer"].is_active = False
     world.users["viewer"].save()
     assert not permissions.can(world.users["viewer"], A.REGISTRY_CURATE, main)
+
+
+def test_a_registrar_curates_every_list_and_a_curator_their_own(world: World) -> None:
+    main = Registry.default()
+    method, category = "acme/protein.PurificationMethod", "acme/protein.MethodCategory"
+    viewer, editor = world.users["viewer"], world.users["editor"]
+    RegistryRole.objects.create(registry=main, user=viewer, role=RegistryRole.Role.REGISTRAR)
+    RegistryRole.objects.create(
+        registry=main, user=editor, role=RegistryRole.Role.LIST_CURATOR, list_type=method
+    )
+    # A registrar curates every list, whichever are installed; a curator only their own.
+    assert permissions.can_curate_list(viewer, main, method)
+    assert permissions.can_curate_list(viewer, main, category)
+    assert permissions.can_curate_list(viewer, main, "acme/protein.NotInstalledYet")
+    assert not permissions.can(world.users["admin"], A.LISTS_CURATE, main)
+    assert permissions.can_curate_list(editor, main, method)
+    assert not permissions.can_curate_list(editor, main, category)
+    assert permissions.can(editor, A.LISTS_CURATE, main)
+    assert not permissions.can(editor, A.REGISTRY_CURATE, main)
+
+
+def test_a_delegated_token_curates_only_a_list_both_its_principals_curate(world: World) -> None:
+    """ADR 0073: only what both may. Each curates a list, but not the same one."""
+    main = Registry.default()
+    method, category = "acme/protein.PurificationMethod", "acme/protein.MethodCategory"
+    person, other = world.users["editor"], world.users["team_member"]
+    for user, list_type in ((person, method), (other, category)):
+        RegistryRole.objects.create(
+            registry=main, user=user, role=RegistryRole.Role.LIST_CURATOR, list_type=list_type
+        )
+    permissions.limit_to(person, permissions.TokenLimits(frozenset({"admin"}), alongside=other))
+    assert permissions.can(person, A.LISTS_CURATE, main)
+    assert not permissions.can_curate_list(person, main, method)
+    assert not permissions.can_curate_list(person, main, category)
+    RegistryRole.objects.create(
+        registry=main, user=other, role=RegistryRole.Role.LIST_CURATOR, list_type=method
+    )
+    permissions.forget(other)
+    assert permissions.can_curate_list(person, main, method)

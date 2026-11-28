@@ -5,7 +5,13 @@
   "description": "Runs one of the plugin's actions by itself: when an entity of a type is created or changed, when a request arrives at a service, or on a schedule. It runs in a project only after one of the project's Admins turns it on there.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "on", "run"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "description": "The spec version this manifest follows.",
       "const": "iki/v1"

@@ -126,13 +126,8 @@ def _has_record_in(projects: QuerySet[Any]) -> Q:
 
 def _listed(where: Q) -> Q:
     """Lab lists' options (ADR 0270), where ``where`` says: none, without lists."""
-    lists = list_types()
+    lists = registry.lab_lists()
     return Q(type__in=sorted(lists)) & where if lists else Q(pk__in=[])
-
-
-def list_types() -> frozenset[str]:
-    """The installed lab lists' types (ADR 0270)."""
-    return frozenset(name for name, t in registry.types().items() if t.is_list)
 
 
 def held_entries(project: Project) -> QuerySet[Entity]:
@@ -430,7 +425,7 @@ def readers(entity: Entity, users: Iterable[Any]) -> set[Any]:
     found = {u.pk for u in one_by_one if can_read(u, entity)}
     if VIEW in registry.types() and entity.type in subtypes(VIEW):
         return found | {u.pk for u in people if u.pk in together and can_read(u, entity)}
-    if entity.registry_id is not None and entity.type in list_types():
+    if entity.registry_id is not None and registry.is_lab_list(entity.type):
         # A lab list's option: every project in its registry reads it (ADR 0270).
         where = Q(project__registry_id=entity.registry_id)
     elif entity.registry_id is not None:

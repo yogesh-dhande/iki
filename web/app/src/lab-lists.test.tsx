@@ -56,7 +56,7 @@ function listType(
     detached: false,
     ancestors: ["iki/core.Entity"],
     subtypes: [],
-    hrid_prefix: "PUM",
+    hrid_prefix: null,
     identity: ["code"],
     viewers: [],
     notifications: [],
@@ -114,7 +114,7 @@ function option(
 ): Schemas["OptionOut"] {
   return {
     id: id(n),
-    hrid: `PUM-00000${String(n)}`,
+    hrid: `OPTION-00000${String(n)}`,
     code,
     label,
     description: "",
@@ -128,7 +128,7 @@ function option(
   };
 }
 
-const CHROMATOGRAPHY = { ...option(9, "chromatography", "Chromatography"), hrid: "MCAT-000001" };
+const CHROMATOGRAPHY = { ...option(9, "chromatography", "Chromatography"), hrid: "OPTION-000009" };
 const PROTEIN_A = option(1, "protein_a", "Protein A affinity", {
   description: "Captured on a Protein A column and eluted at low pH.",
   values: { category: CHROMATOGRAPHY.id, sop: "https://sop.example.com/PUR-001" },
@@ -399,7 +399,7 @@ describe("an option, as records read it", () => {
       "Size exclusion (superseded)",
     );
     // Its HRID, nobody's record, isn't shown.
-    expect(screen.queryByText("PUM-000003")).not.toBeInTheDocument();
+    expect(screen.queryByText("OPTION-000003")).not.toBeInTheDocument();
   });
 
   it("reads as its label in the grid, and in a sheet's cell", () => {
@@ -477,21 +477,25 @@ function onList(over: Partial<Schemas["ListOut"]> = {}, reg = registry()): void 
   onLab();
   answer("GET /api/v1/registries", page([reg]));
   answer(`GET /api/v1/lists/${METHOD}`, list(over));
-  answer(`GET /api/v1/registries/${MAIN_REGISTRY.id}/list-curators`, [
-    {
-      list: METHOD,
-      user: {
-        id: "00000000-0000-7000-8000-000000000009",
-        name: "Ada Purifier",
-        email: "ada@example.com",
-        active: true,
-        kind: "person",
-        imported_from: "",
-      },
-      appointed_by: null,
-      appointed_at: "2026-11-01T00:00:00Z",
+  // Its own curators are a registry role, asked for by role and list (ADR 0292).
+  const curator: Schemas["RegistryRoleOut"] = {
+    id: "00000000-0000-7000-8000-0000000000c1",
+    role: "list_curator",
+    list: METHOD,
+    user: {
+      id: "00000000-0000-7000-8000-000000000009",
+      name: "Ada Purifier",
+      email: "ada@example.com",
+      active: true,
+      kind: "person",
+      imported_from: "",
     },
-  ]);
+    granted_by: null,
+    granted_at: "2026-11-01T00:00:00Z",
+  };
+  answer(`GET /api/v1/registries/${MAIN_REGISTRY.id}/roles`, ({ query }: Sent) =>
+    page(query.get("role") === "list_curator" && query.get("list") === METHOD ? [curator] : []),
+  );
 }
 
 const PAGE = `/types/${METHOD}/`;
@@ -881,7 +885,7 @@ describe("a list's page", () => {
         ? list({ registry: partner })
         : problem(404, "not_found", "No such project, or you can’t read it."),
     );
-    answer(`GET /api/v1/registries/${partner.id}/list-curators`, []);
+    answer(`GET /api/v1/registries/${partner.id}/roles`, page([]));
     await renderApp(`${PAGE}?project=kinase-atlas`);
     await screen.findByRole("table", { name: /Purification methods/ });
     expect(
@@ -907,10 +911,10 @@ describe("a superseded option's page", () => {
     });
     answer("GET /api/v1/projects", page([KINASE, other]));
     const wrong = option(5, "protien_g", "Protein G (typo)", {
-      superseded_by: { id: id(6), hrid: "PUM-000006", code: "protein_g", label: "Protein G" },
+      superseded_by: { id: id(6), hrid: "OPTION-000006", code: "protein_g", label: "Protein G" },
     });
     onOptions([...EVERY, wrong, option(6, "protein_g", "Protein G")]);
-    answer("GET /api/v1/entries/PUM-000005", {
+    answer("GET /api/v1/entries/OPTION-000005", {
       id: wrong.id,
       hrid: wrong.hrid,
       type: METHOD,
@@ -929,7 +933,7 @@ describe("a superseded option's page", () => {
         reason: "Typo in the code",
         by_id: id(6),
         by: {
-          hrid: "PUM-000006",
+          hrid: "OPTION-000006",
           title: "Protein G",
           type: METHOD,
           archived: false,
@@ -939,10 +943,13 @@ describe("a superseded option's page", () => {
         },
       },
     });
-    answer("GET /api/v1/entries/PUM-000005/revisions", page([]));
+    answer("GET /api/v1/entries/OPTION-000005/revisions", page([]));
     answer(`POST ${OPTIONS}/protien_g/move`, { moved: ["PRP-000001", "PRP-000004"] });
-    const { user } = await renderApp("/entries/PUM-000005/?project=antibody-lab");
+    const { user } = await renderApp("/entries/OPTION-000005/?project=antibody-lab");
     expect(screen.getByRole("heading", { level: 1, name: /Protein G \(typo\)/ })).toBeVisible();
+    // Named by its code, not by the HRID its page's address has.
+    expect(screen.getByText("protien_g", { selector: "code" })).toBeVisible();
+    expect(screen.queryByText(/OPTION-000005/)).not.toBeInTheDocument();
     expect(screen.getByRole("note")).toHaveTextContent(
       /Superseded by Protein G .*“Typo in the code”\. Dropdowns offer Protein G instead\./,
     );

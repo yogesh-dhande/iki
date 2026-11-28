@@ -5,7 +5,13 @@
   "description": "A kind of entity, such as a protein or a compound. Each type gets its own table, with history and per-field provenance.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "schema_version"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "description": "The spec version this manifest follows.",
       "const": "iki/v1"
@@ -86,29 +92,6 @@
       "additionalProperties": {
         "$ref": "https://ikisci.org/schemas/field/v1"
       }
-    },
-    "list": {
-      "description": "Its entities are the options of a list the lab curates (ADR 0270), such as lot methods or deviation categories, offered as a dropdown wherever a field refers to it. Each option is a registry entry, identified by its `code`, with a `label`, a `description` and a place in the list's order, which its registry's registrars and list curators change, each with a reason; projects in the registry pick from it. Its other fields are its options' too. `true` for a list with no starting options. Only descriptive vocabulary is a list: a value a guard, state, rule, signature or computation reads stays an `enum`. Inheritance: `own`. Not inherited: each type's own.",
-      "oneOf": [
-        {
-          "const": true
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "options": {
-              "description": "The options each registry starts with, in the order the list shows them. Installing the plugin adds them to every registry, and a registry made later gets them too; an upgrade adds those a registry hasn't got, by code, at the end of its list, and never changes, reorders or restores the options a registry has.",
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 1000,
-              "items": {
-                "$ref": "#/$defs/listOption"
-              }
-            }
-          }
-        }
-      ]
     },
     "refines": {
       "description": "What this type's records take in fields it inherits, each narrower than its parent's (ADR 0283), so every one of its records is one of its parent's too. A field can be made required, an enum's values or a number's range narrowed, a default given, a reference's types narrowed to some of its parent's or their subtypes (ADR 0235), and a list of rows' roles narrowed to every role its rows may have (ADR 0164): a specific complex says what its parts are this way, and a service's result which of its requests it answers. Iki holds a narrowing where it holds the field's own: in every save, and in the database for `required`, `values`, `min` and `max`. Inheritance: `narrow`. Inherited, and a subtype may only narrow it: its records take what its parent's do or less, never more, so each of them is one of its parent's too. Each refinement is within the one its parent has.",
@@ -324,7 +307,8 @@
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
     },
     "draw_purposes": {
-      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles. Inheritance: `narrow`. Inherited, and a subtype may only narrow it: its records take what its parent's do or less, never more, so each of them is one of its parent's too.",
+      "x-iki-provisional": true,
+      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles. Provisional: a minor release may change its shape (ADR 0293). Inheritance: `narrow`. Inherited, and a subtype may only narrow it: its records take what its parent's do or less, never more, so each of them is one of its parent's too.",
       "type": "object",
       "propertyNames": {
         "enum": ["routine", "qa_sampling"]
@@ -501,7 +485,8 @@
       "additionalProperties": false
     },
     "work_item": {
-      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them. Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
+      "x-iki-provisional": true,
+      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them. Provisional: a minor release may change its shape (ADR 0293). Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it.",
       "type": "object",
       "required": ["of"],
       "properties": {
@@ -644,6 +629,7 @@
       }
     },
     "stock_catalogue": {
+      "x-iki-provisional": true,
       "type": "object",
       "required": ["name", "unit", "threshold", "notify", "lots", "orders"],
       "properties": {
@@ -722,7 +708,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190). Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it."
+      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190). Provisional: a minor release may change its shape (ADR 0293). Inheritance: `nearest`. Inherited: a subtype has its nearest ancestor's, unless it declares its own, which replaces it."
     },
     "amount": {
       "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger. Inheritance: `once`. Inherited, and declared once in a lineage: a subtype has its ancestor's, and can't declare another.",
@@ -799,31 +785,6 @@
   },
   "additionalProperties": false,
   "$defs": {
-    "listOption": {
-      "description": "A starting option: its code and label, and values for the type's other fields, by name. A reference to another list's option names it by its code.",
-      "type": "object",
-      "required": ["code", "label"],
-      "properties": {
-        "code": {
-          "description": "Its identity in the list, which never changes, such as `hplc`: what exports and the API give for it, and what an upgrade finds it by. A wrong one is superseded, never changed.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
-        },
-        "label": {
-          "description": "What people see and pick, such as `HPLC purification`: one line, unique in the list. Curators can change it, with a reason.",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "description": {
-          "description": "What it means, or when to choose it, shown beside it.",
-          "type": "string",
-          "maxLength": 2000
-        }
-      },
-      "propertyNames": {
-        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-      }
-    },
     "pluginExport": {
       "type": "object",
       "required": ["export", "fields"],

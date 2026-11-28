@@ -59,6 +59,8 @@ def read(
         "name": name,
         "version": proposed.version,
     }
+    if proposed.iki is not None:
+        manifest["iki"] = proposed.iki
     # Compiled manifests include qualified IDs and explicit defaults. Check the
     # original declaration schema too, including the supported readers and viewers.
     if proposed.formats:

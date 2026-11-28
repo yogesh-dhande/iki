@@ -12,9 +12,8 @@ from typing import Any
 from django.core.management.base import CommandError
 from psycopg import sql
 
-from iki_server.entities.values import is_list_table
 from iki_server.plugins.makemigrations import linear_conversion
-from iki_spec.model import Field
+from iki_spec.model import Field, stored_in_list_table
 from iki_spec.units import UnitError
 
 # The physical kinds shared by generated history columns. A whole number can also
@@ -162,7 +161,7 @@ def project(
     if previous is not None:
         # Normalized lists are read as [] when empty. Their value is present
         # on every record but has no scalar column or scalar conversion.
-        raw = sql.SQL("TRUE") if is_list_table(previous) else column(name)
+        raw = sql.SQL("TRUE") if stored_in_list_table(previous) else column(name)
         source = _KINDS.get(previous.type)
         if source == kind and (previous.type == "state") == (field.type == "state"):
             value = raw

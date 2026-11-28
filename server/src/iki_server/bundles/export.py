@@ -365,7 +365,7 @@ def _find(project: Project, picked: list[Entity]) -> _Found:
                 if (
                     record is None
                     and entity.registry_id == project.registry_id
-                    and (_is_list(entity.type))
+                    and registry.is_lab_list(entity.type)
                 ):
                     # A lab list's option (ADR 0270): the project's records name it without
                     # holding it, and it goes by its code, which the importing registry's
@@ -420,11 +420,6 @@ def _find(project: Project, picked: list[Entity]) -> _Found:
             # Only a run read it: the run's record keeps it, and importing doesn't need it.
             found.outside[target] = "run"
     return found
-
-
-def _is_list(type_name: str) -> bool:
-    found = registry.types().get(type_name)
-    return found is not None and found.is_list
 
 
 def _entry_values(entry: Entity) -> dict[str, Any]:

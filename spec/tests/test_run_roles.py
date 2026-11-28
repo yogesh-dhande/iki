@@ -16,6 +16,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 #: A lab's protein, a GMP lot of one under a lot, and an action that checks a lot is of

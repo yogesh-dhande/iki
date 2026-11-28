@@ -19,7 +19,7 @@ from psycopg import sql
 
 from iki_server.entities import checking
 from iki_server.entities.models import Entity
-from iki_server.entities.values import FOREIGN_KEYS, is_list_table, row_columns, to_json
+from iki_server.entities.values import FOREIGN_KEYS, row_columns, to_json
 from iki_server.plugins.preflight_rules import projected_changes
 from iki_server.plugins.preflight_types import Record
 from iki_spec import naming
@@ -30,6 +30,7 @@ from iki_spec.model import (
     Field,
     Plugin,
     split_entry,
+    stored_in_list_table,
 )
 
 #: Item/row budget per normalized list table, across the sample. A partial list
@@ -243,7 +244,7 @@ def _fill(
                 owners[pk].append(r)
         if not owners:
             continue
-        scalars = {n: f for n, f in selected.items() if not is_list_table(f)}
+        scalars = {n: f for n, f in selected.items() if not stored_in_list_table(f)}
         if scalars:
             columns = [f"{n}_id" if f.type in FOREIGN_KEYS else n for n, f in scalars.items()]
             scalar_rows = {
@@ -258,7 +259,7 @@ def _fill(
                 for r in copies:
                     r.values.update(mapped)
         for name, f in selected.items():
-            if not is_list_table(f):
+            if not stored_in_list_table(f):
                 continue
             columns_by_name = row_columns(f) if f.is_rows else {"item": "item_id"}
             items: dict[str, list[Any]] = defaultdict(list)

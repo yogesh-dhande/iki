@@ -305,7 +305,7 @@ def plugin(tmp_path: Path) -> Path:
     root = tmp_path / "plugin"
     (root / "scripts").mkdir(parents=True)
     (root / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/example\nversion: 1.0.0\n"
+        'apiVersion: iki/v1\nkind: Plugin\nname: acme/example\nversion: 1.0.0\niki: ">=0.1"\n'
         "title: Example\ndescription: An example.\nlicense: Apache-2.0\n"
     )
     return root

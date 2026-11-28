@@ -28,6 +28,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst }
   qa: { label: QA }
@@ -145,7 +146,8 @@ def types_of(result: Result) -> dict[str, EntityType]:
 
 
 def codes(result: Result) -> list[str]:
-    return [p.code for p in result.problems]
+    # The lab's lots draw by purpose, a provisional key it's warned of (ADR 0293).
+    return [p.code for p in result.problems if p.code != "provisional-key"]
 
 
 def test_every_key_of_a_type_has_one_policy_the_schema_says() -> None:
@@ -154,7 +156,10 @@ def test_every_key_of_a_type_has_one_policy_the_schema_says() -> None:
     properties = load("entity-type")["properties"]
     blocks = {k for k in properties if k not in ("apiVersion", "kind")}
     assert blocks == set(POLICIES)
-    for key in blocks:
+    # Every kind of manifest takes the same `annotations` (ADR 0293), so the schema can't
+    # say its policy: a type's are its own.
+    assert POLICIES["annotations"] is Policy.OWN
+    for key in blocks - {"annotations"}:
         policy = POLICIES[key]
         found = re.search(r"Inheritance: `([a-z]+)`\. ", properties[key]["description"])
         assert found is not None, key

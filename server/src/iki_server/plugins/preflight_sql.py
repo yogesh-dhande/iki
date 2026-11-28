@@ -5,8 +5,9 @@ from collections.abc import Sequence
 from django.db import connection
 from psycopg import sql
 
-from iki_server.entities.values import FOREIGN_KEYS, is_list_table
+from iki_server.entities.values import FOREIGN_KEYS
 from iki_server.plugins.preflight_records import Table
+from iki_spec.model import stored_in_list_table
 
 EXAMPLES = 5
 
@@ -51,7 +52,7 @@ class Scope:
         if found is None:
             return sql.SQL("NULL")
         table, field = found
-        if is_list_table(field):
+        if stored_in_list_table(field):
             raise ValueError(f"{name} is stored in a list table.")
         self._joins[table.table] = table
         column = f"{name}_id" if field.type in FOREIGN_KEYS else name

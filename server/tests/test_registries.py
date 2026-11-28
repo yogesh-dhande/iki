@@ -8,12 +8,15 @@ from typing import Any
 
 import pytest
 from api_client import Api, problem
+from django.db import IntegrityError, transaction
 from org_world import World, build_world, post
 
+from iki_server.accounts import service_accounts
 from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity
 from iki_server.notifications import services as notifications
 from iki_server.notifications.models import Notification
+from iki_server.org import permissions
 from iki_server.org.models import (
     OrgRole,
     OrgRoleAssignment,
@@ -21,7 +24,9 @@ from iki_server.org.models import (
     ProjectMembership,
     ProjectRole,
     Registry,
+    RegistryRole,
 )
+from iki_server.org.permissions import Action
 from iki_server.webhooks.models import Delivery, Webhook
 
 pytestmark = pytest.mark.django_db
@@ -81,7 +86,9 @@ def registrar(world: World, principal: str = "auditor") -> Api:
     admin = api_as(world, "org_admin")
     main = Registry.default()
     user = world.users[principal]
-    assert admin.put(f"/registries/{main.pk}/registrars/{user.pk}").status_code in (200, 201)
+    body = {"role": "registrar", "user": str(user.pk)}
+    granted = admin.post(f"/registries/{main.pk}/roles", body)
+    assert granted.status_code in (200, 201), granted.json()
     return api_as(world, principal)
 
 
@@ -976,6 +983,111 @@ def test_a_projects_registry_is_fixed_once_it_has_entities(world: World) -> None
 # --- The Org Admin's pages ---------------------------------------------------------------------
 
 
+# --- Registry roles (ADR 0292) -------------------------------------------------------------------
+
+METHOD = "acme/protein.PurificationMethod"
+
+
+def test_org_admins_grant_registry_roles_one_grant_at_a_time(world: World) -> None:
+    """A registrar's role covers the registry; a list curator's, one list. Each is one grant,
+    with its own ID, granted again without change, and taken away by its ID."""
+    admin = api_as(world, "org_admin")
+    main = Registry.default()
+    roles = f"/registries/{main.pk}/roles"
+    auditor, editor = world.users["auditor"], world.users["editor"]
+    made = admin.post(roles, {"role": "registrar", "user": str(auditor.pk)})
+    assert made.status_code == 201, made.content
+    grant = made.json()
+    assert (grant["role"], grant["list"], grant["user"]["id"], grant["granted_by"]["id"]) == (
+        "registrar",
+        None,
+        str(auditor.pk),
+        str(world.users["org_admin"].pk),
+    )
+    again = admin.post(roles, {"role": "registrar", "user": str(auditor.pk)})
+    assert (again.status_code, again.json()["id"]) == (200, grant["id"])
+    curator = admin.post(roles, {"role": "list_curator", "list": METHOD, "user": str(editor.pk)})
+    assert curator.status_code == 201, curator.content
+    # The same person may hold both, in their scopes.
+    both = admin.post(roles, {"role": "list_curator", "list": METHOD, "user": str(auditor.pk)})
+    assert both.status_code == 201, both.content
+
+    # Anyone who sees the registry sees who holds its roles, a page at a time, oldest first.
+    reader = api_as(world, "viewer")
+    listed = reader.get(roles).json()
+    assert [(r["role"], r["list"], r["user"]["id"]) for r in listed["items"]] == [
+        ("registrar", None, str(auditor.pk)),
+        ("list_curator", METHOD, str(editor.pk)),
+        ("list_curator", METHOD, str(auditor.pk)),
+    ]
+    assert listed["next_cursor"] is None
+    first = reader.get(roles, limit=2).json()
+    rest = reader.get(roles, limit=2, cursor=first["next_cursor"]).json()
+    assert [r["id"] for r in first["items"] + rest["items"]] == [r["id"] for r in listed["items"]]
+    assert rest["next_cursor"] is None
+    by_role = reader.get(roles, role="registrar").json()["items"]
+    assert [r["id"] for r in by_role] == [grant["id"]]
+    by_list = reader.get(roles, list=METHOD).json()["items"]
+    assert {r["user"]["id"] for r in by_list} == {str(editor.pk), str(auditor.pk)}
+    by_user = reader.get(roles, user=str(auditor.pk)).json()["items"]
+    assert [r["role"] for r in by_user] == ["registrar", "list_curator"]
+    assert reader.get(f"{roles}/{grant['id']}").json() == grant
+
+    # A role and its scope go together; the list must be a lab list; the person, a person.
+    for role, chosen in (
+        ("registrar", METHOD),
+        ("list_curator", None),
+        ("list_curator", PROTEIN),
+        ("list_curator", "acme/protein.Nothing"),
+    ):
+        body = {"role": role, "list": chosen, "user": str(editor.pk)}
+        refused = problem(admin.post(roles, body), 422, "validation_failed")
+        assert [e["pointer"] for e in refused["errors"]] == ["#/list"], body
+    inactive = admin.post(roles, {"role": "registrar", "user": str(world.users["inactive"].pk)})
+    assert "is deactivated" in problem(inactive, 409, "refused")["detail"]
+    robot = service_accounts.create("Plate robot", "", by=world.users["org_admin"])
+    robotic = admin.post(roles, {"role": "registrar", "user": str(robot.pk)})
+    assert "service account can't be one" in problem(robotic, 409, "refused")["detail"]
+    problem(admin.post(roles, {"role": "owner", "user": str(editor.pk)}), 422, "validation_failed")
+
+    # Taken away by its ID, once; another registry's grant isn't this one's.
+    other = admin.post("/registries", {"name": "Client A", "all_teams": True}).json()
+    assert admin.delete(f"/registries/{other['id']}/roles/{grant['id']}").status_code == 404
+    assert admin.delete(f"{roles}/{grant['id']}").status_code == 204
+    problem(admin.delete(f"{roles}/{grant['id']}"), 404, "not_found")
+    assert not permissions.can(auditor, Action.REGISTRY_CURATE, main)
+    granted = AuditEvent.objects.filter(action="registry.role_granted").order_by("id")
+    assert [e.data for e in granted] == [
+        {"role": "registrar", "list": None, "user": str(auditor.pk), "email": auditor.email},
+        {"role": "list_curator", "list": METHOD, "user": str(editor.pk), "email": editor.email},
+        {"role": "list_curator", "list": METHOD, "user": str(auditor.pk), "email": auditor.email},
+    ]
+    removed = AuditEvent.objects.get(action="registry.role_removed")
+    assert (removed.target_id, removed.data) == (
+        str(main.pk),
+        {"role": "registrar", "list": None, "user": str(auditor.pk), "email": auditor.email},
+    )
+
+
+def test_a_registry_role_is_held_once_in_its_scope(world: World) -> None:
+    """The database holds the rules: a registrar's role has no list, a curator's has one,
+    and each is held once."""
+    main = Registry.default()
+    user = world.users["editor"]
+    RegistryRole.objects.create(registry=main, user=user, role="registrar")
+    RegistryRole.objects.create(registry=main, user=user, role="list_curator", list_type=METHOD)
+    for values in (
+        {"role": "registrar"},
+        {"role": "list_curator", "list_type": METHOD},
+        {"role": "registrar", "list_type": METHOD},
+        {"role": "list_curator", "list_type": None},
+        {"role": "list_curator", "list_type": ""},
+        {"role": "owner"},
+    ):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            RegistryRole.objects.create(registry=main, user=user, **values)
+
+
 def test_org_admins_add_registries_and_appoint_registrars_on_their_pages(world: World) -> None:
     admin = world.browser("org_admin")
     listed = admin.get("/admin/registries/").content.decode()
@@ -994,13 +1106,23 @@ def test_org_admins_add_registries_and_appoint_registrars_on_their_pages(world: 
     page = f"/admin/registries/{client.pk}/"
     appointed = post(admin, page, {"action": "appoint", "person": "auditor@example.com"})
     assert appointed.status_code == 302, appointed.content.decode()[:2000]
-    assert client.registrars.filter(user=world.users["auditor"]).exists()
+    grant = client.roles.get(user=world.users["auditor"])
+    assert (grant.role, grant.list_type, grant.granted_by) == (
+        "registrar",
+        None,
+        world.users["org_admin"],
+    )
     shown = admin.get(page).content.decode()
     assert "auditor@example.com" in shown
     assert "Remove Auditor as a registrar" in shown
-    dismissed = post(admin, page, {"action": "dismiss", "user": str(world.users["auditor"].pk)})
+    assert f'name="role" value="{grant.pk}"' in shown
+    dismissed = post(admin, page, {"action": "remove", "role": str(grant.pk)})
     assert dismissed.status_code == 302
-    assert not client.registrars.exists()
+    assert not client.roles.exists()
+    # A grant of another registry's isn't this page's to remove.
+    other = Registry.default().roles.create(user=world.users["editor"], role="registrar")
+    assert post(admin, page, {"action": "remove", "role": str(other.pk)}).status_code == 404
+    assert post(admin, page, {"action": "remove", "role": "not-a-grant"}).status_code == 404
     saved = post(admin, page, {"action": "save", "name": "Client A (CRO)", "all_teams": "on"})
     assert saved.status_code == 302
     client.refresh_from_db()
@@ -1011,8 +1133,8 @@ def test_org_admins_add_registries_and_appoint_registrars_on_their_pages(world: 
     assert {
         "registry.created",
         "registry.updated",
-        "registry.registrar_appointed",
-        "registry.registrar_removed",
+        "registry.role_granted",
+        "registry.role_removed",
     } <= actions
     # Nobody else sees these pages.
     for who in ("admin", "auditor", "editor"):

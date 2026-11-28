@@ -128,8 +128,8 @@ POLICIES: Mapping[str, Policy] = {
     "extends": Policy.OWN,
     "abstract": Policy.OWN,
     "hrid": Policy.OWN,
-    # A lab list's options are its own; no type extends a list (ADR 0270).
-    "list": Policy.OWN,
+    # A lab's metadata describes the type it's on, not its subtypes (ADR 0293).
+    "annotations": Policy.OWN,
     # Once a sample type, its subtypes' records are samples too (ADR 0177).
     "sample": Policy.ACCUMULATE,
     "identity": Policy.ONCE,

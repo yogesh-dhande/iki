@@ -1,9 +1,11 @@
 """Lab lists (ADR 0270): the dropdowns a lab curates itself.
 
-A list is an entity type marked ``list`` in its manifest. Its entities are its
-options, each a registry entry (ADR 0115) whose code is its identity and whose
-label, description and place in the list are facts, as are the type's other
-fields. A field that uses a list is an ordinary reference to it.
+A plugin declares a list with a ``kind: List`` manifest (ADR 0295), which builds
+to an entity type. Its entities are its options, each a registry entry
+(ADR 0115) whose code is its identity and whose label, description and place in
+the list are facts, as are the list's other fields. They're numbered in one HRID
+sequence every list's options share, and shown by their label. A field that
+uses a list is an ordinary reference to it.
 
 - **Reading.** Every project in a registry reads its lists' options, and its
   records refer to them, without holding a record of each
@@ -45,7 +47,6 @@ from iki_server.entities.values import (
     Invalid,
     Refs,
     Shape,
-    is_list_table,
     problems_of,
     shape,
     to_db,
@@ -63,6 +64,7 @@ from iki_spec.model import (
     LIST_MAX_OPTIONS,
     LIST_POSITION,
     EntityType,
+    stored_in_list_table,
 )
 
 __all__ = [
@@ -73,7 +75,6 @@ __all__ = [
     "codes_of",
     "find",
     "install_label_indexes",
-    "is_list",
     "list_type",
     "lock",
     "names_of",
@@ -82,7 +83,6 @@ __all__ = [
     "reorder",
     "repoint",
     "seed",
-    "types",
     "usage",
 ]
 
@@ -108,29 +108,19 @@ class Option:
         return not self.archived and self.superseded_by is None
 
 
-def types() -> dict[str, EntityType]:
-    """Every installed list, by its type's qualified name."""
-    return {name: t for name, t in registry.types().items() if t.is_list}
-
-
-def is_list(type_name: str) -> bool:
-    found = registry.types().get(type_name)
-    return found is not None and found.is_list
-
-
 def list_type(type_name: str) -> EntityType:
     """The list ``type_name`` names. Raises :class:`Refused` for another type."""
     found = registry.types().get(type_name)
     if found is None:
         raise Refused(f"There's no entity type {type_name}.")
-    if not found.is_list:
+    if not found.is_lab_list:
         raise Refused(f"{type_name} isn't a lab list.")
     return found
 
 
 def entries_in(registry_id: Any) -> QuerySet[Entity]:  # noqa: ANN401 - a UUID
     """The options of every list in a registry, as entities."""
-    return Entity.objects.filter(registry_id=registry_id, type__in=list(types()))
+    return Entity.objects.filter(registry_id=registry_id, type__in=list(registry.lab_lists()))
 
 
 def options(
@@ -428,12 +418,12 @@ def _new_option(
         if part.extension and any(values.get(n) is not None for n in part.fields):
             row = rows.ensure(part)
             for name, f in part.fields.items():
-                if name in values and not is_list_table(f):
+                if name in values and not stored_in_list_table(f):
                     services._set(row, f, values[name])
             row.save()
             touched.append(part)
         for name, f in part.fields.items():
-            if is_list_table(f) and values.get(name):
+            if stored_in_list_table(f) and values.get(name):
                 services._write_list(part, f, instance.pk, values[name])
     changed = sorted(n for n, v in values.items() if v is not None and n in fields)
     revision = services._revise(instance, RevisionKind.CREATED, changed, user, reason, via=via)
@@ -572,7 +562,7 @@ def archive(user: User, entry: Entity, *, archived: bool = True, reason: str) ->
 
 
 def _option_registry(entry: Entity) -> tuple[Registry, EntityType]:
-    if entry.registry_id is None or not is_list(entry.type):
+    if entry.registry_id is None or not registry.is_lab_list(entry.type):
         raise Refused(f"{entry.hrid} isn't a lab list's option.")
     return Registry.objects.get(pk=entry.registry_id), registry.types()[entry.type]
 
@@ -597,7 +587,7 @@ def repoint(user: User, project: Project, entry: Entity, *, reason: str) -> list
     said = reason.strip()
     if not said:
         raise Invalid({"reason": ["Say why the records are moving to the new option."]})
-    if entry.registry_id is None or not is_list(entry.type):
+    if entry.registry_id is None or not registry.is_lab_list(entry.type):
         raise Refused(f"{entry.hrid} isn't a lab list's option.")
     if entry.registry_id != project.registry_id:
         raise Refused(f"{entry.hrid} is another registry's option.")
@@ -649,7 +639,7 @@ def seed(registries: Iterable[Registry] | None = None) -> list[str]:
 
 def _seeding_order() -> list[str]:
     """Lists whose options others' refer to first, so a reference finds its option."""
-    every = types()
+    every = registry.lab_lists()
     order: list[str] = []
     seen: set[str] = set()
 
@@ -754,7 +744,7 @@ def install_label_indexes(cursor: Any, wanted: Iterable[str] | None = None) -> l
     the deploy stops, saying which. Run it once the unique values are kept
     (:func:`unique.install`)."""
     needed: dict[str, tuple[str, str]] = {}
-    for type_name in sorted(types() if wanted is None else wanted):
+    for type_name in sorted(registry.lab_lists() if wanted is None else wanted):
         model = shape(type_name).entry_model
         assert model is not None  # noqa: S101 - lists' options are entries
         key = unique.key(model, LIST_LABEL)
@@ -828,9 +818,9 @@ def names_of(ids: Iterable[Any]) -> dict[Any, tuple[str, str]]:
     if not wanted:
         return {}
     grouped: dict[str, list[Any]] = {}
-    for type_name, pk in Entity.objects.filter(pk__in=wanted, type__in=list(types())).values_list(
-        "type", "pk"
-    ):
+    for type_name, pk in Entity.objects.filter(
+        pk__in=wanted, type__in=list(registry.lab_lists())
+    ).values_list("type", "pk"):
         grouped.setdefault(type_name, []).append(pk)
     out: dict[Any, tuple[str, str]] = {}
     for type_name, pks in grouped.items():

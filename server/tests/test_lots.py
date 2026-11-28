@@ -45,13 +45,17 @@ __all__ = ["database"]
 
 
 def _lots() -> Any:
-    # As the worker runs it: its directory first, for the action helper beside it.
-    if str(LOTS / "scripts") not in sys.path:
-        sys.path.insert(0, str(LOTS / "scripts"))
+    # The worker runs it from its scripts directory, where it imports `weights` and the
+    # action helper beside it.
+    scripts = str(LOTS / "scripts")
     spec = importlib.util.spec_from_file_location("lots_script", LOTS / "scripts" / "lots.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    sys.path.insert(0, scripts)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path.remove(scripts)
     return module
 
 
@@ -115,7 +119,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "StrainIsolate": "id",
     }
     # Each names what it's a lot of, by its type where one is registered.
-    lists = {n for n, t in types.items() if t.is_list}
+    lists = {n for n, t in types.items() if t.is_lab_list}
     refs = {
         name: [to for f in t.fields.values() if f.type == "ref" for to in f.to if to not in lists]
         for name, t in concrete.items()
@@ -233,7 +237,7 @@ def test_a_lots_methods_are_the_labs_own_lists(
         f = spec.fields[name]
         assert (f.type, f.to) == ("ref", (f"iki/lots.{listed}",)), name
         options = plugin.types[f"iki/lots.{listed}"]
-        assert options.is_list and options.list_spec is not None
+        assert options.is_lab_list and options.list_spec is not None
         if codes is not None:
             assert [o["code"] for o in options.list_spec.options] == codes, name
 
@@ -1384,9 +1388,10 @@ def test_a_lot_is_released_as_it_is_by_someone_else_and_stays_what_it_is(
         # Moving a project's lots to the replacement flags each lot that named it, and
         # only those, and works it out again where the project turned the calculation on.
         from iki_server.entities import entries, lists
-        from iki_server.org.models import Project, Registrar, Registry
+        from iki_server.org.models import Project, Registry, RegistryRole
         registry = Registry.objects.get(pk=project.registry_id)
-        Registrar.objects.create(registry=registry, user=admin)
+        RegistryRole.objects.create(registry=registry, user=admin,
+                                    role=RegistryRole.Role.REGISTRAR)
         ProjectTrigger.objects.create(project=project,
                                       trigger="iki/lots.compute_protein_lot_when_measured",
                                       enabled_by=admin, enabled_at=timezone.now())

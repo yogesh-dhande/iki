@@ -149,7 +149,7 @@ def resolve(
 
 def _options(ids: set[UUID]) -> dict[UUID, Entity]:
     """Of ``ids``, lab lists' options (ADR 0270): registry entries no project has a record of."""
-    listed = access.list_types()
+    listed = registry.lab_lists()
     if not ids or not listed:
         return {}
     return {
@@ -162,7 +162,7 @@ def _options(ids: set[UUID]) -> dict[UUID, Entity]:
 
 def options_by_registry(ids: Iterable[UUID]) -> dict[UUID, UUID]:
     """Of ``ids``, lab lists' options (ADR 0270), each with its registry."""
-    listed = access.list_types()
+    listed = registry.lab_lists()
     wanted = set(ids)
     if not wanted or not listed:
         return {}
@@ -182,7 +182,7 @@ def options_of(project: Project, ids: Iterable[UUID]) -> set[UUID]:
 def is_option(entity: Entity) -> bool:
     """Whether ``entity`` is a lab list's option (ADR 0270), which its registry's every
     project reads, rather than a record a project holds."""
-    return entity.registry_id is not None and entity.type in access.list_types()
+    return entity.registry_id is not None and registry.is_lab_list(entity.type)
 
 
 def reads(entities: Mapping[str, Sequence[Entity]], pins: Iterable[Pin]) -> dict[str, list[Entity]]:

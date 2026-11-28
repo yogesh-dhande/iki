@@ -163,7 +163,7 @@ def curate(
     from iki_server.entities import lists
 
     _registrar(user, entry)
-    listed = _is_list(entry.type)
+    listed = registry.is_lab_list(entry.type)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: a fact's change is every holder's."]})
     with transaction.atomic(), services._unique_values():
@@ -284,7 +284,7 @@ def _registrar(user: User, entry: Entity) -> Registry:
     if entry.registry_id is None:
         raise Refused(f"{entry.hrid} is a project's record, not a registry entry.")
     found = Registry.objects.get(pk=entry.registry_id)
-    if _is_list(entry.type):
+    if registry.is_lab_list(entry.type):
         if not permissions.can_curate_list(user, found, entry.type):
             label = registry.types()[entry.type].label_plural
             raise PermissionDenied(
@@ -294,11 +294,6 @@ def _registrar(user: User, entry: Entity) -> Registry:
     if not permissions.can(user, Action.REGISTRY_CURATE, found):
         raise PermissionDenied(f"Only {found.name}'s registrars curate its entries.")
     return found
-
-
-def _is_list(type_name: str) -> bool:
-    found = registry.types().get(type_name)
-    return found is not None and found.is_list
 
 
 def _registry_refs(entry: Entity) -> Any:  # noqa: ANN401 - Refs
@@ -348,7 +343,7 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
     found = _registrar(user, entry)
     if not reason.strip():
         raise Invalid({"reason": ["Say why: its holders are told."]})
-    listed = _is_list(entry.type)
+    listed = registry.is_lab_list(entry.type)
     with transaction.atomic():
         if listed:
             lists.lock(entry.registry_id, entry.type)
@@ -405,11 +400,11 @@ def _unlike(entry: Entity, type_name: str) -> str | None:
     every = registry.types()
     owner = registry.identity_owner(every[entry.type])
     other = every.get(type_name)
-    if not _is_list(entry.type) and owner is not None and other is not None:
+    if not registry.is_lab_list(entry.type) and owner is not None and other is not None:
         theirs = registry.identity_owner(other)
         if theirs is not None and theirs.qualified_name == owner.qualified_name:
             return None
-    kind = entry.type if _is_list(entry.type) or owner is None else owner.qualified_name
+    kind = entry.type if registry.is_lab_list(entry.type) or owner is None else owner.qualified_name
     return f"must be a {kind}, as {entry.hrid} is."
 
 
@@ -419,14 +414,14 @@ def registrable_as(entry: Entity) -> list[str]:
     with entities of their own, that can take new ones."""
     every = registry.types()
     owner = registry.identity_owner(every[entry.type])
-    if owner is None or _is_list(entry.type):
+    if owner is None or registry.is_lab_list(entry.type):
         return []
     return sorted(
         name
         for name, t in every.items()
         if name != entry.type
         and not t.abstract
-        and not t.is_list
+        and not t.is_lab_list
         and (theirs := registry.identity_owner(t)) is not None
         and theirs.qualified_name == owner.qualified_name
         and services.frozen(shape(name)) is None
@@ -534,7 +529,7 @@ def _registrable(entry: Entity, type_name: str) -> Shape:
     if type_name == entry.type:
         raise Invalid({"type": [f"{entry.hrid} is a {type_name} already."]})
     # A lab list's options are its list's (ADR 0270): one is added, and superseded, on it.
-    if target.is_list or registry.types()[entry.type].is_list:
+    if target.is_lab_list or registry.types()[entry.type].is_lab_list:
         raise Invalid(
             {
                 "type": [

@@ -250,12 +250,12 @@ def properties(tmp_path: Path, *sequences: str) -> tuple[dict[str, Any], list[di
 def test_properties_are_protparams(tmp_path: Path) -> None:
     found = properties(tmp_path, HBA)[0]["0"]
     profile = found.pop("hydropathy")
-    # ExPASy's ProtParam gives 15257.55 Da: Iki sums Biopython's average residue masses
-    # (IUPACData.protein_weights), 12 ppm lower than ExPASy's table. ExPASy also gives
+    # ExPASy's ProtParam gives 15257.55 Da; C690H1080N188O195S4 weighs 15257.59 by CIAAW's
+    # standard atomic weights (2024), which Iki uses for every molecule. ExPASy also gives
     # pI 8.72, 9970 M⁻¹cm⁻¹ (one cysteine: no cystine), GRAVY 0.048, instability 6.97.
     assert found == {
         "length": 142,
-        "molecular_weight": 15257.36,
+        "molecular_weight": 15257.59,
         "isoelectric_point": 8.72,
         "extinction_coefficient_oxidized": 9970,
         "extinction_coefficient_reduced": 9970,
@@ -330,15 +330,15 @@ def test_an_isoelectric_point_beyond_ph_14_isnt_saved_but_the_rest_are(tmp_path:
     found, messages = properties(tmp_path, "R" * 120, "R" * 10)
     # Bisection of Biopython's IsoelectricPoint.charge_at_pH (Bjellqvist's pK values) puts
     # R120's charge at zero at pH 14.0756, past the scale its pK values were measured on.
-    # The rest are ProtParam's: 120 x 156.1875 + 18.0153 = 18760.30 Da (Biopython's
-    # average residue masses), GRAVY -4.5 (Kyte-Doolittle R), instability index
+    # The rest are ProtParam's: C720H1442N480O121 is 18760.69 Da by CIAAW's standard
+    # atomic weights, GRAVY -4.5 (Kyte-Doolittle R), instability index
     # 10 / 120 x 119 x 58.28 = 577.94 (Guruprasad's R-R weight).
     assert "isoelectric_point" not in found["0"]
     assert {
         k: found["0"][k] for k in ("length", "molecular_weight", "gravy", "instability_index")
     } == {
         "length": 120,
-        "molecular_weight": 18760.3,
+        "molecular_weight": 18760.69,
         "gravy": -4.5,
         "instability_index": 577.94,
     }
@@ -387,9 +387,9 @@ def test_selenocysteine_pyrrolysine_and_j_keep_the_properties_they_have_values_f
     tmp_path: Path,
 ) -> None:
     found, messages = properties(tmp_path, "MU", "MO", "MJ")
-    # Biopython's average residue masses (IUPACData.protein_weights) give MU 299.2492 and
-    # MO 386.5094 Da; MI and ML both weigh 262.3689 Da, so MJ does.
-    assert found["0"] == {"length": 2, "molecular_weight": 299.25}
+    # By CIAAW's standard atomic weights, MU (C8H16N2O3SSe) is 299.26 and MO
+    # (C17H30N4O4S) 386.51 Da; MI and ML (C11H22N2O3S) both weigh 262.37 Da, so MJ does.
+    assert found["0"] == {"length": 2, "molecular_weight": 299.26}
     assert found["1"] == {"length": 2, "molecular_weight": 386.51}
     # Neither I nor L is charged or absorbs at 280 nm: MI and ML give pI 5.28 and none.
     assert found["2"] == {

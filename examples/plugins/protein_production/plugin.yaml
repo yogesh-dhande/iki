@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: acme/protein_production
-version: 0.1.0
+version: 0.1.1
 title: Protein production
 description: >-
   A protein production core's own request and deliverable: the protein a
