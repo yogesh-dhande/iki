@@ -37,7 +37,6 @@ import {
   actionsQuery,
   artifactDownloadUrl,
   artifactsQuery,
-  ATTEMPT_STATE,
   attemptsQuery,
   finished,
   LOG_KEPT_BYTES,
@@ -48,12 +47,12 @@ import {
   RUNS,
   runQuery,
   STATUS,
-  tone,
   useRunUpdates,
   type Artifact,
   type Attempt,
   type Run,
   type RunStatus,
+  VIA,
 } from "../runs";
 import {
   Badge,
@@ -70,17 +69,9 @@ import {
   useNow,
 } from "../ui";
 import { ToolbarSelect } from "./entity-filters";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 import { ParkedNote, RunOutsideApis } from "./run-outside-apis";
-
-export const VIA: Record<string, string> = {
-  web: "in the web app",
-  api: "through the API",
-  mcp: "by an AI assistant (MCP)",
-  cli: "from the command line",
-  trigger: "by a trigger",
-  system: "by Iki",
-};
+import { StatusBadge } from "./run-text";
 
 const EFFECT: Record<Run["effects"][number]["kind"], string> = {
   created: "Created",
@@ -154,12 +145,6 @@ function RunEffects({ run }: { run: Run }) {
       ) : null}
     </>
   );
-}
-
-export function StatusBadge({ status }: { status: RunStatus | Attempt["state"] }) {
-  const label =
-    status in STATUS ? STATUS[status as RunStatus] : ATTEMPT_STATE[status as Attempt["state"]];
-  return <span className={`badge badge-${tone(status)}`}>{label}</span>;
 }
 
 // --- A project's runs ------------------------------------------------------------------

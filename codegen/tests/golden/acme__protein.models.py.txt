@@ -348,6 +348,10 @@ class Batch(Entity):
     stored = models.BooleanField(null=True, db_default=True)
     made_on = models.DateField(null=True)
     expires_on = models.DateField(null=True)
+    shelf_life_days = models.BigIntegerField(null=True)
+    use_by = models.DateField(null=True)
+    purity_fraction = models.FloatField(null=True)
+    use_by_label = models.CharField(max_length=200, null=True)
     starts_at = models.DateTimeField(null=True)
     ends_at = models.DateTimeField(null=True)
     status = StateField(
@@ -406,6 +410,26 @@ class Batch(Entity):
                 name='acme__protein_batch__well__one_line',
             ),
             models.CheckConstraint(
+                condition=Q(shelf_life_days__gte=1),
+                name='acme__protein_batch__shelf_life_days__min',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity_fraction__gt=float('-inf'), purity_fraction__lt=float('inf')),
+                name='acme__protein_batch__purity_fraction__finite',
+            ),
+            models.CheckConstraint(
+                condition=Q(purity_fraction__gte=0.5),
+                name='acme__protein_batch__purity_fraction__min',
+            ),
+            models.CheckConstraint(
+                condition=GreaterThanOrEqual(Length('use_by_label'), 1),
+                name='acme__protein_batch__use_by_label__not_empty',
+            ),
+            models.CheckConstraint(
+                condition=~Q(use_by_label__regex='[\\r\\n]'),
+                name='acme__protein_batch__use_by_label__one_line',
+            ),
+            models.CheckConstraint(
                 condition=Q(
                     status__in=['in_testing', 'in_review', 'approved', 'released', 'certified'],
                 ),
@@ -439,6 +463,10 @@ class Batch_History(models.Model):
     stored = models.BooleanField(null=True)
     made_on = models.DateField(null=True)
     expires_on = models.DateField(null=True)
+    shelf_life_days = models.BigIntegerField(null=True)
+    use_by = models.DateField(null=True)
+    purity_fraction = models.FloatField(null=True)
+    use_by_label = models.TextField(null=True)
     starts_at = models.DateTimeField(null=True)
     ends_at = models.DateTimeField(null=True)
     status = models.TextField(null=True)

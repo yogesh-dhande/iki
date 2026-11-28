@@ -15,17 +15,18 @@ from test_oauth import bearer, signed_in_token
 from test_states import QA
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import checking, lists, registry
+from iki_server.entities import checking, entries, lists, registry, services
 from iki_server.entities.models import Entity, RuleHold
+from iki_server.entities.values import Invalid
 from iki_server.notifications.models import Notification
 from iki_server.org.models import (
-    ListCurator,
     Project,
     ProjectMembership,
     ProjectRole,
     Registry,
+    RegistryRole,
 )
-from iki_spec.model import ListSpec, Rule
+from iki_spec.model import LIST_HRID_PREFIX, ListSpec, Rule
 
 pytestmark = pytest.mark.django_db
 
@@ -57,16 +58,21 @@ def api_as(world: World, principal: str) -> Api:
 def registrar(world: World, principal: str = "auditor") -> Api:
     admin = api_as(world, "org_admin")
     user = world.users[principal]
-    put = admin.put(f"/registries/{Registry.default().pk}/registrars/{user.pk}")
-    assert put.status_code in (200, 201), put.content
+    granted = admin.post(
+        f"/registries/{Registry.default().pk}/roles", {"role": "registrar", "user": str(user.pk)}
+    )
+    assert granted.status_code in (200, 201), granted.content
     return api_as(world, principal)
 
 
 def curator(world: World, principal: str = "auditor", type_name: str = METHOD) -> Api:
     admin = api_as(world, "org_admin")
     user = world.users[principal]
-    put = admin.put(f"/registries/{Registry.default().pk}/list-curators/{type_name}/{user.pk}")
-    assert put.status_code in (200, 201), put.content
+    granted = admin.post(
+        f"/registries/{Registry.default().pk}/roles",
+        {"role": "list_curator", "list": type_name, "user": str(user.pk)},
+    )
+    assert granted.status_code in (200, 201), granted.content
     return api_as(world, principal)
 
 
@@ -129,6 +135,12 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     # The entity types say it's a list, for forms to show a dropdown.
     types = {t["name"]: t for t in editor.every("/entity-types")}
     assert types[METHOD]["lab_list"] and not types[PREP]["lab_list"]
+    # A list spends no HRID prefix: its options are numbered in the sequence every list's
+    # options share, which only gives their pages an address (ADR 0295).
+    assert types[METHOD]["hrid_prefix"] is None and types[CATEGORY]["hrid_prefix"] is None
+    numbered = [o["hrid"] for o in found] + [category[0]["hrid"]]
+    assert all(h.startswith(f"{LIST_HRID_PREFIX}-") for h in numbered), numbered
+    assert len(set(numbered)) == len(numbered)
     # Each starting option's first revision says where it came from.
     first = editor.get(f"/entries/{found[0]['id']}/revisions").json()["items"][-1]
     assert first["kind"] == "created" and first["user"] is None
@@ -360,22 +372,27 @@ def test_registrars_and_the_lists_curators_curate_it(world: World) -> None:
     )
     listed = lead.every("/lists", **scope(world))
     assert {i["type"]: i["can"]["curate"] for i in listed} == {METHOD: True, CATEGORY: False}
-    curators = org_admin.get(f"/registries/{Registry.default().pk}/list-curators").json()
+    roles = f"/registries/{Registry.default().pk}/roles"
+    curators = org_admin.get(roles, role="list_curator").json()["items"]
     assert [(c["list"], c["user"]["id"]) for c in curators] == [
         (METHOD, str(world.users["team_member"].pk))
     ]
-    # Dismissed, they don't.
-    gone = org_admin.delete(
-        f"/registries/{Registry.default().pk}/list-curators/{METHOD}/{world.users['team_member'].pk}"
-    )
+    # Removed, they don't.
+    gone = org_admin.delete(f"{roles}/{curators[0]['id']}")
     assert gone.status_code == 204, gone.content
     problem(
         lead.post(OPTIONS, {"code": "uf", "label": "Ultrafiltration"}, **scope(world)),
         403,
         "forbidden",
     )
-    assert AuditEvent.objects.filter(action="registry.list_curator_appointed").count() == 1
-    assert AuditEvent.objects.filter(action="registry.list_curator_removed").count() == 1
+    expected = {
+        "role": "list_curator",
+        "list": METHOD,
+        "user": str(world.users["team_member"].pk),
+        "email": world.users["team_member"].email,
+    }
+    assert AuditEvent.objects.get(action="registry.role_granted").data == expected
+    assert AuditEvent.objects.get(action="registry.role_removed").data == expected
     assert AuditEvent.objects.get(action="list.option_added").data["code"] == "hplc"
 
 
@@ -435,7 +452,7 @@ def test_org_admins_appoint_a_lists_curators_on_its_registrys_page(world: World)
     )
     assert appointed.status_code == 302, appointed.content.decode()[:2000]
     assert appointed["Location"].endswith("#list-curators-title")
-    assert ListCurator.objects.filter(list_type=METHOD, user=lead).exists()
+    grant = RegistryRole.objects.get(role="list_curator", list_type=METHOD, user=lead)
     shown = admin.get(page).content.decode()
     assert "Remove Team Member as a curator of Purification methods" in shown
     # A deactivated person is refused, at the field, and the page says why.
@@ -457,12 +474,11 @@ def test_org_admins_appoint_a_lists_curators_on_its_registrys_page(world: World)
         {"action": "appoint_curator", "curator-list_type": PREP, "curator-person": lead.email},
     )
     assert bogus.status_code == 200 and "Select a valid choice" in bogus.content.decode()
-    dismissed = post(
-        admin, page, {"action": "dismiss_curator", "list": METHOD, "user": str(lead.pk)}
-    )
+    dismissed = post(admin, page, {"action": "remove", "role": str(grant.pk)})
     assert dismissed.status_code == 302
-    assert not ListCurator.objects.filter(list_type=METHOD, user=lead).exists()
-    assert AuditEvent.objects.filter(action="registry.list_curator_removed").count() == 1
+    assert dismissed["Location"].endswith("#list-curators-title")
+    assert not RegistryRole.objects.filter(pk=grant.pk).exists()
+    assert AuditEvent.objects.get(action="registry.role_removed").data["list"] == METHOD
     # It's an Org Admin's page: nobody else's.
     assert world.browser("team_member").get(page).status_code in (302, 403)
 
@@ -822,3 +838,322 @@ def test_a_sheets_cell_shows_an_option_by_its_label(world: World) -> None:
     assert row["problems"] == [], row
     assert row["shown"]["method"] == "Size exclusion"
     assert row["shown"]["polishing"] == "Dialysis; Protein A affinity"
+
+
+# --- One route for each change, and each name once ------------------------------------------
+
+
+def test_an_option_is_changed_on_its_list_not_as_a_registry_entry(world: World) -> None:
+    """Its list's endpoints change an option, under the list's checks; the registry's entry
+    endpoints read it, and send a change to them."""
+    admin = registrar(world)
+    sec, dialysis = option(admin, None, "sec"), option(admin, None, "dialysis")
+    relabel = problem(
+        admin.patch(
+            f"/entries/{sec['id']}",
+            {"values": {"label": "Gel filtration"}, "reason": "What the lab calls it"},
+            headers={"If-Match": f'"{sec["revision"]}"'},
+        ),
+        409,
+        "refused",
+    )
+    assert f"/lists/{METHOD}/options/sec" in relabel["detail"]
+    superseded = problem(
+        admin.post(
+            f"/entries/{sec['id']}/supersede",
+            {"replacement": dialysis["id"], "reason": "Wrong code"},
+            headers={"If-Match": f'"{sec["revision"]}"'},
+        ),
+        409,
+        "refused",
+    )
+    assert f"/lists/{METHOD}/options/sec/supersede" in superseded["detail"]
+    # Nor is it registered as another type in its place (ADR 0165), with or without values.
+    bodies: list[dict[str, Any]] = [{"type": CATEGORY}, {"type": PREP, "values": {"name": "P"}}]
+    for body in bodies:
+        retyped = problem(
+            admin.post(
+                f"/entries/{sec['id']}/supersede",
+                {**body, "reason": "Wrong type"},
+                headers={"If-Match": f'"{sec["revision"]}"'},
+            ),
+            409,
+            "refused",
+        )
+        assert f"/lists/{METHOD}/options/sec/supersede" in retyped["detail"]
+    # Past the endpoint, the registry's own retyping refuses an option, and to make one.
+    auditor = world.users["auditor"]
+    with pytest.raises(Invalid, match="add or supersede it on its list"):
+        entries.supersede_as(
+            auditor,
+            Entity.objects.get(pk=sec["id"]),
+            CATEGORY,
+            expected_revision=sec["revision"],
+            reason="Wrong",
+        )
+    kinase = services.create(
+        world.users["admin"], "acme/protein.Protein", world.project, {"sequence": "MKVLAT"}
+    ).entity
+    entry = Entity.objects.get(pk=kinase.pk).entry
+    assert entry is not None
+    with pytest.raises(Invalid, match="add or supersede it on its list"):
+        entries.supersede_as(
+            auditor, entry, METHOD, expected_revision=entry.revision, reason="Wrong"
+        )
+    assert option(admin, None, "sec")["label"] == "Size exclusion"
+    assert option(admin, None, "sec")["superseded_by"] is None
+    assert api_as(world, "editor").get(f"/entries/{sec['id']}").status_code == 200
+
+
+def test_the_database_holds_a_label_once_in_its_list_in_any_case(world: World) -> None:
+    """Whatever writes a label, past the list's own checks, the database refuses a second
+    of it in the list in another case, and a list in another registry may have it."""
+    from django.db import IntegrityError, transaction
+
+    from iki_server.entities.values import shape
+
+    # Its fields are the list's, which the type checker doesn't know.
+    model: Any = shape(METHOD).entry_model
+    assert model is not None
+    dialysis = option(registrar(world), None, "dialysis")
+    with pytest.raises(IntegrityError), transaction.atomic():
+        model._default_manager.filter(pk=dialysis["id"]).update(label="SIZE EXCLUSION")
+    # Another list's options, and another registry's, have their own labels.
+    other = Registry.objects.create(name="Partner registry", all_teams=False)
+    theirs = lists.find(other.pk, METHOD, "sec")
+    assert theirs is not None and theirs.label == "Size exclusion"
+
+
+def test_deploying_stops_while_a_list_has_a_label_twice_in_any_case(world: World) -> None:
+    from django.db import connection
+
+    from iki_server.entities import unique
+    from iki_server.entities.values import shape
+
+    # Its fields are the list's, which the type checker doesn't know.
+    model: Any = shape(METHOD).entry_model
+    assert model is not None
+    dialysis = option(registrar(world), None, "dialysis")
+    with connection.cursor() as cursor:
+        dropped = lists.install_label_indexes(cursor, wanted=[])
+        assert dropped == []
+        model._default_manager.filter(pk=dialysis["id"]).update(label="size exclusion")
+        with pytest.raises(unique.Clash) as stopped:
+            lists.install_label_indexes(cursor)
+    assert "“size exclusion”" in str(stopped.value) and METHOD in str(stopped.value)
+
+
+def test_an_option_is_named_once_by_its_code_and_label_in_any_case(world: World) -> None:
+    """A sheet names an option by its code or its label, in any case, so no other option
+    of the list may have either as its code or label."""
+    admin = registrar(world)
+    added = admin.post(OPTIONS, {"code": "bca", "label": "BCA assay"}, **scope(world))
+    assert added.status_code == 201, added.content
+    # Its own code as its label, in another case, is still the one option.
+    own = admin.post(OPTIONS, {"code": "uf", "label": "UF"}, **scope(world))
+    assert own.status_code == 201, own.content
+    label_is_a_code = problem(
+        admin.post(OPTIONS, {"code": "bca_micro", "label": "BCA"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "`bca`'s code" in str(label_is_a_code["errors"]), label_is_a_code
+    code_is_a_label = problem(
+        admin.post(OPTIONS, {"code": "dialysis", "label": "Dialysis again"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "in the list already" in str(code_is_a_label["errors"])
+    micro = admin.post(OPTIONS, {"code": "mbca", "label": "MicroBCA"}, **scope(world))
+    assert micro.status_code == 201, micro.content
+    code_is_a_label = problem(
+        admin.post(OPTIONS, {"code": "microbca", "label": "Micro BCA kit"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "`mbca`'s label" in str(code_is_a_label["errors"]), code_is_a_label
+    code_in_another_case = problem(
+        admin.post(OPTIONS, {"code": "SEC", "label": "Gel filtration"}, **scope(world)),
+        422,
+        "validation_failed",
+    )
+    assert "`sec`'s code" in str(code_in_another_case["errors"]), code_in_another_case
+    # Nor may a relabel give an option another's code.
+    sec = option(admin, None, "sec")
+    relabelled = problem(
+        admin.patch(
+            f"{OPTIONS}/sec",
+            {"label": "Protein_A", "reason": "Mixed up"},
+            headers={"If-Match": f'"{sec["revision"]}"'},
+            **scope(world),
+        ),
+        422,
+        "validation_failed",
+    )
+    assert "`protein_a`'s code" in str(relabelled["errors"]), relabelled
+
+
+def test_a_sheet_refuses_a_value_that_names_two_options(world: World) -> None:
+    """Options written past the list's checks, one's label another's code: a cell that
+    names both names neither, and says which it could be."""
+    from iki_server.entities.values import shape
+    from iki_server.spreadsheets.services import Resolver
+
+    # Its fields are the list's, which the type checker doesn't know.
+    model: Any = shape(METHOD).entry_model
+    assert model is not None
+    found = {o["code"]: o["id"] for o in options(registrar(world), None)}
+    model._default_manager.filter(pk=found["dialysis"]).update(label="SEC")
+    method = shape(PREP).fields()["method"]
+    resolved = Resolver(world.users["editor"], world.project).find(
+        method, {"sec", "Sec", "SEC", "Protein A affinity"}
+    )
+    # Its exact code is its identity, as a download gives it; in another case, it's either.
+    assert str(resolved["sec"]) == found["sec"]
+    for text in ("Sec", "SEC"):
+        assert resolved[text] == (
+            "names more than one option of Purification methods: `dialysis` by its label and "
+            "`sec` by its code. Give the one you mean by its code, exactly."
+        ), resolved
+    assert str(resolved["Protein A affinity"]) == found["protein_a"]
+
+
+def test_an_archived_option_replaces_none(world: World) -> None:
+    """A replacement is what dropdowns offer instead, so it's one they offer."""
+    admin = registrar(world)
+    archived = admin.post(
+        f"{OPTIONS}/dialysis/archive",
+        {"reason": "We desalt instead"},
+        headers=read_at(admin, "dialysis"),
+        **scope(world),
+    )
+    assert archived.status_code == 200, archived.content
+    refused = problem(
+        admin.post(
+            f"{OPTIONS}/sec/supersede",
+            {"replacement": "dialysis", "reason": "Wrong code"},
+            headers=read_at(admin, "sec"),
+            **scope(world),
+        ),
+        422,
+        "validation_failed",
+    )
+    assert "archived: restore it first" in str(refused["errors"]), refused
+    assert option(admin, None, "sec")["superseded_by"] is None
+    restored = admin.post(
+        f"{OPTIONS}/dialysis/restore",
+        {"reason": "Back in use"},
+        headers=read_at(admin, "dialysis"),
+        **scope(world),
+    )
+    assert restored.status_code == 200, restored.content
+    done = admin.post(
+        f"{OPTIONS}/sec/supersede",
+        {"replacement": "dialysis", "reason": "Wrong code"},
+        headers=read_at(admin, "sec"),
+        **scope(world),
+    )
+    assert done.status_code == 200, done.content
+
+
+def test_what_a_record_names_from_a_list_is_upstream_of_it_and_readable(world: World) -> None:
+    """Every project in the registry reads its lists' options, so a walk upstream from a
+    record reaches the options it names, and counts none as hidden."""
+    editor = api_as(world, "editor")
+    found = {o["code"]: o for o in options(editor, world.project)}
+    made = prep(
+        editor,
+        world.project,
+        {"name": "Prep 4", "method": found["protein_a"]["id"], "polishing": [found["sec"]["id"]]},
+    ).json()
+    up = editor.get(f"/entities/{made['hrid']}/upstream", depth=3)
+    assert up.status_code == 200, up.content
+    assert up.json()["hidden"] == 0, up.json()
+    drawn = editor.get(f"/entities/{made['hrid']}/graph", up=3, down=0)
+    assert drawn.status_code == 200, drawn.content
+    assert drawn.json()["hidden"] == 0
+    shown = {e["id"]: e for e in drawn.json()["entities"]}
+    # The method, and the category the method names, as they read.
+    category = editor.get(f"/lists/{CATEGORY}/options", project=str(world.project.pk)).json()[
+        "items"
+    ][0]
+    assert {found["protein_a"]["id"], found["sec"]["id"], category["id"]} <= set(shown)
+    assert shown[found["protein_a"]["id"]]["title"] == "Protein A affinity"
+    # Whoever reads only another registry's project reads its options, and not these.
+    from django.db import connection
+
+    from iki_server.graph import queries
+
+    other = Registry.objects.create(name="Partner registry", all_teams=False)
+    other.teams.add(world.team)
+    partner = Project.objects.create(team=world.team, name="Partner work", registry=other)
+    ProjectMembership.objects.create(
+        project=partner, user=world.users["outsider"], role=ProjectRole.EDITOR
+    )
+    theirs = lists.find(other.pk, METHOD, "sec")
+    assert theirs is not None
+    reader = queries.reader(world.users["outsider"])
+    with connection.cursor() as cursor:
+        for entry, readable in ((found["sec"]["id"], False), (theirs.entry.pk, True)):
+            cursor.execute(f"SELECT {reader.readable(queries._uuid(entry))}")
+            assert cursor.fetchone()[0] is readable, entry
+
+
+@pytest.mark.django_db(transaction=True)
+def test_two_curators_at_once_cant_give_two_options_one_label(world: World) -> None:
+    """The second relabel waits for the first, then finds the label taken, whichever way
+    the change comes."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from django.db import connection, transaction
+
+    from iki_server.entities import entries
+    from iki_server.entities.values import Invalid
+
+    registrar(world)
+    user = world.users["auditor"]
+    sec = Entity.objects.get(pk=option(api_as(world, "auditor"), None, "sec")["id"])
+    dialysis = Entity.objects.get(pk=option(api_as(world, "auditor"), None, "dialysis")["id"])
+
+    def second() -> Any:
+        try:
+            entries.curate(
+                user,
+                dialysis,
+                {"label": "gel FILTRATION"},
+                reason="What we call it",
+                expected_revision=dialysis.revision,
+            )
+            return None
+        except Invalid as error:
+            return error.errors
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with transaction.atomic():
+            entries.curate(
+                user,
+                sec,
+                {"label": "Gel filtration"},
+                reason="What we call it",
+                expected_revision=sec.revision,
+            )
+            waiting = pool.submit(second)
+            deadline = time.monotonic() + 15
+            with connection.cursor() as cursor:
+                while True:
+                    cursor.execute(
+                        "SELECT EXISTS (SELECT FROM pg_locks WHERE NOT granted "
+                        "AND pg_backend_pid() = ANY(pg_blocking_pids(pid)))"
+                    )
+                    if cursor.fetchone()[0]:
+                        break
+                    assert not waiting.done(), "The second relabel didn't wait for the first."
+                    assert time.monotonic() < deadline, "The second relabel didn't wait."
+                    time.sleep(0.01)
+        errors = waiting.result(timeout=15)
+    assert errors is not None and "`sec`'s label" in str(errors["label"]), errors
+    labels = {o.code: o.label for o in lists.options(Registry.default().pk, METHOD)}
+    assert (labels["sec"], labels["dialysis"]) == ("Gel filtration", "Dialysis")

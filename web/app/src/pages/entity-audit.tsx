@@ -34,17 +34,17 @@ import {
   type EntityType,
   type FieldDef,
   type Revision,
-  type RevisionDetail,
 } from "../entities";
 import { usePageTitle } from "../layout";
 import { objectList, objectListText } from "../object-lists";
 import { entryRevisionQuery } from "../registries";
 import { DownloadIcon, ExportButton } from "./entity-export";
-import { trailCsvUrl } from "./entity-header";
-import { signaturesQuery } from "./entity-signatures";
-import { shownIn, useEntity, Value } from "./entity";
-import { KIND, revisionWhat, UtcTime, Via } from "./revision-text";
-import { Button, Loading, ProblemAlert, RelativeTime } from "../ui";
+import { trailCsvUrl, useEntity } from "./entity-header";
+import { shownIn, Value } from "./entity-value";
+import { UtcTime, Via } from "./revision-text";
+import { Button, buttonClass, Loading, ProblemAlert } from "../ui";
+import { ChangesTable } from "./revision-changes";
+import { RevisionFacts, revisionTitle } from "./revision-facts";
 
 export function EntityAudit() {
   const { entity, type } = useEntity();
@@ -293,81 +293,6 @@ function Revisions({
   );
 }
 
-/** A value as given, cut short: a genome's bases needn't fill the page. */
-function submittedText(value: unknown): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value);
-  return text.length > 80 ? `${text.slice(0, 80)}…` : text;
-}
-
-/** Failing observations from this revision (ADR 0127) and the hold review. */
-function HoldsOpened({ revision }: { revision: Revision }) {
-  const holds = revision.holds ?? [];
-  if (!holds.length) return null;
-  return (
-    <ul className="row-holds" aria-label={`Holds at revision ${String(revision.number)}`}>
-      {holds.map((h) => (
-        <li key={h.occurrence_id}>
-          Held for review: {h.label}. {h.message}{" "}
-          {h.legacy_gap
-            ? "Earlier hold evidence is incomplete"
-            : h.held_by
-              ? `Saved anyway by ${personName(h.held_by)}`
-              : "Held by Iki’s check of its plugins’ rules"}
-          {h.agent ? `, through ${h.agent}` : ""}
-          {h.reason === null ? ". Reason unavailable." : <>: “{h.reason}”</>}
-          {h.entry_revision == null
-            ? ""
-            : ` Registry entry revision ${String(h.entry_revision)}.`}{" "}
-          {h.reviewer && h.reviewed_at ? (
-            <>
-              Reviewed by {personName(h.reviewer)} <RelativeTime value={h.reviewed_at} />: “
-              {h.review_reason}”
-            </>
-          ) : (
-            "Still held, for review."
-          )}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** The electronic signatures that set a revision's state (ADR 0126), as people read them,
- * with each signer's reason. */
-function SignedWith({ entity, revision }: { entity: Entity; revision: Revision }) {
-  const listed = revision.state?.signatures ?? [];
-  const given = useQuery({
-    ...signaturesQuery(apiRef(entity), false),
-    enabled: listed.length > 0,
-  }).data?.signatures;
-  if (!listed.length) return null;
-  const byId = new Map((given ?? []).map((s) => [s.id, s]));
-  return (
-    <ul
-      className="trail-signatures"
-      aria-label={`Signatures of revision ${String(revision.number)}`}
-    >
-      {listed.map((s) => {
-        const found = byId.get(s.id);
-        return (
-          <li key={s.id}>
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6z" />
-              <path d="m9 12 2 2 4-4" />
-            </svg>
-            <span>
-              {s.present
-                ? s.manifestation
-                : `Signature ${s.id} is gone from the database: something outside Iki deleted it.`}
-              {found?.reason ? <> Reason: “{found.reason}”</> : null}
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
 /** One revision in the timeline: the record's, or with `entry`, its registry entry's. */
 function TrailRow({
   entity,
@@ -383,16 +308,8 @@ function TrailRow({
 }) {
   const [open, setOpen] = useState(false);
   const labels = new Map((type?.fields ?? []).map((f) => [f.name, f.label]));
-  const changed = revision.changed_fields.map((n) => labels.get(n) ?? n);
-  // An entry's revision made through a project the reader can't read: what, never who,
-  // how or when.
-  const disclosed = revision.created_at !== null;
   const which = `${entry ? "entry revision" : "revision"} ${String(revision.number)}`;
-  const what = disclosed
-    ? `${entry ? (KIND[revision.kind] ?? revision.kind) : revisionWhat(revision)} by ${personName(revision.user)}`
-    : changed.length
-      ? `Set ${changed.join(", ")}`
-      : (KIND[revision.kind] ?? revision.kind);
+  const number = String(revision.number);
   return (
     <li className="trail-rev">
       <span className="trail-node" aria-hidden="true">
@@ -401,7 +318,7 @@ function TrailRow({
       <div className="trail-body">
         <div className="trail-title">
           <span className="row-title">
-            Revision {revision.number}: {what}
+            Revision {revision.number}: {revisionTitle(revision, labels, Boolean(entry))}
           </span>
           <span className="trail-actions">
             {revision.changed_fields.length ? (
@@ -412,9 +329,30 @@ function TrailRow({
                   setOpen(!open);
                 }}
               >
-                {open ? "Hide changes" : `Show changes (${String(changed.length)})`}
+                {open ? "Hide changes" : `Show changes (${String(revision.changed_fields.length)})`}
               </Button>
             ) : null}
+            {/* It as it was, on a page of its own (ADR 0189). */}
+            {entry ? (
+              <Link
+                className={buttonClass("quiet")}
+                to="/entries/$ref/revisions/$number/"
+                params={{ ref: entry, number }}
+                aria-label={`Open ${which} as it was`}
+              >
+                Open
+              </Link>
+            ) : (
+              <Link
+                className={buttonClass("quiet")}
+                to="/entities/$ref/revisions/$number/"
+                params={{ ref: entity.hrid, number }}
+                search={recordSearch(entity)}
+                aria-label={`Open ${which} as it was`}
+              >
+                Open
+              </Link>
+            )}
             {/* Each of the record's revisions as it was, as a file (ADR 0171): the latest
                 too, as every revision is. An entry's revisions export as its records do. */}
             {entry ? null : (
@@ -431,32 +369,7 @@ function TrailRow({
             )}
           </span>
         </div>
-        <p className="trail-meta">
-          {revision.created_at ? (
-            <>
-              <UtcTime value={revision.created_at} /> · <Via revision={revision} />
-            </>
-          ) : (
-            "Through a project you can’t read"
-          )}
-          {changed.length ? ` · ${changed.join(", ")}` : ""}
-        </p>
-        {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
-        {/* Its identity as it was given, spelled other than its registry entry (ADR 0138). */}
-        {revision.submitted ? (
-          <p className="row-submitted">
-            Given as{" "}
-            {Object.entries(revision.submitted).map(([name, value], index) => (
-              <span key={name}>
-                {index ? "; " : ""}
-                {labels.get(name) ?? name}: <code>{submittedText(value)}</code>
-              </span>
-            ))}
-            , which its registry entry spells another way.
-          </p>
-        ) : null}
-        <SignedWith entity={entity} revision={revision} />
-        <HoldsOpened revision={revision} />
+        <RevisionFacts entity={entity} revision={revision} labels={labels} />
         {open ? (
           entry ? (
             <EntryChanges entry={entry} number={revision.number} type={type} entity={entity} />
@@ -499,141 +412,6 @@ function EntryChanges({
   const detail = useQuery(entryRevisionQuery(entry, number));
   if (detail.error) return <ProblemAlert problem={problemOf(detail.error)} />;
   return <ChangesTable detail={detail.data} type={type} owner={entity.owner_project} />;
-}
-
-/** What a revision changed, field by field: before and after. */
-export function ChangesTable({
-  detail,
-  type,
-  owner,
-}: {
-  detail: RevisionDetail | undefined;
-  type: EntityType | undefined;
-  /** Whose records references open: the record's project's. */
-  owner: { slug: string } | null | undefined;
-}) {
-  const caption = useId();
-  if (!detail) return <Loading label="Loading the changes…" />;
-  const fields = new Map((type?.fields ?? []).map((f) => [f.name, f]));
-  const changes = Object.entries(detail.changes);
-  if (changes.length === 0) return <p className="muted">No values changed.</p>;
-  const shown = { ...detail, owner_project: owner ?? null };
-  return (
-    // A long value scrolls across within it, by keyboard too.
-    // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrollable region
-    <div className="table-scroll trail-diff" tabIndex={0} role="group" aria-labelledby={caption}>
-      <table className="table">
-        <caption className="visually-hidden" id={caption}>
-          Changes in {detail.entry ? "entry revision" : "revision"} {detail.number}
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col">Field</th>
-            <th scope="col">Before</th>
-            <th scope="col">After</th>
-          </tr>
-        </thead>
-        <tbody>
-          {changes.map(([name, change]) => {
-            const field = fields.get(name);
-            return (
-              <tr key={name}>
-                <th scope="row">{field?.label ?? name}</th>
-                <td className="diff-before">
-                  {field ? (
-                    <Value field={field} value={change.before} entity={shown} />
-                  ) : (
-                    JSON.stringify(change.before)
-                  )}
-                </td>
-                <td className="diff-after">
-                  {field ? (
-                    <Value field={field} value={change.after} entity={shown} />
-                  ) : (
-                    JSON.stringify(change.after)
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/**
- * A registry entry's revision, on the entry's own page (ADR 0115). Who made it, how and
- * when are told for changes made through the reader's projects, and for registrars'
- * changes; of anything else, only what it set.
- */
-export function EntryRevisionRow({
-  entry,
-  revision,
-  type,
-}: {
-  /** The entry's ID. */
-  entry: string;
-  revision: Revision;
-  type: EntityType | undefined;
-}) {
-  const [open, setOpen] = useState(false);
-  const labels = new Map((type?.fields ?? []).map((f) => [f.name, f.label]));
-  const changed = revision.changed_fields.map((n) => labels.get(n) ?? n);
-  const what = KIND[revision.kind] ?? revision.kind;
-  const disclosed = revision.created_at !== null;
-  return (
-    <li className="row row-stacked">
-      <div className="row-main">
-        <span className="row-title">
-          Revision {revision.number}:{" "}
-          {disclosed
-            ? `${what} by ${personName(revision.user)}`
-            : changed.length
-              ? `Set ${changed.join(", ")}`
-              : what}
-        </span>
-        {revision.created_at ? (
-          <span className="row-meta">
-            <RelativeTime value={revision.created_at} /> <Via revision={revision} />
-            {changed.length ? ` · ${changed.join(", ")}` : ""}
-          </span>
-        ) : (
-          // Made through a project the reader can't read: what, never who, how or when.
-          <span className="row-meta">Through a project you can’t read</span>
-        )}
-        {revision.reason ? <p className="row-reason">“{revision.reason}”</p> : null}
-        {open ? <EntryOnlyChanges entry={entry} number={revision.number} type={type} /> : null}
-      </div>
-      {revision.changed_fields.length ? (
-        <div className="row-actions">
-          <Button
-            variant="quiet"
-            label={`${open ? "Hide" : "Show"} changes in entry revision ${String(revision.number)}`}
-            onClick={() => {
-              setOpen(!open);
-            }}
-          >
-            {open ? "Hide changes" : "Show changes"}
-          </Button>
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
-function EntryOnlyChanges({
-  entry,
-  number,
-  type,
-}: {
-  entry: string;
-  number: number;
-  type: EntityType | undefined;
-}) {
-  const detail = useQuery(entryRevisionQuery(entry, number));
-  if (detail.error) return <ProblemAlert problem={problemOf(detail.error)} />;
-  return <ChangesTable detail={detail.data} type={type} owner={null} />;
 }
 
 // --- By field ----------------------------------------------------------------------------------

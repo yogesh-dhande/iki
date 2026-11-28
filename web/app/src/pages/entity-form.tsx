@@ -68,7 +68,7 @@ import { fieldLabels, isServiceField, listed, writableFields } from "../requests
 import { breakErrors, useRuleBreaks, type RuleBreak } from "../rules";
 
 import { AppPreview } from "./app-preview";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 type Drafts = Record<string, Draft>;
 
@@ -152,6 +152,9 @@ function Fields({
   creating?: boolean;
 }) {
   const computed = type.fields.filter((f) => f.computed && !f.detached);
+  // Worked out by an expression as it's saved (ADR 0297), or set by its plugin's actions.
+  const worked = computed.filter((f) => f.cel);
+  const byActions = computed.filter((f) => !f.cel);
   const kept = type.fields.filter((f) => f.detached);
   // State fields (ADR 0125) start where their type says, and are set on the record's page.
   const stateful = type.fields.filter((f) => f.type === "state" && !f.detached);
@@ -180,9 +183,15 @@ function Fields({
           projectId={typeof projectId === "string" ? projectId : projectId(field)}
         />
       ))}
-      {computed.length ? (
+      {worked.length ? (
         <p className="muted">
-          Actions set {computed.map((f) => inSentence(f.label)).join(", ")}: they aren’t typed in.
+          {worked.map((f) => f.label).join(", ")}: worked out from its other values as it’s saved,
+          so {worked.length === 1 ? "it isn’t" : "they aren’t"} typed in.
+        </p>
+      ) : null}
+      {byActions.length ? (
+        <p className="muted">
+          Actions set {byActions.map((f) => inSentence(f.label)).join(", ")}: they aren’t typed in.
         </p>
       ) : null}
       {states.length ? (

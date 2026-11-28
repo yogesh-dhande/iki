@@ -6098,6 +6098,14 @@
             ],
             "description": "How much of each of its records there is (ADR 0139), if it keeps that: drawn, transferred, split into aliquots and adjusted through `/entities/{ref}/amount`, never below zero."
           },
+          "annotations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Its lab's own metadata about the type, by name, such as its owner or validation status (ADR 0293): shown, never acted on.",
+            "title": "Annotations",
+            "type": "object"
+          },
           "description": {
             "anyOf": [
               {
@@ -6187,6 +6195,7 @@
                 "type": "null"
               }
             ],
+            "description": "The prefix of its entities' HRIDs, such as PRT. None for an abstract type, and for a lab list, whose options are named by their code and numbered in the one sequence every list's options share (ADR 0295).",
             "title": "Hrid Prefix"
           },
           "identity": {
@@ -7529,8 +7538,28 @@
             "title": "Assignment States",
             "type": "array"
           },
+          "cel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.",
+            "title": "Cel"
+          },
+          "cel_reads": {
+            "description": "The record's fields `cel` reads: changing one changes this field.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cel Reads",
+            "type": "array"
+          },
           "computed": {
-            "description": "Set only by actions.",
+            "description": "Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).",
             "title": "Computed",
             "type": "boolean"
           },
@@ -12686,41 +12715,6 @@
         "title": "ListCan",
         "type": "object"
       },
-      "ListCuratorOut": {
-        "properties": {
-          "appointed_at": {
-            "format": "date-time",
-            "title": "Appointed At",
-            "type": "string"
-          },
-          "appointed_by": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/UserOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "list": {
-            "description": "The list's type, such as iki/lots.PurityMethod.",
-            "title": "List",
-            "type": "string"
-          },
-          "user": {
-            "$ref": "#/components/schemas/UserOut"
-          }
-        },
-        "required": [
-          "list",
-          "user",
-          "appointed_by",
-          "appointed_at"
-        ],
-        "title": "ListCuratorOut",
-        "type": "object"
-      },
       "ListOut": {
         "properties": {
           "can": {
@@ -14993,6 +14987,7 @@
             "type": "string"
           },
           "hrid": {
+            "description": "Its page's address, such as OPTION-000123, from the one sequence every list's options share (ADR 0295). It's shown by its label and named by its code.",
             "title": "Hrid",
             "type": "string"
           },
@@ -17163,6 +17158,35 @@
         "title": "Page[RegistryOut]",
         "type": "object"
       },
+      "Page_RegistryRoleOut_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RegistryRoleOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pass as cursor for the next page; null at the end.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "title": "Page[RegistryRoleOut]",
+        "type": "object"
+      },
       "Page_RevisionOut_": {
         "properties": {
           "items": {
@@ -18010,8 +18034,28 @@
             "title": "Assignment States",
             "type": "array"
           },
+          "cel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A computed field's CEL expression, which Iki works its value out by at every save, over `record` (ADR 0297). Null for a field people or runs set.",
+            "title": "Cel"
+          },
+          "cel_reads": {
+            "description": "The record's fields `cel` reads: changing one changes this field.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cel Reads",
+            "type": "array"
+          },
           "computed": {
-            "description": "Set only by actions.",
+            "description": "Set by Iki, never by a person: by actions' runs, or worked out from the record's own values at every save, by `cel` (ADR 0297).",
             "title": "Computed",
             "type": "boolean"
           },
@@ -22362,35 +22406,6 @@
         "title": "RefineIn",
         "type": "object"
       },
-      "RegistrarOut": {
-        "properties": {
-          "appointed_at": {
-            "format": "date-time",
-            "title": "Appointed At",
-            "type": "string"
-          },
-          "appointed_by": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/UserOut"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "user": {
-            "$ref": "#/components/schemas/UserOut"
-          }
-        },
-        "required": [
-          "user",
-          "appointed_by",
-          "appointed_at"
-        ],
-        "title": "RegistrarOut",
-        "type": "object"
-      },
       "RegistrationIn": {
         "properties": {
           "acquired_at": {
@@ -22607,7 +22622,7 @@
             "type": "boolean"
           },
           "manage": {
-            "description": "Rename it, choose its teams, appoint its registrars.",
+            "description": "Rename it, choose its teams, grant its roles.",
             "title": "Manage",
             "type": "boolean"
           }
@@ -22941,6 +22956,167 @@
           "slug"
         ],
         "title": "RegistryRef",
+        "type": "object"
+      },
+      "RegistryRoleFilters": {
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the previous page's next_cursor.",
+            "title": "Cursor"
+          },
+          "limit": {
+            "default": 50,
+            "description": "Items per page.",
+            "maximum": 100,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "list": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only the curators of this lab list.",
+            "title": "List"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "registrar",
+                  "list_curator"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "user": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Only this person's roles.",
+            "title": "User"
+          }
+        },
+        "title": "RegistryRoleFilters",
+        "type": "object"
+      },
+      "RegistryRoleIn": {
+        "properties": {
+          "list": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The lab list, for a list curator; none for a registrar.",
+            "title": "List"
+          },
+          "role": {
+            "enum": [
+              "registrar",
+              "list_curator"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "user": {
+            "description": "The person: never a service account.",
+            "format": "uuid",
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "user"
+        ],
+        "title": "RegistryRoleIn",
+        "type": "object"
+      },
+      "RegistryRoleOut": {
+        "properties": {
+          "granted_at": {
+            "format": "date-time",
+            "title": "Granted At",
+            "type": "string"
+          },
+          "granted_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "description": "The grant's: GET or DELETE /registries/{registry_id}/roles/{id}.",
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "list": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A list curator's list, such as iki/lots.PurityMethod. Null for a role over the whole registry.",
+            "title": "List"
+          },
+          "role": {
+            "description": "registrar: curates the registry's facts and supersedes its entries, and curates every lab list in it. list_curator: curates one lab list (ADR 0270).",
+            "enum": [
+              "registrar",
+              "list_curator"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "list",
+          "user",
+          "granted_by",
+          "granted_at"
+        ],
+        "title": "RegistryRoleOut",
         "type": "object"
       },
       "RelatedOut": {
@@ -43994,7 +44170,7 @@
         ]
       },
       "patch": {
-        "description": "Its registry's registrars, with a reason. Audited, and told to every holding project:\nwho, when and why. Its identity and derived values never change: supersede it instead.",
+        "description": "Its registry's registrars, with a reason. Audited, and told to every holding project:\nwho, when and why. Its identity and derived values never change: supersede it instead.\nA lab list's option changes on its list (`/lists/{name}/options/{code}`), not here.",
         "operationId": "iki_server_api_registries_patch_entry",
         "parameters": [
           {
@@ -44333,7 +44509,7 @@
     },
     "/api/v1/entries/{ref}/supersede": {
       "post": {
-        "description": "Its registry's registrars replace a mistaken entry with another in the registry, for\ngood, from the revision they read (If-Match): one of its type, or of another type under\nits identity; or with a new entry of its identity as another type (``type``, ADR 0165).\nEach holding project's Admins, and whoever added its record, are told, to move their\nrecords to the replacement.",
+        "description": "Its registry's registrars replace a mistaken entry with another in the registry, for\ngood, from the revision they read (If-Match): one of its type, or of another type under\nits identity; or with a new entry of its identity as another type (``type``, ADR 0165).\nEach holding project's Admins, and whoever added its record, are told, to move their\nrecords to the replacement. A lab list's option is superseded on its list\n(`/lists/{name}/options/{code}/supersede`), not here, either way.",
         "operationId": "iki_server_api_registries_supersede_entry",
         "parameters": [
           {
@@ -53650,10 +53826,10 @@
         ]
       }
     },
-    "/api/v1/registries/{registry_id}/list-curators": {
+    "/api/v1/registries/{registry_id}/roles": {
       "get": {
-        "description": "Each list's curators. Its registrars curate every list besides.",
-        "operationId": "iki_server_api_lists_list_curators",
+        "description": "Its registrars, and its lab lists' curators, oldest grant first. A registrar curates\nevery list besides the lists' own curators.",
+        "operationId": "iki_server_api_registries_list_registry_roles",
         "parameters": [
           {
             "in": "path",
@@ -53664,6 +53840,95 @@
               "title": "Registry Id",
               "type": "string"
             }
+          },
+          {
+            "description": "From the previous page's next_cursor.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "From the previous page's next_cursor.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "description": "Items per page.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page.",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "registrar",
+                    "list_curator"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
+            }
+          },
+          {
+            "description": "Only the curators of this lab list.",
+            "in": "query",
+            "name": "list",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only the curators of this lab list.",
+              "title": "List"
+            }
+          },
+          {
+            "description": "Only this person's roles.",
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this person's roles.",
+              "title": "User"
+            }
           }
         ],
         "responses": {
@@ -53671,11 +53936,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ListCuratorOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_RegistryRoleOut_"
                 }
               }
             },
@@ -53693,15 +53954,79 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Who curates a registry's lab lists",
+        "summary": "Who holds a registry's roles",
         "tags": [
-          "lists"
+          "registries"
+        ]
+      },
+      "post": {
+        "description": "Org Admins grant them: a registrar, over the whole registry, or a lab list's curator,\na list at a time, such as a QC lead for deviation categories. 201 with the new grant,\nor 200 with the one they hold already. Being an Org Admin doesn't make someone either.",
+        "operationId": "iki_server_api_registries_grant_registry_role",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "registry_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Registry Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistryRoleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryRoleOut"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegistryRoleOut"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Problem"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          },
+          {
+            "SessionAuth": []
+          }
+        ],
+        "summary": "Give someone a registry role",
+        "tags": [
+          "registries"
         ]
       }
     },
-    "/api/v1/registries/{registry_id}/list-curators/{name}/{user_id}": {
+    "/api/v1/registries/{registry_id}/roles/{role_id}": {
       "delete": {
-        "operationId": "iki_server_api_lists_dismiss_curator",
+        "description": "Org Admins. A curator of a list whose plugin was removed can still be removed.",
+        "operationId": "iki_server_api_registries_remove_registry_role",
         "parameters": [
           {
             "in": "path",
@@ -53715,20 +54040,11 @@
           },
           {
             "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "user_id",
+            "name": "role_id",
             "required": true,
             "schema": {
               "format": "uuid",
-              "title": "User Id",
+              "title": "Role Id",
               "type": "string"
             }
           }
@@ -53749,88 +54065,13 @@
             "SessionAuth": []
           }
         ],
-        "summary": "Stop someone curating a lab list",
+        "summary": "Take a registry role away",
         "tags": [
-          "lists"
+          "registries"
         ]
       },
-      "put": {
-        "description": "Org Admins appoint them, a list at a time: a QC lead for deviation categories, a\npurification lead for lot methods. Being an Org Admin doesn't make someone one.",
-        "operationId": "iki_server_api_lists_appoint_curator",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "registry_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Registry Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "name",
-            "required": true,
-            "schema": {
-              "title": "Name",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "User Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCuratorOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ListCuratorOut"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "Make someone a lab list's curator",
-        "tags": [
-          "lists"
-        ]
-      }
-    },
-    "/api/v1/registries/{registry_id}/registrars": {
       "get": {
-        "description": "Who curates its entries' facts and supersedes them.",
-        "operationId": "iki_server_api_registries_list_registrars",
+        "operationId": "iki_server_api_registries_get_registry_role",
         "parameters": [
           {
             "in": "path",
@@ -53841,6 +54082,16 @@
               "title": "Registry Id",
               "type": "string"
             }
+          },
+          {
+            "in": "path",
+            "name": "role_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Role Id",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -53848,11 +54099,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/RegistrarOut"
-                  },
-                  "title": "Response",
-                  "type": "array"
+                  "$ref": "#/components/schemas/RegistryRoleOut"
                 }
               }
             },
@@ -53870,117 +54117,7 @@
             "SessionAuth": []
           }
         ],
-        "summary": "A registry's registrars",
-        "tags": [
-          "registries"
-        ]
-      }
-    },
-    "/api/v1/registries/{registry_id}/registrars/{user_id}": {
-      "delete": {
-        "operationId": "iki_server_api_registries_dismiss_registrar",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "registry_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Registry Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "User Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "Stop someone being a registrar",
-        "tags": [
-          "registries"
-        ]
-      },
-      "put": {
-        "description": "Org Admins appoint them, a registry at a time. Being an Org Admin doesn't make\nsomeone one.",
-        "operationId": "iki_server_api_registries_appoint_registrar",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "registry_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "Registry Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "user_id",
-            "required": true,
-            "schema": {
-              "format": "uuid",
-              "title": "User Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistrarOut"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RegistrarOut"
-                }
-              }
-            },
-            "description": "Created"
-          },
-          "default": {
-            "$ref": "#/components/responses/Problem"
-          }
-        },
-        "security": [
-          {
-            "BearerAuth": []
-          },
-          {
-            "SessionAuth": []
-          }
-        ],
-        "summary": "Make someone a registrar",
+        "summary": "A registry role",
         "tags": [
           "registries"
         ]

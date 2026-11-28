@@ -13,6 +13,8 @@ label: DNA sequence
 extends: Sequence
 schema_version: 2
 hrid: { prefix: DNA }
+annotations:
+  gxp_classification: GAMP 5 category 4
 identity: [bases]
 fields:
   bases: { type: string, format: dna_sequence, required: true, immutable: true }

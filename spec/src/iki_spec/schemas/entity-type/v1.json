@@ -5,7 +5,13 @@
   "description": "A kind of entity, such as a protein or a compound. Each type gets its own table, with history and per-field provenance.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "schema_version"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "description": "The spec version this manifest follows.",
       "const": "iki/v1"
@@ -84,27 +90,6 @@
       "additionalProperties": {
         "$ref": "https://ikisci.org/schemas/field/v1"
       }
-    },
-    "list": {
-      "description": "Its entities are the options of a list the lab curates (ADR 0270), such as lot methods or deviation categories, offered as a dropdown wherever a field refers to it. Each option is a registry entry, identified by its `code`, with a `label`, a `description` and a place in the list's order, which its registry's registrars and list curators change, each with a reason; projects in the registry pick from it. Its other fields are its options' too. `true` for a list with no starting options. Only descriptive vocabulary is a list: a value a guard, state, rule, signature or computation reads stays an `enum`.",
-      "oneOf": [
-        { "const": true },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "options": {
-              "description": "The options each registry starts with, in the order the list shows them. Installing the plugin adds them to every registry, and a registry made later gets them too; an upgrade adds those a registry hasn't got, by code, at the end of its list, and never changes, reorders or restores the options a registry has.",
-              "type": "array",
-              "minItems": 1,
-              "maxItems": 1000,
-              "items": {
-                "$ref": "#/$defs/listOption"
-              }
-            }
-          }
-        }
-      ]
     },
     "refines": {
       "description": "What this type's records take in fields it inherits, within what its parent's take. For a list of rows whose rows have roles by one of their fields (`by`): every role its rows may have, each with how many rows take it and what their references may refer to (ADR 0164); a specific complex says what its parts are this way. For a reference, or a list of references: the types it may refer to, each with its subtypes (ADR 0235); a service's result says which of its requests it answers this way.",
@@ -278,7 +263,8 @@
       "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
     },
     "draw_purposes": {
-      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles.",
+      "x-iki-provisional": true,
+      "description": "The lab roles allowed to draw for each purpose in the record's project. Routine draws are open to Editors unless restricted. QA sampling requires a declaration. Subtypes inherit each purpose and may narrow its allowed roles. Provisional: a minor release may change its shape (ADR 0293).",
       "type": "object",
       "propertyNames": {
         "enum": ["routine", "qa_sampling"]
@@ -451,7 +437,8 @@
       "additionalProperties": false
     },
     "work_item": {
-      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them.",
+      "x-iki-provisional": true,
+      "description": "Its records are internal work for a request (ADR 0132). Only the service project creates and keeps them. Provisional: a minor release may change its shape (ADR 0293).",
       "type": "object",
       "required": ["of"],
       "properties": {
@@ -594,6 +581,7 @@
       }
     },
     "stock_catalogue": {
+      "x-iki-provisional": true,
       "type": "object",
       "required": ["name", "unit", "threshold", "notify", "lots", "orders"],
       "properties": {
@@ -672,7 +660,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190)."
+      "description": "Maps a catalogue record to its lots, ledger unit, routine-use reorder threshold, open orders and project alert recipients (ADR 0190). Provisional: a minor release may change its shape (ADR 0293)."
     },
     "amount": {
       "description": "How much of each record there is (ADR 0139): kept in `unit`, never below zero, and changed only by drawing, transferring, splitting into aliquots or adjusting it, each kept in its ledger.",
@@ -749,31 +737,6 @@
   },
   "additionalProperties": false,
   "$defs": {
-    "listOption": {
-      "description": "A starting option: its code and label, and values for the type's other fields, by name. A reference to another list's option names it by its code.",
-      "type": "object",
-      "required": ["code", "label"],
-      "properties": {
-        "code": {
-          "description": "Its identity in the list, which never changes, such as `hplc`: what exports and the API give for it, and what an upgrade finds it by. A wrong one is superseded, never changed.",
-          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/enumValue"
-        },
-        "label": {
-          "description": "What people see and pick, such as `HPLC purification`: one line, unique in the list. Curators can change it, with a reason.",
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 200
-        },
-        "description": {
-          "description": "What it means, or when to choose it, shown beside it.",
-          "type": "string",
-          "maxLength": 2000
-        }
-      },
-      "propertyNames": {
-        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
-      }
-    },
     "pluginExport": {
       "type": "object",
       "required": ["export", "fields"],

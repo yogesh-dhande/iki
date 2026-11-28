@@ -55,8 +55,8 @@ import {
   Time,
   useMessages,
 } from "../ui";
-import { registryNote, Value } from "./entity";
-import { EntryRevisionRow } from "./entity-audit";
+import { registryNote, Value } from "./entity-value";
+import { EntryRevisionRow } from "./revision-changes";
 
 // --- A registry's entries ------------------------------------------------------------------
 
@@ -821,8 +821,10 @@ function identityOf(mine: EntityType | undefined): string {
  * it to its replacement here, as the notification about it says.
  */
 function OptionPage({ entry, type }: { entry: Entry; type: EntityType }) {
-  const label = typeof entry.values["label"] === "string" ? entry.values["label"] : entry.hrid;
-  const code = typeof entry.values["code"] === "string" ? entry.values["code"] : "";
+  // An option is shown by its label and named by its code: its HRID is only its page's
+  // address, from the sequence every list's options share (ADR 0295).
+  const code = typeof entry.values["code"] === "string" ? entry.values["code"] : entry.hrid;
+  const label = typeof entry.values["label"] === "string" ? entry.values["label"] : code;
   const fields = type.fields.filter((f) => f.name !== "position");
   // What's become of it, as its list says: archived, or superseded by which option.
   const option = useQuery(
@@ -856,7 +858,7 @@ function OptionPage({ entry, type }: { entry: Entry; type: EntityType }) {
             >
               {type.label_plural}
             </Link>{" "}
-            · {entry.registry.name} registry · {entry.hrid}
+            · {entry.registry.name} registry · <code>{code}</code>
           </>
         }
         title={label}

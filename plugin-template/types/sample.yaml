@@ -11,7 +11,10 @@ schema_version: 1
 # Its records are samples (ADR 0177): a project's Files finds files by them.
 sample: true
 description: A physical sample in the lab.
-hrid: { prefix: SMP }
+# Its HRIDs, such as ASMP-000001. Choose a prefix of your own: `iki plugin validate`
+# warns of one Iki's plugins use or reserve (iki/samples has SMP), since a deployment
+# that installs both would have to give one of them another.
+hrid: { prefix: ASMP }
 fields:
   name: { type: string, required: true, max_length: 200, indexed: true }
   storage: { type: string, max_length: 100 }

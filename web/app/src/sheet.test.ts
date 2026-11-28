@@ -28,6 +28,7 @@ import {
   toTsv,
   undo,
   whyLocked,
+  whyNotInACell,
   withNewRows,
   withoutNewRows,
   written,
@@ -142,6 +143,20 @@ describe("a sheet's columns", () => {
     expect(column("status").readOnly).toMatch(/a state/);
     expect(column("mass").readOnly).toMatch(/computed/);
     expect(column(LOCATION).newOnly).toBe(true);
+  });
+
+  it("say a field worked out by an expression is, not that an action sets it", () => {
+    const worked = field({
+      name: "fraction",
+      label: "Fraction",
+      type: "float",
+      computed: true,
+      cel: "record.purity / 100.0",
+      cel_reads: ["purity"],
+    });
+    expect(whyNotInACell(worked)).toBe(
+      "It’s worked out from the record’s other values as it’s saved.",
+    );
   });
 
   it("leave out a place for a type whose records are scanned to be put away", () => {

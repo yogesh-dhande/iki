@@ -5,7 +5,13 @@
   "description": "A kind of machine a deployment runs actions on: how it starts, its size, where it runs and what it costs. Compute admins keep templates in the deployment's config repository, in compute.yaml.",
   "type": "object",
   "required": ["apiVersion", "kind", "name", "provisioner", "capacity"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "const": "iki/v1"
     },

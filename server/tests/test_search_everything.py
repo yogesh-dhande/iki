@@ -335,6 +335,38 @@ def test_saved_views_are_your_own_and_those_shared(world: World) -> None:
     assert titles(body, "saved_views") == ["Kinases shared", "Kinases viewer's"]
 
 
+def test_a_view_the_grid_cant_show_opens_from_its_own_address(world: World) -> None:
+    """Saved with the API, an exact type alone or either of two conditions can't open in the
+    grid. Search opens each where the sidebar does, the page that says so, never the
+    project's grid without its conditions (ADR 0176)."""
+    editor = world.users["editor"]
+    exact = saved_searches.create(
+        editor,
+        world.project,
+        name="Kinases, this type only",
+        query={"type": "acme/protein.Protein", "exact_type": True},
+    )
+    either = saved_searches.create(
+        editor,
+        world.project,
+        name="Kinases, either name",
+        query={
+            "type": "acme/protein.Protein",
+            "where": {
+                "any": [
+                    {"field": "name", "op": "eq", "value": "Aurora kinase A"},
+                    {"field": "name", "op": "eq", "value": "Aurora kinase B"},
+                ]
+            },
+        },
+    )
+    body = searched(Api(world.browser("editor")), q="kinases", kind="saved_views")
+    assert [(v["title"], v["href"]) for v in group(body, "saved_views")["results"]] == [
+        ("Kinases, either name", f"/saved-searches/{either.pk}/"),
+        ("Kinases, this type only", f"/saved-searches/{exact.pk}/"),
+    ]
+
+
 def test_a_view_of_every_project_is_its_owners_and_opens_in_all_entities(world: World) -> None:
     """A saved search with no project (ADR 0176) searches every project its owner reads, and
     is theirs alone: search finds it for them, in All entities, and for no one else."""

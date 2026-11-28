@@ -8,8 +8,10 @@ schema the module type-checks it against: a rule reads ``record`` (the record as
 be saved, and one step into what it refers to), ``now`` and ``today``; a guard reads
 those, and who is acting (``actor``), the change (``state``), each state field's changes
 (``history``, and ``last``, the latest change into each state), the value edits since each
-state's latest entry (``edits``) and the record's open holds (``holds``). The server builds
-the same schemas from the installed types, so what was checked here is what is evaluated
+state's latest entry (``edits``) and the record's open holds (``holds``). A computed field's
+expression (``computed: {cel: …}``, ADR 0297) reads ``record`` alone, its own values with
+its references as IDs, and works out to the field's kind of value. The server builds the
+same schemas from the installed types, so what was checked here is what is evaluated
 there.
 """
 
@@ -40,11 +42,16 @@ if TYPE_CHECKING:
     from iki_spec.yamlsource import Document
 
 __all__ = [
+    "COMPUTED_TYPES",
     "CONDITION",
     "MESSAGE",
+    "VALUE",
     "Checked",
     "Outcome",
     "check",
+    "computed_order",
+    "computed_result",
+    "computed_variables",
     "draw_variables",
     "evaluate",
     "guard_variables",
@@ -55,9 +62,11 @@ __all__ = [
     "type_check",
 ]
 
-#: The kinds of expression: one that's true or false, and text with expressions in it.
+#: The kinds of expression: one that's true or false, text with expressions in it, and a
+#: computed field's value (ADR 0297).
 CONDITION = "condition"
 MESSAGE = "message"
+VALUE = "value"
 
 #: A lab list option's code, read through one of the record's references.
 _LIST_CODE = re.compile(r"\brecord\s*\.\s*([a-z][a-z0-9_]*)\s*\.\s*code\b")
@@ -95,6 +104,10 @@ RANGE_TYPES: Mapping[str, str] = {
 }
 #: Fields `while` can name.
 WHILE_TYPES = frozenset({"enum", "state", "bool"})
+#: The kinds of field an expression can compute: one value each (ADR 0297).
+COMPUTED_TYPES = frozenset(
+    {"string", "text", "int", "float", "quantity", "bool", "enum", "date", "datetime"}
+)
 
 _TIMESTAMP: dict[str, Any] = {"type": "timestamp"}
 _STRING: dict[str, Any] = {"type": "string"}
@@ -156,6 +169,45 @@ def record_schema(
 def rule_variables(record: dict[str, Any]) -> dict[str, Any]:
     """What a rule's expressions read: the record as it will be saved, and the time."""
     return {"record": record, "now": dict(_TIMESTAMP), "today": dict(_TIMESTAMP)}
+
+
+def computed_variables(label: str, fields: Mapping[str, Field]) -> dict[str, Any]:
+    """What a computed field's expression reads (ADR 0297): the record as it will be saved,
+    its references as their IDs. Nothing else: the validator refuses reading a reference,
+    a registry field, a state, the record's ID or HRID, ``now`` or ``today``, which it
+    declares here only to say so."""
+    return {
+        "record": record_schema(label, fields, None),
+        "now": dict(_TIMESTAMP),
+        "today": dict(_TIMESTAMP),
+    }
+
+
+def computed_result(f: Field) -> dict[str, Any]:
+    """What a computed field's expression must work out to: its value, as an expression
+    reads one (a quantity's number in its unit, a date's midnight UTC)."""
+    return field_schema(f, None)
+
+
+def computed_order(fields: Mapping[str, Field]) -> list[str]:
+    """The computed fields among ``fields`` with expressions, in an order where each comes
+    after those it reads (the validator refuses a cycle), and otherwise as declared."""
+    worked = {n: f for n, f in fields.items() if f.cel is not None and not f.removed}
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def visit(name: str, path: tuple[str, ...]) -> None:
+        if name in seen or name in path:
+            return
+        for read in worked[name].cel_reads:
+            if read in worked:
+                visit(read, (*path, name))
+        seen.add(name)
+        out.append(name)
+
+    for name in worked:
+        visit(name, ())
+    return out
 
 
 def draw_variables(label: str, fields: Mapping[str, Field]) -> dict[str, Any]:
@@ -359,20 +411,31 @@ def state_origins(field: Field, target: str, origins: Sequence[str]) -> list[boo
     return results
 
 
-def type_check(
-    variables: Mapping[str, Any], expressions: Sequence[tuple[str, str]]
-) -> list[Checked]:
-    """Whether each (source, kind) type-checks against ``variables``' schemas, and what it
-    reads. Raises :class:`iki_spec.wasm.UnavailableError` without the module."""
+#: An expression to check or evaluate: its source and kind, and for a value, the schema of
+#: what it must work out to (:func:`computed_result`).
+Asked = tuple[str, str] | tuple[str, str, Mapping[str, Any]]
+
+
+def _asked(expression: Asked) -> dict[str, Any]:
+    out: dict[str, Any] = {"source": expression[0], "kind": expression[1]}
+    if len(expression) == 3:
+        out["result"] = dict(expression[2])
+    return out
+
+
+def type_check(variables: Mapping[str, Any], expressions: Sequence[Asked]) -> list[Checked]:
+    """Whether each (source, kind[, result]) type-checks against ``variables``' schemas,
+    and what it reads. Raises :class:`iki_spec.wasm.UnavailableError` without the
+    module."""
     if not expressions:
         return []
     found = wasm.call(
         "iki_check_rules",
         {
             "variables": dict(variables),
-            "expressions": [{"source": s, "kind": k} for s, k in expressions],
+            "expressions": [_asked(e) for e in expressions],
         },
-        _fuel(s for s, _ in expressions),
+        _fuel(e[0] for e in expressions),
     )["checked"]
     out = []
     for each in found:
@@ -392,33 +455,35 @@ def type_check(
 
 @dataclass(frozen=True)
 class Outcome:
-    """One expression's result in one context: a condition's value, a message's text, or
-    why it has neither, and whether that's because a value it reads is empty."""
+    """One expression's result in one context: a condition's value, a message's text, a
+    computed value (as JSON: ``result``, None when it's empty), or why it has none, and
+    whether that's because a value it reads is empty."""
 
     value: bool | None = None
     text: str | None = None
     error: str | None = None
     empty: bool = False
+    result: Any = None
 
 
 def evaluate(
     variables: Mapping[str, Any],
-    expressions: Sequence[tuple[str, str]],
+    expressions: Sequence[Asked],
     contexts: Sequence[Mapping[str, Any]],
 ) -> list[list[Outcome]]:
-    """Each (source, kind) in each context (the variables' values, as JSON): a list per
-    context. Raises :class:`iki_spec.wasm.UnavailableError` without the module, or when
-    evaluating runs out of its budget."""
+    """Each (source, kind[, result]) in each context (the variables' values, as JSON): a
+    list per context. Raises :class:`iki_spec.wasm.UnavailableError` without the module,
+    or when evaluating runs out of its budget."""
     if not expressions or not contexts:
         return [[] for _ in contexts]
     found = wasm.call(
         "iki_evaluate_rules",
         {
             "variables": dict(variables),
-            "expressions": [{"source": s, "kind": k} for s, k in expressions],
+            "expressions": [_asked(e) for e in expressions],
             "contexts": [dict(c) for c in contexts],
         },
-        _fuel((s for s, _ in expressions), len(contexts)),
+        _fuel((e[0] for e in expressions), len(contexts)),
     )["results"]
     return [
         [
@@ -427,6 +492,7 @@ def evaluate(
                 text=each.get("text"),
                 error=each.get("error"),
                 empty=bool(each.get("empty", False)),
+                result=each.get("result"),
             )
             for each in results
         ]
@@ -492,7 +558,7 @@ class _Rules:
     def fixed_ref_fields(self, name: str) -> tuple[str, Mapping[str, Field]] | None:
         """As :meth:`ref_fields`, without what a lab list's curators can change (ADR 0270)."""
         found = self.ref_fields(name)
-        if found is None or not self.s.types[name].is_list:
+        if found is None or not self.s.types[name].is_lab_list:
             return found
         label, fields = found
         return label, {n: f for n, f in fields.items() if f.immutable}
@@ -510,7 +576,7 @@ class _Rules:
             for target in targets:
                 listed = self.s.types.get(target)
                 found = self.ref_fields(target)
-                if listed is None or found is None or not listed.is_list:
+                if listed is None or found is None or not listed.is_lab_list:
                     continue
                 out.update(f"{listed.name}.{n}" for n, x in found[1].items() if not x.immutable)
         return sorted(out)
@@ -614,16 +680,208 @@ class _Rules:
             draw = self.guards(
                 draw, draw_variables(entity_type.label, fields), fields, source, ("draw_guards",)
             )
+        changed.update(self.computed(entity_type, fields, own, source))
         return replace(entity_type, rules=rules, fields=changed, draw_guards=draw, review=review)
 
     def extension(self, extension: Extension, source: Document) -> Extension:
         target = self.s.types.get(extension.extends_type)
-        if target is None or not extension.rules:
+        if target is None:
             return extension  # The extension's own check says what's wrong.
         fields = self.fields_of(target)
         own = extension.current_fields
-        rules = self.rules(extension.rules, target, fields, own, source, ("rules",))
-        return replace(extension, rules=rules)
+        rules = (
+            self.rules(extension.rules, target, fields, own, source, ("rules",))
+            if extension.rules
+            else extension.rules
+        )
+        computed = self.computed(target, fields, own, source)
+        return replace(extension, rules=rules, fields={**extension.fields, **computed})
+
+    # Computed fields (ADR 0297).
+
+    def computed(
+        self,
+        entity_type: EntityType,
+        fields: Mapping[str, Field],
+        own: Mapping[str, Field],
+        source: Document,
+    ) -> dict[str, Field]:
+        """Checks the computed fields with expressions among ``own`` against the record's
+        ``fields``: their kind, what they read and that none reads itself through others.
+        Returns them with what each reads filled in."""
+        worked = {n: f for n, f in fields.items() if f.cel is not None}
+        if not any(f.cel is not None for f in own.values()):
+            return {}
+        owner = next((t for t in [entity_type, *self.s.ancestors(entity_type)] if t.identity), None)
+        identity = owner.identity if owner is not None else ()
+        mine: list[str] = []
+        for name, f in own.items():
+            if f.cel is None:
+                continue
+            at: Path = ("fields", name, "computed")
+            if f.type not in COMPUTED_TYPES:
+                self.add(
+                    "computed-kind",
+                    f"`{name}` is a {f.type} field: an expression works out one value, a "
+                    "string, text, int, float, quantity, bool, enum, date or datetime.",
+                    source,
+                    at,
+                    hint="Set it with an action (`computed: true`) instead.",
+                )
+                continue
+            if in_entry(f, identity):
+                self.add(
+                    "computed-registry",
+                    f"`{name}` is its registry entry's, which no project's record saves: only "
+                    "a record's own field is worked out at its saves.",
+                    source,
+                    at,
+                    hint="Leave `registry` off, and keep it out of the identity.",
+                )
+                continue
+            mine.append(name)
+        names = [n for n, f in worked.items() if f.type in COMPUTED_TYPES]
+        if not names:
+            return {}
+        variables = computed_variables(entity_type.label, fields)
+        try:
+            checked = type_check(
+                variables,
+                [(worked[n].cel or "", VALUE, computed_result(worked[n])) for n in names],
+            )
+        except wasm.UnavailableError as error:
+            if not self.reported:
+                self.reported = True
+                self.add(
+                    "expressions-unchecked",
+                    f"Computed fields can't be checked without iki-wasm: {error}",
+                    source,
+                    (),
+                    hint="Build it with scripts/build-wasm.sh, or install iki-spec from a "
+                    "release, which includes it.",
+                )
+            return {}
+        # An expression that only checks with its references as the records they refer to
+        # reads through one: say so, rather than that a field can't be read of text.
+        failed = [n for n, r in zip(names, checked, strict=True) if not r.valid and n in mine]
+        through = set()
+        if failed:
+            deep = {
+                **variables,
+                "record": record_schema(entity_type.label, fields, self.ref_fields),
+            }
+            again = type_check(
+                deep, [(worked[n].cel or "", VALUE, computed_result(worked[n])) for n in failed]
+            )
+            through = {n for n, r in zip(failed, again, strict=True) if r.valid}
+        reads: dict[str, tuple[str, ...]] = {}
+        for name, result in zip(names, checked, strict=True):
+            at = ("fields", name, "computed", "cel")
+            if name in through:
+                self.add(
+                    "computed-reads",
+                    f"`{name}` reads what a reference refers to, which changes without this "
+                    "record being saved. A computed value is worked out from the record's own "
+                    "values alone, so each revision's can be worked out again.",
+                    source,
+                    at,
+                    hint="Work out a value that depends on another record with an action that "
+                    "includes it, and a trigger.",
+                )
+                continue
+            if not result.valid:
+                if name in mine:
+                    where = (
+                        f" (line {result.line}, column {result.column})"
+                        if result.line is not None and result.column is not None
+                        else ""
+                    )
+                    self.add(
+                        "invalid-expression",
+                        f"`{name}`'s expression doesn't work{where}: {result.error}",
+                        source,
+                        at,
+                        hint=result.hint,
+                    )
+                continue
+            reads[name] = result.of("record")
+            if name in mine:
+                self.computed_reads(name, result, fields, source, at)
+        self.computed_cycles([n for n in mine if n in reads], reads, source)
+        return {n: replace(own[n], cel_reads=reads[n]) for n in mine if n in reads}
+
+    def computed_reads(
+        self,
+        name: str,
+        result: Checked,
+        fields: Mapping[str, Field],
+        source: Document,
+        at: Path,
+    ) -> None:
+        """Refuses an expression reading what can change without the record being saved,
+        or what it doesn't have yet: its value couldn't be worked out again from a
+        revision."""
+        why = [
+            f"`{clock}`, which is different tomorrow"
+            for clock in ("now", "today")
+            if clock in (result.reads or {})
+        ]
+        for read in result.of("record"):
+            f = fields.get(read)
+            if read in ("id", "hrid"):
+                why.append(f"its `{read}`, which it's given only once it's created")
+            elif f is None:
+                continue
+            elif f.type == "ref" or (f.items is not None and f.items.type == "ref"):
+                why.append(
+                    f"`{read}`, a reference: the record it refers to changes without this one "
+                    "being saved"
+                )
+            elif f.registry is not None:
+                why.append(
+                    f"`{read}`, its registry entry's, which a registrar changes without this "
+                    "record being saved"
+                )
+            elif f.type == "state":
+                why.append(f"`{read}`, a state, which changes by its own step, not a save")
+        if why:
+            self.add(
+                "computed-reads",
+                f"`{name}` reads {'; and '.join(why)}. A computed value is worked out from the "
+                "record's own values alone, so each revision's can be worked out again.",
+                source,
+                at,
+                hint="Work out a value that depends on another record with an action that "
+                "includes it, and a trigger.",
+            )
+
+    def computed_cycles(
+        self, names: Sequence[str], reads: Mapping[str, tuple[str, ...]], source: Document
+    ) -> None:
+        """Refuses a computed field that reads itself, through others or not."""
+        for name in names:
+            path = [name]
+            stack: list[tuple[str, list[str]]] = [(name, path)]
+            found: list[str] | None = None
+            seen: set[str] = set()
+            while stack and found is None:
+                at, trail = stack.pop()
+                for read in reads.get(at, ()):
+                    if read == name:
+                        found = [*trail, name]
+                        break
+                    if read in reads and read not in seen:
+                        seen.add(read)
+                        stack.append((read, [*trail, read]))
+            if found is not None:
+                shown = " → ".join(f"`{n}`" for n in found)
+                self.add(
+                    "computed-cycle",
+                    f"`{name}` is worked out from itself: {shown}.",
+                    source,
+                    ("fields", name, "computed", "cel"),
+                    hint="Work one of them out from the values they're worked out from.",
+                )
 
     # Rules.
 
@@ -803,6 +1061,16 @@ class _Rules:
             )
             return None
         f = own[name]
+        if f.cel is not None:
+            self.add(
+                "computed-unique",
+                f"`{name}` is worked out by an expression (ADR 0297): a clash on a value no one "
+                "typed can't be fixed by changing it.",
+                source,
+                path,
+                hint="Name the fields it's worked out from instead.",
+            )
+            return None
         if f.registry is not None:
             self.add(
                 "rule-field",
@@ -973,7 +1241,7 @@ class _Rules:
             f = fields.get(name)
             if f is None or f.type != "ref":
                 continue
-            lists = [t for t in f.to if (found := self.s.types.get(t)) and found.is_list]
+            lists = [t for t in f.to if (found := self.s.types.get(t)) and found.is_lab_list]
             if not lists:
                 continue
             self.add(

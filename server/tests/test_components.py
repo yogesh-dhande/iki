@@ -4,6 +4,7 @@ import base64
 import dataclasses
 import hashlib
 import re
+from pathlib import Path
 
 import pytest
 from browser import Browser
@@ -13,7 +14,7 @@ from test_api_entities import api_as
 from test_web_security import csp_directives
 from test_workers import world
 
-from iki_server.components import installed, views
+from iki_server.components import installed, places, views
 from iki_server.web import frames
 
 __all__ = ["world"]
@@ -46,7 +47,8 @@ def test_components_are_listed_with_where_they_appear(world: World) -> None:
         # What it may offer to run on its protein: the page runs it, never the frame.
         "runs": ["acme/protein.compute_properties"],
         "sha256": hashlib.sha256(module).hexdigest(),
-        "frame": f"/plugin-components/{RESIDUES}/{hashlib.sha256(module).hexdigest()}/",
+        "frame": f"/plugin-components/{RESIDUES}/{hashlib.sha256(module).hexdigest()}/"
+        f"{views.BRIDGE_DIGEST}/",
     }
     assert b"customElements.define" in module
     # One that shows many says which, what it reads of each, and what fills each place.
@@ -106,7 +108,7 @@ def addresses() -> tuple[str, str, bytes]:
     module = installed.module(RESIDUES)
     digest = hashlib.sha256(module).hexdigest()
     base = f"/plugin-components/{RESIDUES}/{digest}"
-    return f"{base}/", f"{base}.js", module
+    return f"{base}/{views.BRIDGE_DIGEST}/", f"{base}.js", module
 
 
 def test_a_frame_runs_the_bridge_and_the_module_and_nothing_else() -> None:
@@ -162,8 +164,19 @@ def test_only_installed_components_at_their_digest_are_served() -> None:
     browser = Browser()
     for path in (frame, module_url):
         assert browser.get(path.replace(RESIDUES, "acme/protein.gone")).status_code == 404
-        digest = path.split("/")[3].removesuffix(".js")
+        digest = path.split("/")[4].removesuffix(".js")
+        assert len(digest) == 64
         assert browser.get(path.replace(digest, "0" * 64)).status_code == 404
+
+
+def test_a_frame_is_addressed_by_its_bridge_too() -> None:
+    # Browsers keep a frame for ever, with the bridge inlined in it: a frame of another
+    # Iki's bridge isn't this one, so a page out of date gets none rather than an old bridge.
+    frame, _, _ = addresses()
+    assert hashlib.sha256(views.BRIDGE.encode()).hexdigest() == views.BRIDGE_DIGEST
+    assert frame.endswith(f"/{views.BRIDGE_DIGEST}/")
+    stale = frame.replace(views.BRIDGE_DIGEST, "0" * 64)
+    assert Browser().get(stale).status_code == 404
 
 
 def test_a_frame_whose_module_changed_isnt_served(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,3 +189,24 @@ def test_a_frame_whose_module_changed_isnt_served(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(installed, "module", changed)
     for path in (frame, module_url):
         assert Browser().get(path).status_code == 404
+
+
+#: The frame protocol's one source (ADR 0286), whose limits the server enforces again.
+CONTRACT = Path(__file__).resolve().parents[2] / "web/packages/component/src/index.ts"
+
+
+def _declared(name: str) -> str:
+    found = re.search(rf"^export const {name}(?:: [^=]+)? = (.+);$", CONTRACT.read_text(), re.M)
+    assert found, f"@ikisci/component declares no {name}"
+    return found.group(1).replace("_", "")
+
+
+def test_the_server_enforces_the_limits_the_component_package_states() -> None:
+    assert int(_declared("MAX_CONDITIONS")) == places.MAX_CONDITIONS
+    assert int(_declared("MAX_DEPTH")) == places.MAX_DEPTH
+    assert int(_declared("MAX_QUERY_LENGTH")) == places.MAX_QUERY_LENGTH
+    columns = re.findall(r'"([a-z_]+)"', _declared("REFINABLE_COLUMNS"))
+    assert tuple(columns) == places.REFINABLE_COLUMNS
+    # The bridge speaks the package's version of the protocol.
+    bridge = re.search(r"^const PROTOCOL = (\d+);$", views.BRIDGE, re.M)
+    assert bridge and bridge.group(1) == _declared("PROTOCOL")

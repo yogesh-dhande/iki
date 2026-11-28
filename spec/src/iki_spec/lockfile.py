@@ -20,6 +20,13 @@ installs, each pinned to a git commit::
         state: purged
 
 A purged plugin (ADR 0092) has only its name: the deploy drops its tables.
+
+``hrids`` gives types HRID prefixes in place of their plugins' (ADR 0033), for two
+plugins that take one prefix. The build names the override that settles a clash::
+
+    hrids:
+      acme/assays.Buffer: ABUF
+
 A plugin in Iki's own namespace, ``iki``, comes from Iki's repository (ADR 0113).
 
 A lockfile holds no credentials (ADR 0034): it's committed to the config
@@ -39,7 +46,7 @@ from __future__ import annotations
 import posixpath
 import re
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, NamedTuple
@@ -91,6 +98,8 @@ class Lock:
     #: The lockfile; ``local`` and ``settings`` paths are relative to its directory.
     file: Path
     plugins: tuple[LockedPlugin, ...]
+    #: HRID prefixes the deployment gives types, by qualified type (ADR 0033).
+    hrids: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def directory(self) -> Path:
@@ -203,10 +212,12 @@ def load_lock(
     if problems.problems:
         return LockResult(None, problems.problems)
     plugins = [LockedPlugin(**entry) for entry in data["plugins"]]
+    hrids: dict[str, str] = dict(data.get("hrids") or {})
     _check(plugins, document, file.parent, problems)
+    _check_hrids(hrids, plugins, document, problems)
     if not test_only:
         _check_distribution(plugins, document, file.parent, mirrors, problems)
-    lock = Lock(file=file, plugins=tuple(plugins))
+    lock = Lock(file=file, plugins=tuple(plugins), hrids=hrids)
     return LockResult(lock if not problems.problems else None, problems.problems)
 
 
@@ -249,6 +260,47 @@ def _check(
         _check_source(plugin, document, at, problems)
         if plugin.settings is not None and plugin.state != "purged":
             _check_settings(plugin.settings, document, (*at, "settings"), directory, problems)
+
+
+def _check_hrids(
+    hrids: Mapping[str, str],
+    plugins: Sequence[LockedPlugin],
+    document: Document,
+    problems: _Problems,
+) -> None:
+    """Each override names a type of a plugin the lockfile builds; which types those
+    plugins have, the build checks once it has read them."""
+    states = {p.name: p.state for p in plugins}
+    for qualified in hrids:
+        plugin = qualified.partition(".")[0]
+        at: DocPath = ("hrids", qualified)
+        if plugin == naming.CORE:
+            problems.add(
+                "hrid-override-core",
+                f"`{qualified}` is a core type: core's types keep Iki's prefixes.",
+                document,
+                at,
+                key=True,
+                hint="Give the other type its own prefix instead.",
+            )
+        elif plugin not in states:
+            problems.add(
+                "hrid-override-unlisted",
+                f"`{qualified}` is a type of `{plugin}`, which this lockfile doesn't list.",
+                document,
+                at,
+                key=True,
+                hint="Name a type of a plugin listed under `plugins`.",
+            )
+        elif states[plugin] == "purged":
+            problems.add(
+                "hrid-override-unlisted",
+                f"`{qualified}` is a type of `{plugin}`, which this lockfile purges.",
+                document,
+                at,
+                key=True,
+                hint="Take the override out: a purged plugin's types have no records.",
+            )
 
 
 def _check_source(
@@ -643,4 +695,5 @@ def lock_to_dict(lock: Lock) -> dict[str, Any]:
         "apiVersion": API_VERSION,
         "kind": KIND,
         "plugins": [p.to_dict() for p in lock.plugins],
+        **({"hrids": dict(sorted(lock.hrids.items()))} if lock.hrids else {}),
     }

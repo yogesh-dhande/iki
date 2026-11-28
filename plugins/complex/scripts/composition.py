@@ -15,29 +15,29 @@ formula is theirs, each times its copies:
   either. B (aspartate or asparagine), Z (glutamate or glutamine) and X have no one
   formula, so a protein with one is named and nothing is computed;
 - a DNA sequence's (iki/dna.DNASequence) from its bases, as Biopython's
-  molecular_weight weighs DNA: each base its deoxynucleoside 5′-monophosphate's (dAMP
+  molecular_weight counts DNA's atoms: each base its deoxynucleoside 5′-monophosphate's (dAMP
   C10H14N5O6P, dCMP C9H14N3O7P, dGMP C10H14N5O7P, dTMP C10H15N2O8P) less a water for each
   phosphodiester bond, so a linear strand has a 5′ phosphate and a 3′ hydroxyl, and a
   circular one neither; a double-stranded one is both its strands. A strand made with a
   5′ hydroxyl, as a synthetic oligonucleotide or a PCR product of unphosphorylated
-  primers is, has HPO3 (79.97 u) less, which the run says. An ambiguous base (N, R and
+  primers is, has HPO3 (79.98 u) less, which the run says. An ambiguous base (N, R and
   the like) has no one formula;
 - any other part's from its entry's `molecular_formula`: a small molecule's, an
   oligonucleotide's or a duplex's, or another complex's, which this action computed when
   it was registered, with any isotope it gives as RDKit writes it ([13C], D for 2H). A
   charged formula is refused: a complex's parts are neutral here.
 
-Its average mass is its formula's, with the standard atomic weights Biopython has
-(Bio.Data.IUPACData.atom_weights), as the protein plugin's molecular weights are, and a
+Its average mass is its formula's, with CIAAW's standard atomic weights, the table every
+Iki plugin weighs by (weights.py), as the protein plugin's molecular weights are, and a
 labelled atom's isotope's mass; and its monoisotopic mass from each element's most
 abundant isotope, or a labelled atom's own (AME2020: Wang et al., Chin Phys C 45:030003,
 2021). They're its parts as they are, each cysteine's thiol free: each disulfide makes a
 cystine of two cysteines and takes two hydrogens off, which the run says for its bonds.
 So amivantamab's chains (KEGG DRUG D11894), C6472H10046N1730O2023S46, with its 16
-disulfides are C6472H10014N1730O2023S46, as KEGG gives them, 145,900.13 u average and
-145,810.1054 u monoisotopic (KEGG's 145,900.22 and 145,810.1055). They're its chains'
-residues alone: amivantamab's major glycoform is 148,209 Da (FDA's chemistry review of
-Rybrevant, BLA 761210), its glycans' 2,309 u more.
+disulfides are C6472H10014N1730O2023S46, as KEGG gives them, 145,902.15 u average and
+145,810.1054 u monoisotopic (KEGG's 145,900.22, by older atomic weights, and
+145,810.1055). They're its chains' residues alone: amivantamab's major glycoform is
+148,209 Da (FDA's chemistry review of Rybrevant, BLA 761210), its glycans' 2,307 u more.
 
 A part that's a complex has disulfides of its own, on it: a Fab's, in a complex of the
 Fab and its antigen. They're counted, each times its copies, with its own parts' (which
@@ -69,34 +69,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-#: Each residue's formula in a chain (the amino acid less a water), as C, H, N, O, S, Se.
-RESIDUES: dict[str, dict[str, int]] = {
-    "A": {"C": 3, "H": 5, "N": 1, "O": 1},
-    "R": {"C": 6, "H": 12, "N": 4, "O": 1},
-    "N": {"C": 4, "H": 6, "N": 2, "O": 2},
-    "D": {"C": 4, "H": 5, "N": 1, "O": 3},
-    "C": {"C": 3, "H": 5, "N": 1, "O": 1, "S": 1},
-    "E": {"C": 5, "H": 7, "N": 1, "O": 3},
-    "Q": {"C": 5, "H": 8, "N": 2, "O": 2},
-    "G": {"C": 2, "H": 3, "N": 1, "O": 1},
-    "H": {"C": 6, "H": 7, "N": 3, "O": 1},
-    "I": {"C": 6, "H": 11, "N": 1, "O": 1},
-    "L": {"C": 6, "H": 11, "N": 1, "O": 1},
-    # Leucine or isoleucine (NCBI's J), which have one formula.
-    "J": {"C": 6, "H": 11, "N": 1, "O": 1},
-    "K": {"C": 6, "H": 12, "N": 2, "O": 1},
-    "M": {"C": 5, "H": 9, "N": 1, "O": 1, "S": 1},
-    "F": {"C": 9, "H": 9, "N": 1, "O": 1},
-    "P": {"C": 5, "H": 7, "N": 1, "O": 1},
-    "S": {"C": 3, "H": 5, "N": 1, "O": 2},
-    "T": {"C": 4, "H": 7, "N": 1, "O": 2},
-    "W": {"C": 11, "H": 10, "N": 2, "O": 1},
-    "Y": {"C": 9, "H": 9, "N": 1, "O": 2},
-    "V": {"C": 5, "H": 9, "N": 1, "O": 1},
-    "U": {"C": 3, "H": 5, "N": 1, "O": 1, "Se": 1},
-    "O": {"C": 12, "H": 19, "N": 3, "O": 2},
-}
-WATER = {"H": 2, "O": 1}
+from weights import AVERAGE, RESIDUES, WATER
+
 #: Each deoxynucleoside 5′-monophosphate's formula (the free acid), as Biopython weighs a
 #: DNA strand's bases (Bio.Data.IUPACData.unambiguous_dna_weights).
 DEOXYNUCLEOTIDES: dict[str, dict[str, int]] = {
@@ -109,13 +83,6 @@ COMPLEMENT = str.maketrans("ACGT", "TGCA")
 #: Pace's molar absorbances at 280 nm in water, L/(mol.cm): a tryptophan's, a tyrosine's,
 #: and a cystine's (two cysteines' disulfide).
 TRYPTOPHAN, TYROSINE, CYSTINE = 5500, 1490, 125
-#: Standard atomic weights, as Biopython has them (Bio.Data.IUPACData.atom_weights).
-AVERAGE = {
-    "C": 12.0107, "H": 1.00794, "N": 14.0067, "O": 15.9994, "S": 32.065, "P": 30.973761,
-    "Se": 78.96, "F": 18.9984032, "Cl": 35.453, "Br": 79.904, "I": 126.90447,
-    "Na": 22.98977, "K": 39.0983, "Si": 28.0855, "B": 10.811, "Fe": 55.845, "Zn": 65.39,
-    "Cu": 63.546, "Mg": 24.305, "Ca": 40.078, "Mn": 54.938049, "Co": 58.9332,
-}  # fmt: skip
 #: Each element's most abundant isotope's mass (AME2020).
 MONOISOTOPIC = {
     "C": 12.0, "H": 1.00782503223, "N": 14.00307400443, "O": 15.99491461957,
@@ -220,7 +187,7 @@ def parse(formula: str) -> Counter[str]:
             atom = f"{int(number)}{labelled}"
         elif element in HYDROGENS:
             atom = f"{HYDROGENS[element]}H"
-        elif element in AVERAGE:
+        elif element in MONOISOTOPIC:
             atom = element
         else:
             raise KeyError(element)
@@ -495,7 +462,7 @@ def composition(complex_: dict[str, Any]) -> dict[str, Any]:
         said.append(
             "Its linear DNA's strands are weighed with a 5′ phosphate and a 3′ hydroxyl, as "
             "Biopython weighs DNA: a strand made with a 5′ hydroxyl, as a synthetic or PCR-made "
-            "one is, is HPO3 (79.97 u) lighter."
+            "one is, is HPO3 (79.98 u) lighter."
         )
     return {
         "update": {"entity": complex_["id"], "values": values},

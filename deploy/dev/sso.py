@@ -4136,11 +4136,11 @@ def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
             ),
         },
     )
-    run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
+    # Molar-mass dispersity, Mw/Mn (https://doi.org/10.1351/PAC-REC-08-05-02), which the
+    # lot works out as it's saved (ADR 0297).
     measured = record(alice, lot["id"])["values"]
-    # Molar-mass dispersity, Mw/Mn: https://doi.org/10.1351/PAC-REC-08-05-02
     if (measured.get("polymer"), measured.get("dispersity")) != (entry_of(polymer), 1.045):
-        fail(f"{run['hrid']} returned {measured} for NIST SRM 1478")
+        fail(f"{lot['hrid']} was saved as {measured} for NIST SRM 1478")
     ok(f"{lot['hrid']} links to {polymer['hrid']} and has Đ 1.045 from the SRM 1478 certificate")
 
 
@@ -5679,16 +5679,16 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
-    # Its 4 cystines take 8 H off its sequence's 14,313.0 g/mol: 37,970 / 14,304.94.
+    # Its 4 cystines take 8 H off its sequence's 14,313.18 g/mol: 37,970 / 14,305.12.
     if (got.get("a280_extinction"), got.get("concentration"), got.get("a280_estimate")) != (
         2.6543,
-        1.9967,
+        1.9968,
         False,
     ):
-        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9967 mg/mL at 2.6543")
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9968 mg/mL at 2.6543")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}'s A280 of 0.53, diluted 1 in 10, is "
-        f"1.9967 mg/mL of lysozyme at its cystines' 2.6543 mL/(mg·cm) ({run['hrid']})"
+        f"1.9968 mg/mL of lysozyme at its cystines' 2.6543 mL/(mg·cm) ({run['hrid']})"
     )
 
 
@@ -5948,7 +5948,7 @@ TRASTUZUMAB_VL = (
 #: cysteine's thiol free): formula, average and monoisotopic masses, chain count, and
 #: molar absorbance at 280 nm (Pace's, as Biopython's ProtParam gives its chains: 35,410
 #: and 14,440).
-FV_COMPOSITION = ("C1105H1687N297O344S7", 24860.46, 24845.1689, 2, 49850)
+FV_COMPOSITION = ("C1105H1687N297O344S7", 24860.81, 24845.1689, 2, 49850)
 #: The antibody plugin's numbering-tools image (plugins/antibody/environments/numbering-tools.yaml).
 NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
@@ -6333,7 +6333,7 @@ def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, An
 def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:
     """A protein lot of the Fv, a complex (ADR 0162): its concentration from its A280 and
     the Fv's composition, kept with each thiol free, with its two disulfides applied:
-    49,850 + 2 x 125 L/(mol.cm) over 24,860.46 - 4 x 1.00794 g/mol, 2.0156 mL/(mg.cm)."""
+    49,850 + 2 x 125 L/(mol.cm) over 24,860.81 - 4 x 1.008 g/mol, 2.0155 mL/(mg.cm)."""
     lot = created(
         alice,
         project,
@@ -6349,11 +6349,11 @@ def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any])
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
-    if (got.get("a280_extinction"), got.get("concentration")) != (2.0156, 4.2172):
-        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 4.2172 mg/mL at 2.0156")
+    if (got.get("a280_extinction"), got.get("concentration")) != (2.0155, 4.2172):
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 4.2172 mg/mL at 2.0155")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}, a lot of {fv['hrid']}, is 4.2172 mg/mL "
-        f"at the Fv's 2.0156 mL/(mg.cm), with its 2 disulfides ({run['hrid']})"
+        f"at the Fv's 2.0155 mL/(mg.cm), with its 2 disulfides ({run['hrid']})"
     )
 
 

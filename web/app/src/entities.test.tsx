@@ -81,6 +81,37 @@ describe("the type browser", () => {
     expect(screen.queryByText(/duplicate/i)).not.toBeInTheDocument();
   });
 
+  it("shows what a computed field is worked out by", async () => {
+    withTypes();
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          fields: [
+            ...PROTEIN.fields,
+            field({ name: "length", label: "Length", type: "int" }),
+            field({
+              name: "half_length",
+              label: "Half length",
+              type: "float",
+              computed: true,
+              cel: "double(record.length) / 2.0",
+              cel_reads: ["length"],
+            }),
+          ],
+        },
+      ]),
+    );
+    await renderApp("/types/iki/protein.Protein/");
+    const row = screen.getByRole("row", { name: /Half length/ });
+    expect(within(row).getByText("Computed")).toBeInTheDocument();
+    expect(row).toHaveTextContent("Worked out at every save as double(record.length) / 2.0");
+    // A field an action sets says no expression.
+    const weight = screen.getByRole("row", { name: /Molecular weight/ });
+    expect(weight).not.toHaveTextContent("Worked out at every save");
+  });
+
   it("previews whom a type's notifications tell, and when", async () => {
     withTypes();
     answer(
@@ -118,6 +149,28 @@ describe("the type browser", () => {
       "href",
       "/account/notifications/",
     );
+  });
+
+  it("shows a type's annotations, the lab's own metadata about it", async () => {
+    withTypes();
+    answer(
+      "GET /api/v1/entity-types",
+      page([
+        {
+          ...PROTEIN,
+          annotations: {
+            "acme.com/owner": "Protein sciences",
+            gxp_classification: "GAMP 5 category 4",
+          },
+        },
+      ]),
+    );
+    await renderApp("/types/iki/protein.Protein/");
+    const owner = screen.getByText("acme.com/owner");
+    expect(owner.closest("dt")?.nextElementSibling).toHaveTextContent("Protein sciences");
+    expect(
+      screen.getByText("gxp_classification").closest("dt")?.nextElementSibling,
+    ).toHaveTextContent("GAMP 5 category 4");
   });
 
   it("says when there's no such type", async () => {

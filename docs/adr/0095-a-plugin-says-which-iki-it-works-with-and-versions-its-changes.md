@@ -1,6 +1,6 @@
 # 0095. A plugin says which Iki it works with, and versions its changes
 
-- Status: Accepted
+- Status: Accepted (`iki:` optional superseded by [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md): it is required)
 - Date: 2026-11-15
 - Refines: [0094](0094-a-plugins-upgrade-is-tested-from-an-earlier-commit.md)
 

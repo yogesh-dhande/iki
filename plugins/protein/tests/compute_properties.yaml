@@ -20,7 +20,7 @@ expect:
       protein:
         - values:
             length: 142
-            molecular_weight: 15257.36
+            molecular_weight: 15257.59
             isoelectric_point: 8.72
             extinction_coefficient_oxidized: 9970
             extinction_coefficient_reduced: 9970

@@ -15,6 +15,7 @@
         "Plugin",
         "EntityType",
         "EntityTypeExtension",
+        "List",
         "Action",
         "Environment",
         "Workflow",
@@ -40,6 +41,10 @@
         "required": ["kind"]
       },
       "then": { "$ref": "https://ikisci.org/schemas/entity-type-extension/v1" }
+    },
+    {
+      "if": { "properties": { "kind": { "const": "List" } }, "required": ["kind"] },
+      "then": { "$ref": "https://ikisci.org/schemas/list/v1" }
     },
     {
       "if": { "properties": { "kind": { "const": "Action" } }, "required": ["kind"] },

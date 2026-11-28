@@ -188,12 +188,14 @@ either, such as NNN, says nothing: it covers nothing, and the run lists
 where. UGA is selenocysteine where the protein has U, and UAG pyrrolysine
 where it has O; any other stop there (`p.(U42*)`) is a stop.
 
-Properties are Biopython's ProtParam, which follows ExPASy's:
+Properties follow ExPASy's ProtParam, and all but the molecular weight are
+Biopython's:
 
 - **Length**: its amino acids; a stop (`*`) is none.
-- **Molecular weight**: average isotopic masses of the residues, plus one
-  water, from Biopython's table (`IUPACData.protein_weights`). It gives
-  haemoglobin α 15,257.36 Da, where ExPASy's own table gives 15,257.55: 12 ppm.
+- **Molecular weight**: its residues' formulas, plus one water, weighed by
+  CIAAW's standard atomic weights 2024, the table every Iki plugin weighs by
+  ([ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)). It gives haemoglobin α 15,257.59 Da, where ExPASy gives 15,257.55
+  and Biopython's ProtParam, by IUPAC's atomic weights of 2005, 15,257.36.
 - **Isoelectric point**: the pH at which Bjellqvist's charge model (his pK
   values, with the terminal residues' own) gives no net charge, found by
   bisection to 0.0001. Biopython's own search keeps between pH 4.05 and 12,

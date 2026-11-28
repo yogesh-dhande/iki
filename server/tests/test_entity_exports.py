@@ -147,12 +147,40 @@ def test_an_earlier_revision_downloads_as_it_was(world: World) -> None:
     text = then.content.decode()
     assert text.startswith("LOCUS       pDemo ")
     assert '/label="across"' in text
-    assert "(revision 1, not its latest)" in " ".join(text.split())
+    assert "(revision 1)." in " ".join(text.split()) and "not its latest" not in text
     now = exported(api, made["id"]).content.decode()
     assert now.startswith("LOCUS       pDemo2 ") and "across" not in now
     events = AuditEvent.objects.filter(action="entity.exported").order_by("occurred_at")
     assert [(e.data["revision"], e.data["latest"]) for e in events] == [(1, False), (2, True)]
     problem(exported(api, made["id"], revision=3), 404, "not_found")
+
+
+def test_a_revision_is_the_same_file_after_a_later_edit(world: World) -> None:
+    """A revision's file holds only what never changes of it (ADR 0171): its record, its
+    revision and that revision's date. Whether it was the latest when it was taken is the
+    download's name and its audit event, so the file and its SHA-256 are the same before
+    and after an unrelated edit."""
+    made = plasmid(world, topology="circular")
+    api = api_as(world)
+    before = exported(api, made["id"], revision=1)
+    assert before["Content-Disposition"] == 'attachment; filename="pDemo.gb"'
+    changed = api.patch(
+        f"/entities/{made['id']}",
+        {"values": {"description": "Checked by restriction digest"}, "reason": "Note the check"},
+        headers={"If-Match": '"1"'},
+    )
+    assert changed.status_code == 200, changed.content
+    after = exported(api, made["id"], revision=1)
+    assert after["Content-Disposition"] == 'attachment; filename="pDemo (revision 1).gb"'
+    assert after.content == before.content
+    comment = " ".join(str(read(after.content.decode()).annotations["comment"]).split())
+    assert comment == f"Exported from Iki: {made['hrid']} (revision 1)."
+    events = AuditEvent.objects.filter(action="entity.exported").order_by("occurred_at")
+    assert [(e.data["revision"], e.data["latest"], e.data["file"]) for e in events] == [
+        (1, True, "pDemo.gb"),
+        (1, False, "pDemo (revision 1).gb"),
+    ]
+    assert {e.data["sha256"] for e in events} == {hashlib.sha256(before.content).hexdigest()}
 
 
 def test_fasta_names_it_and_its_topology(world: World) -> None:

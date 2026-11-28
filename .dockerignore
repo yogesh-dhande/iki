@@ -27,6 +27,7 @@
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !tsconfig.base.json
+!scripts/check-web-app-size.js
 !scripts/build-oligo-wasm.sh
 !scripts/build-dna-annotation-wasm.sh
 !scripts/build-server-aot.sh

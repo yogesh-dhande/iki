@@ -1,7 +1,8 @@
 # ruff: noqa: F811 - test_browser's fixtures, imported by name, are parameters here.
 """Lab lists (ADR 0270) in real browsers: a protein core's purification methods, curated on
 the list's page by its registrar (an option added with its category, relabelled from the
-revision read, moved up the list by keyboard, archived), each change with a reason; picked
+revision read, moved up the list by keyboard, archived), each change with a reason, and a
+long one read a page at a time, an option moved to a position by keyboard; picked
 from a dropdown on a prep's form, which keeps a method archived since; read by its label on
 the record, in the grid, in a filter and in a sheet's dropdown cell, where a pasted code
 names it too; and a mistyped method superseded, its records moved by their project. Every
@@ -27,10 +28,10 @@ from test_browser import (  # noqa: F401 - fixtures
 
 from iki_server.entities import entries, lists
 from iki_server.entities import services as entities
-from iki_server.entities.models import Entity
+from iki_server.entities.models import Entity, Revision
 from iki_server.notifications.models import Notification
 from iki_server.org import registries
-from iki_server.org.models import Registry
+from iki_server.org.models import Registry, RegistryRole
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.built_web_app]
 
@@ -55,7 +56,9 @@ def fits_a_phone(page: Page) -> None:
 def registrar(world: World) -> Any:
     """The auditor, appointed the default registry's registrar: they curate its lists."""
     user = world.users["auditor"]
-    registries.appoint(Registry.default(), user, by=world.users["org_admin"])
+    registries.grant_role(
+        Registry.default(), RegistryRole.Role.REGISTRAR, user, by=world.users["org_admin"]
+    )
     return user
 
 
@@ -73,6 +76,13 @@ def prep(world: World, name: str, **values: Any) -> Entity:
 def values_of(record: Entity) -> dict[str, Any]:
     """A record's values now, as the database has them."""
     return entities.current_values(entities.specific(Entity.objects.get(pk=record.pk)))
+
+
+def latest_reason(code: str) -> str:
+    """Why the option last changed, as its history has it."""
+    latest = Revision.objects.filter(entity=option(code).entry).order_by("-number").first()
+    assert latest is not None, code
+    return latest.reason
 
 
 def reason(scope: Page | Locator) -> Locator:
@@ -136,6 +146,7 @@ def test_a_lists_registrar_curates_its_options_on_its_page(
     expect(dialog).to_be_hidden()
     expect(options_table(page).get_by_role("link", name="Gel filtration")).to_be_visible()
     assert option("sec").label == "Gel filtration"
+    assert latest_reason("sec") == "What the core calls it"
 
     # Moved up by keyboard, two places, saying where it went each time.
     page.get_by_role("button", name="Reorder").click()
@@ -151,6 +162,11 @@ def test_a_lists_registrar_curates_its_options_on_its_page(
     page.get_by_role("button", name="Save order").click()
     expect(page.get_by_text(re.compile("Saved the order of purification methods"))).to_be_visible()
     assert labels(page) == ["Protein A affinity", "Ni-NTA affinity", "Gel filtration", "Dialysis"]
+    # Stored in that order, each option that moved with the reason in its history.
+    order = ["protein_a", "imac", "sec", "dialysis"]
+    assert [option(code).position for code in order] == [1, 2, 3, 4]
+    assert [latest_reason(code) for code in order[1:]] == ["Most used first"] * 3
+    assert latest_reason("protein_a") != "Most used first"
 
     # Archived, with a reason: it's off the list until asked for.
     page.get_by_role("button", name="Change Dialysis").click()
@@ -160,12 +176,84 @@ def test_a_lists_registrar_curates_its_options_on_its_page(
     dialog.get_by_role("button", name="Archive").click()
     expect(dialog).to_be_hidden()
     expect(options_table(page).get_by_role("link", name="Dialysis")).to_have_count(0)
+    # Its row is gone: focus goes to the option before it, the last one now.
+    expect(page.get_by_role("button", name="Change Gel filtration")).to_be_focused()
+    assert latest_reason("dialysis") == "Buffer exchange is by desalting column now"
     page.get_by_role("checkbox", name=re.compile("^Show archived and superseded options")).check()
     expect(options_table(page).get_by_role("link", name="Dialysis")).to_be_visible()
     expect(options_table(page).get_by_text("Archived", exact=True)).to_be_visible()
     assert option("dialysis").archived
     checked(page)
     fits_a_phone(page)
+
+
+def test_a_long_list_is_read_a_page_at_a_time_and_an_option_moved_to_a_position(
+    open_as: Any, world: World
+) -> None:
+    """A core's resin catalogue of 150: its page shows a hundred at a time and finds one by
+    its code; its registrar moves one to the top by keyboard; a prep's dropdown shows the
+    first fifty and says how many there are."""
+    curator = registrar(world)
+    registry = Registry.default()
+    for n in range(1, 148):
+        lists.add(curator, registry, METHOD, {"code": f"resin_{n}", "label": f"Resin {n:03d}"})
+    page = open_as("auditor", LIST_PAGE)
+    page.set_viewport_size({"width": 1440, "height": 900})
+    pages = page.get_by_role("navigation", name="Pages of options")
+    expect(pages.get_by_role("status")).to_have_text("1–100 of 150")
+    expect(options_table(page).get_by_role("rowheader")).to_have_count(100)
+    checked(page)
+    fits_a_phone(page)
+    pages.get_by_role("button", name="Next 50").click()
+    expect(pages.get_by_role("status")).to_have_text("101–150 of 150")
+    assert labels(page)[-1] == "Resin 147"
+    finder = page.get_by_role("searchbox", name="Find an option, by its label or code")
+    finder.fill("resin_14")
+    assert labels(page) == ["Resin 014", *(f"Resin {n}" for n in range(140, 148))]
+    finder.fill("")
+
+    # Moved to the top by keyboard, from the order's last page.
+    page.get_by_role("button", name="Reorder").click()
+    page.get_by_role("navigation", name="Pages of the order").get_by_role(
+        "button", name="Next 50"
+    ).click()
+    move = page.get_by_role("button", name="Move Resin 147 to a position")
+    move.focus()
+    page.keyboard.press("Enter")
+    dialog = page.get_by_role("dialog", name="Move Resin 147")
+    position = dialog.get_by_role("textbox", name="New position")
+    expect(position).to_be_focused()
+    checked(page)
+    position.fill("1")
+    page.keyboard.press("Enter")
+    expect(dialog).to_be_hidden()
+    expect(page.get_by_text("Moved Resin 147 to position 1 of 150.")).to_be_attached()
+    expect(move).to_be_focused()
+    checked(page)
+    fits_a_phone(page)
+    reason(page).fill("The core's most used resin first")
+    page.get_by_role("button", name="Save order").click()
+    expect(page.get_by_text(re.compile("Saved the order of purification methods"))).to_be_visible()
+    assert option("resin_147").position == 1
+    assert option("protein_a").position == 2
+    assert latest_reason("resin_147") == "The core's most used resin first"
+
+    # A prep's dropdown of it: its first fifty, in its order, and how many there are.
+    page = open_as("editor", f"/projects/kinase-atlas/entities/new/?type={PREP}")
+    page.set_viewport_size({"width": 1440, "height": 900})
+    method = page.get_by_role("combobox", name=re.compile("^Method"))
+    method.click()
+    found = page.get_by_role("listbox").get_by_role("option")
+    expect(found).to_have_count(50)
+    expect(found.first).to_contain_text("Resin 147")
+    expect(page.get_by_text("Showing 50 of 150. Type to narrow them.")).to_be_visible()
+    method.fill("Resin 14")
+    expect(found).to_have_count(8)
+    found.filter(has_text="Resin 145").click()
+    expect(method).to_have_value("Resin 145")
+    # Checked once its list closes, as React Aria hides the rest of the page while it's open.
+    page.get_by_role("listbox").wait_for(state="hidden")
+    checked(page)
 
 
 def test_a_lists_members_read_it_and_cant_change_it(open_as: Any, world: World) -> None:
@@ -205,8 +293,14 @@ def test_a_prep_picks_its_method_and_everyone_reads_it_by_its_label(
     expect(
         page.get_by_role("heading", level=1, name=re.compile("Anti-HER2 prep 12"))
     ).to_be_visible()
-    link = page.get_by_role("link", name="Protein A affinity")
+    link = page.get_by_role("region", name="Values").get_by_role("link", name="Protein A affinity")
     expect(link).to_be_visible()
+    # Its lineage names the option too, as people read it, leading to the same place.
+    rail = page.get_by_role("complementary", name="About this record")
+    expect(rail.get_by_role("link", name="Protein A affinity")).to_have_attribute(
+        "href", re.compile(rf"/types/{re.escape(METHOD)}/\?project=kinase-atlas#option-protein_a$")
+    )
+    expect(rail.get_by_text("PUM-000001")).to_have_count(0)
     checked(page)
     link.click()
     expect(page).to_have_url(

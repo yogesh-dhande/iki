@@ -333,12 +333,6 @@ def test_forged_cursors_are_refused(world: World) -> None:
 
 
 #: Lists that ADR 0292's registry roles replace; until they do, the two answer arrays.
-NOT_YET_PAGES = {
-    "/api/v1/registries/{registry_id}/list-curators",
-    "/api/v1/registries/{registry_id}/registrars",
-}
-
-
 def test_every_collection_is_a_page() -> None:
     """ADR 0291: no GET answers a bare array. Every answer with ``items`` is a page: its
     ``next_cursor`` beside it, ``limit`` (1-100, 50 by default) and ``cursor`` taken. A
@@ -355,7 +349,7 @@ def test_every_collection_is_a_page() -> None:
         get = operations.get("get")
         answer = get and get["responses"].get("200", {}).get("content", {})
         schema = answer and answer.get("application/json", {}).get("schema")
-        if not schema or path in NOT_YET_PAGES:
+        if not schema:
             continue
         schema = resolved(schema)
         if schema.get("type") == "array":

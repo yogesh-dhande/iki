@@ -3,23 +3,25 @@
  * has an origin that's no one's, so it can't read Iki's cookies, storage or pages, or
  * call the API as the person. The page hands Iki's bridge in it one port, gives it the
  * entity and the many entities its place shows (ADR 0117), and checks every message it
- * sends back: more, a refinement and an entity to open only for what it was given, and an
- * action to run only one its place offers (ADR 0170).
+ * sends back: more, a refinement and an entity to open only for what it was given, a
+ * revision to open only one its entity pins (ADR 0189), and an action to run only one its
+ * place offers (ADR 0170).
  */
 
 import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 
-import type { PlaceEntities } from "./component-entities";
 import {
   MIN_FRAME_HEIGHT,
-  pinnedRevisionUrl,
-  readMessage,
-  type FrameMessage,
-  type PinnedContext,
-  type PlaceInfo,
-  type PluginComponent,
-  type Refinement,
-} from "./components";
+  PROTOCOL,
+  type Connect,
+  type Entity,
+  type HostMessage,
+  type Place,
+} from "@ikisci/component";
+import { readMessage, type ReadMessage, type ReadRefinement } from "@ikisci/component/host";
+
+import type { PlaceEntities } from "./component-entities";
+import { pinnedRevision, type PinnedRevision, type PluginComponent } from "./components";
 import { Loading } from "./ui";
 
 /** How long a component has to start before the page says it didn't. */
@@ -28,20 +30,20 @@ export const START_TIMEOUT_MS = 15_000;
 type State = "starting" | "ready" | "failed" | "left";
 
 /** What the frame is given: the entity whose page it is, or that a panel names. */
-export interface GivenEntity extends PinnedContext {
-  hrid: string;
-}
+export type GivenEntity = Entity;
 
 export interface FrameProps {
   component: PluginComponent;
   label: string;
-  place: PlaceInfo;
+  place: Place;
   entity?: GivenEntity | undefined;
   entities?: PlaceEntities | undefined;
   onSelect?: ((entities: string[]) => void) | undefined;
   onMore?: (() => void) | undefined;
-  onRefine?: ((refinement: Refinement | null) => void) | undefined;
+  onRefine?: ((refinement: ReadRefinement | null) => void) | undefined;
   onOpen?: ((hrid: string) => void) | undefined;
+  /** A revision a pin in its entity names (ADR 0189): Iki opens its page. */
+  onOpenRevision?: ((pin: PinnedRevision) => void) | undefined;
   /** A person asked to run one of the actions its place offers, on its entity. */
   onRun?: ((action: string) => void) | undefined;
   /** It can't be shown: it didn't start, or opened another page. */
@@ -60,17 +62,21 @@ export function ComponentFrame(props: FrameProps) {
     latest.current = props;
   });
   useEffect(() => () => port.current?.close(), []);
+  /** What the page tells the bridge, which sets it on the element. */
+  function post(message: HostMessage) {
+    port.current?.postMessage(message);
+  }
   const placeKey = JSON.stringify(place);
   useEffect(() => {
-    if (state === "ready") port.current?.postMessage({ type: "place", place });
+    if (state === "ready") post({ type: "place", place });
     // `placeKey` stands for the place.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [placeKey, state]);
   useEffect(() => {
-    if (state === "ready" && entity) port.current?.postMessage({ type: "entity", entity });
+    if (state === "ready" && entity) post({ type: "entity", entity });
   }, [entity, state]);
   useEffect(() => {
-    if (state === "ready" && entities) port.current?.postMessage({ type: "entities", entities });
+    if (state === "ready" && entities) post({ type: "entities", entities });
   }, [entities, state]);
   useEffect(() => {
     if (state !== "starting") return;
@@ -85,7 +91,7 @@ export function ComponentFrame(props: FrameProps) {
     if (state === "failed" || state === "left") latest.current.onFailed?.();
   }, [state]);
 
-  function received(message: FrameMessage) {
+  function received(message: ReadMessage) {
     const now = latest.current;
     switch (message.type) {
       case "ready":
@@ -108,8 +114,9 @@ export function ComponentFrame(props: FrameProps) {
         return;
       case "open": {
         if (message.revision !== undefined) {
-          const url = pinnedRevisionUrl(now.entity, message.entity, message.revision);
-          if (url) window.location.assign(url);
+          // Only a revision a pin in its entity names, never the record as it is now.
+          const pin = pinnedRevision(now.entity, message.entity, message.revision);
+          if (pin) now.onOpenRevision?.(pin);
           return;
         }
         // Only an entity it was given: Iki opens its page, as the person may read it.
@@ -140,7 +147,9 @@ export function ComponentFrame(props: FrameProps) {
     };
     port.current = channel.port1;
     // Its origin is no one's, so there's no origin to name but "*": the port is what's private.
-    event.currentTarget.contentWindow?.postMessage({ type: "iki-connect" }, "*", [channel.port2]);
+    // The bridge connects only for the protocol it speaks, and says so when it's ready.
+    const connect: Connect = { type: "iki-connect", protocol: PROTOCOL };
+    event.currentTarget.contentWindow?.postMessage(connect, "*", [channel.port2]);
   }
 
   if (state === "left") {

@@ -400,6 +400,14 @@ describe("↵ opens what was typed", () => {
     });
     expect(screen.getByRole("option", { name: /PRT-000014/ })).toBeInTheDocument();
     expect(screen.getByRole("listbox")).toHaveAttribute("aria-busy", "true");
+    // None of them is active, nor becomes so: ↵ wouldn't open it.
+    expect(box).not.toHaveAttribute("aria-activedescendant");
+    await user.keyboard("{ArrowDown}");
+    expect(box).not.toHaveAttribute("aria-activedescendant");
+    expect(screen.getByRole("option", { name: /PRT-000014/ })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
     await user.keyboard("{Enter}");
     await user.keyboard("{Meta>}{Enter}{/Meta}");
     const opening = vi.spyOn(window, "open").mockReturnValue(null);

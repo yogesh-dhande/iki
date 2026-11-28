@@ -625,12 +625,28 @@ def test_a_run_keeps_the_files_its_action_keeps_whether_it_succeeds_or_not(
 def test_a_command_gives_many_creates_in_a_file_and_they_are_imported(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:
-    from test_run_imports import IMPORT, stored
+    from test_run_imports import IMPORT
+
+    from iki_server.files import services as files
 
     plugins = tmp_path / "plugins"
     shutil.copytree(PLUGINS / "protein", plugins / "protein")
     (plugins / "protein" / "scripts" / "imports.py").write_text(MANY, encoding="utf-8")
-    file_id = stored(world)
+    upload = files.start(
+        world.users["editor"],
+        world.project,
+        name="kinases.fasta",
+        media_type="chemical/seq-aa-fasta",
+        size=0,
+        sha256=files.EMPTY_SHA256,
+    )
+
+    def scanned() -> Any:
+        upload.refresh_from_db()
+        return upload.file_id
+
+    # The task runner beside the server scans it; running tasks here as well would race it.
+    file_id = str(eventually(scanned))
     made = launch(api_as(world, "editor"), world.project, {}, IMPORT, params={"file": file_id})
     assert made.status_code == 201, made.content
     run = made.json()

@@ -11,13 +11,20 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from Bio.SeqUtils import molecular_weight
+from weights import AVERAGE, chain_formula
 
-# Average atomic weights: CIAAW abridged standard atomic weights, https://ciaaw.org/abridged-atomic-weights.htm.
-# Monoisotopic masses: AME2020, https://doi.org/10.1088/1674-1137/abddaf.
+# Average masses: CIAAW's standard atomic weights, the table every Iki plugin weighs by
+# (weights.py). Monoisotopic masses: each element's most abundant isotope's, AME2020,
+# https://doi.org/10.1088/1674-1137/abddaf.
 ATOMS = {
-    "average": {"C": 12.011, "H": 1.008, "N": 14.007, "O": 15.999},
-    "monoisotopic": {"C": 12.0, "H": 1.007825032, "N": 14.003074004, "O": 15.994914620},
+    "average": AVERAGE,
+    "monoisotopic": {
+        "C": 12.0,
+        "H": 1.00782503223,
+        "N": 14.00307400443,
+        "O": 15.99491461957,
+        "S": 31.9720711744,
+    },
 }
 # Incorporated glycan residue formulas (without water): https://www.unimod.org/masses.html
 # and https://www.nist.gov/mml/biomolecular-measurement/mass-spectrometry-data-center/nist-glyco-mass-calculator.
@@ -160,9 +167,8 @@ def mass_rows(
                 if not 1 <= start <= end <= len(sequence):
                     raise ValueError("subunit coordinates must fall inside the registered chain")
                 subunit = sequence[start - 1 : end]
-                # Biopython adds terminal H2O to the residue masses for the neutral
-                # linear sequence. https://biopython.org/docs/1.88/api/Bio.SeqUtils.html
-                base = molecular_weight(subunit, "protein", monoisotopic=basis == "monoisotopic")
+                # The neutral linear chain: its residues and its ends' water.
+                base = sum(ATOMS[basis][e] * n for e, n in chain_formula(subunit).items())
                 available_cysteines = subunit.count("C")
             disulfides = count(row["disulfides"])
             if disulfides * 2 > available_cysteines:

@@ -420,7 +420,6 @@ def test_the_tecan_writer_writes_the_same_worklist_in_two_processes() -> None:
         {
             "hrid": "TRF-000001",
             "id": "0190e9a4-0000-7000-8000-000000000002",
-            "latest": True,
             "name": "B3 to A1",
             "revised_at": "2026-11-25T09:00:00Z",
             "revision": 1,

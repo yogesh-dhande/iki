@@ -1,6 +1,8 @@
 # 0033. Plugins compiled to Django apps, and migrations that keep history
 
-- Status: Accepted
+- Status: Accepted (amended 2026-11-27: a deployment can give a type another HRID
+  prefix, and Iki publishes the prefixes it keeps; the decision is
+  [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md)'s)
 - Date: 2026-11-10
 - Refines: [0006](0006-deploy-time-plugins-as-django-apps.md),
   [0007](0007-typed-table-per-type-entity-storage.md)
@@ -167,3 +169,67 @@ its dependencies.
   would mean rewriting or deleting history.
 - **CHECK constraints only in the app.** Rejected. SQL clients and future
   code paths would bypass them.
+
+## Amendment of 2026-11-27 — a plugin's HRID prefix is a default
+
+**Context.** Every type in a deployment shares one space of HRID prefixes,
+and the build refuses two types with one. Iki's own plugins use 118 of them,
+106 of three letters. After M1, a release of Iki's plugins can add a type
+whose prefix a lab's plugin already took, and the lab's upgrade is then
+blocked. Renaming isn't a way out: HRIDs are printed on labels and tubes,
+and sequences are never dropped. Nor can the lab change Iki's plugin, or
+Iki know every lab's prefixes.
+
+**Decision.**
+
+- The global check stays: no two types in a build share a prefix, and no
+  plugin takes one of core's or of the records the server numbers itself
+  (runs, batches, workflow runs, setup builds).
+- **A plugin's prefix is a default.** A deployment's `plugins.lock.yaml`
+  may give a concrete type another, `hrids: { acme/buffers.BufferPrep: ABUF }`.
+  The build checks every plugin with the deployment's prefixes and compiles
+  them into the manifests the server reads, so the HRIDs, their sequences
+  and every later check use them. An override must name a concrete type of a
+  plugin the lockfile builds; core's types can't be given one.
+- **A clash names its settlement.** The build's refusal names both types and
+  the override that settles it, moving a lab's type before one of Iki's and
+  never core's, with a free prefix suggested.
+- **A type with records keeps its prefix.** The deploy refuses a build that
+  gives such a type another, by an override or by its plugin, and says how
+  to keep the old one. It checks again under the deploy's lock, since a
+  record may be made after preflight.
+- **Iki publishes the prefixes it keeps**, in
+  `iki_spec/reserved_hrid_prefixes.json`: core's, those its plugins use, and
+  those it reserves for first-party types on its roadmap.
+  `scripts/first_party_trees.py` refreshes it with the plugins' trees, and
+  CI fails when it's stale. `iki plugin validate` warns a lab's plugin that
+  takes one of them (`reserved-hrid-prefix`), while the type has no records
+  and the prefix is cheap to change.
+
+Precedent: Benchling's registry ID prefixes are set per schema by the
+tenant's admin, not by whoever wrote the schema.
+
+**Consequences.**
+
+- Positive: two plugins that don't know each other can be installed
+  together without changing either. A first-party release can't strand a
+  lab on an older one.
+- Positive: a lab is told about a likely clash when it writes its plugin,
+  not when it upgrades.
+- Negative: a type's prefix can differ between deployments, so an HRID
+  alone doesn't say which plugin declared its type. Its record does.
+- Negative: the reserved list is one more generated file; it's refreshed in
+  the same step as the trees list, so a merge that changes a plugin's
+  prefixes refreshes both.
+
+**Alternatives considered.**
+
+- **Prefixes namespaced by plugin** (`ACME-BUF-…`). Rejected: HRIDs are
+  short so people can read them off a tube, and every existing label would
+  change.
+- **Iki assigns prefixes from a registry.** Rejected: a lab's plugin may
+  never be published, and the registry would still not prevent two labs'
+  plugins clashing in one deployment.
+- **A per-plugin override in the plugin's settings.** Rejected: settings
+  are the lab's choices about a plugin's behaviour, and a prefix clash is a
+  property of the deployment's set of plugins, which only the lockfile sees.

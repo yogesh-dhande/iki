@@ -115,10 +115,6 @@ class PluginRecord:
         return self.gathered.revision
 
     @property
-    def latest(self) -> bool:
-        return self.gathered.latest
-
-    @property
     def revised_at(self) -> datetime:
         return self.gathered.revised_at
 

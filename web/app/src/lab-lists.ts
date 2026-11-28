@@ -6,7 +6,8 @@
  * option archived or superseded since keeps it, and says so.
  *
  * Its registry's registrars and the list's curators add, relabel, reorder, archive and
- * supersede options, each with a reason. Org Admins appoint the curators, a list at a time.
+ * supersede options, each with a reason. Org Admins appoint the curators, a list at a time:
+ * a registry role (ADR 0292), as a registrar's is.
  */
 
 import { unwrap, type Schemas } from "@ikisci/sdk";
@@ -18,7 +19,7 @@ import { registriesQuery } from "./registries";
 
 export type LabList = Schemas["ListOut"];
 export type ListOption = Schemas["OptionOut"];
-export type ListCurator = Schemas["ListCuratorOut"];
+export type RegistryRole = Schemas["RegistryRoleOut"];
 
 /** Whose lists: a project's, which its records pick from, or a registry's, as its
  * curators and Org Admins read them. */
@@ -31,6 +32,16 @@ export const LAB_LISTS = [...ENTITIES, "lab-lists"] as const;
 /** More options than this, and a dropdown is searched as people type, rather than
  * scrolled: as Benchling's dropdowns and GitHub's pickers do once a list is long. */
 export const LONG_LIST = 15;
+
+/** The most of a long list's matches its search shows at once, saying how many more there
+ * are: as GitHub's pickers do. A list may have thousands of options, and nobody scrolls
+ * through them; they type a few letters of the one they want. */
+export const SHOWN_MATCHES = 50;
+
+/** What a search shows of its matches, when it doesn't show them all. */
+export function narrowText(shown: number, matched: number): string {
+  return `Showing ${shown.toLocaleString()} of ${matched.toLocaleString()}. Type to narrow them.`;
+}
 
 /** The built-in fields every option has (ADR 0270), before its list's own. */
 export const OPTION_FIELDS = ["code", "label", "description", "position"] as const;
@@ -58,23 +69,6 @@ export function listOfItems(field: FieldDef, types: readonly EntityType[]): Enti
   return listOf(field, types);
 }
 
-/** A registry's lists, with how many options each offers and whether the reader curates
- * it. */
-export function labListsQuery(scope: ListScope) {
-  return queryOptions({
-    queryKey: [...LAB_LISTS, "lists", scopeKey(scope)],
-    queryFn: ({ signal }) =>
-      everyPage(async (page) =>
-        unwrap(
-          await iki.GET("/api/v1/lists", {
-            params: { query: { ...query(scope), ...page } },
-            signal,
-          }),
-        ),
-      ),
-  });
-}
-
 /** One list, in a registry: its registry, how many options it offers, whether the reader
  * curates it, whether its plugin is detached. */
 export function labListQuery(name: string, scope: ListScope) {
@@ -92,8 +86,9 @@ export function labListQuery(name: string, scope: ListScope) {
 
 /**
  * A list's options, in its order: the active ones a dropdown offers, or with `every`,
- * archived and superseded ones too, as records may still name them. A list is short, a
- * few hundred options at most, so it's read whole, every page, and searched in the browser.
+ * archived and superseded ones too, as records may still name them. A list has 10,000
+ * options at most (LIST_MAX_OPTIONS), so it's read whole, every page, and searched in the
+ * browser, which shows a few of its matches at a time (SHOWN_MATCHES).
  */
 export function optionsQuery(name: string, scope: ListScope, every = false) {
   return queryOptions({
@@ -111,17 +106,29 @@ export function optionsQuery(name: string, scope: ListScope, every = false) {
   });
 }
 
-/** Who curates a registry's lists, list by list. Its registrars curate every one. */
-export function curatorsQuery(registryId: string) {
+/** A list's own curators in a registry, every page of them: a registry role (ADR 0292).
+ * Its registrars curate every list besides. */
+export function curatorsQuery(registryId: string, list: string) {
   return queryOptions({
-    queryKey: [...LAB_LISTS, "curators", registryId],
-    queryFn: async ({ signal }) =>
-      unwrap(
-        await iki.GET("/api/v1/registries/{registry_id}/list-curators", {
-          params: { path: { registry_id: registryId } },
-          signal,
-        }),
-      ),
+    queryKey: [...LAB_LISTS, "curators", registryId, list],
+    queryFn: async ({ signal }) => {
+      const found: RegistryRole[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = unwrap(
+          await iki.GET("/api/v1/registries/{registry_id}/roles", {
+            params: {
+              path: { registry_id: registryId },
+              query: { role: "list_curator", list, limit: 100, ...(cursor ? { cursor } : {}) },
+            },
+            signal,
+          }),
+        );
+        found.push(...page.items);
+        cursor = page.next_cursor ?? undefined;
+      } while (cursor);
+      return found;
+    },
   });
 }
 
@@ -144,15 +151,6 @@ export function optionText(
   return retired ? `${label} (${retired})` : label;
 }
 
-/** A reference to an option, as the API gives it, as people read it. */
-export function refText(ref: {
-  title: string;
-  archived: boolean;
-  superseded?: boolean | null;
-}): string {
-  return optionText(ref.title, ref.superseded ? "superseded" : ref.archived ? "archived" : null);
-}
-
 /** Whether a reference is to a list's option: options have codes, records don't. */
 export function isOptionRef(ref: { code?: string | null } | undefined): boolean {
   return Boolean(ref?.code);
@@ -168,19 +166,6 @@ export function matching<T extends { label: string; code: string }>(
   return options.filter(
     (o) =>
       o.label.toLocaleLowerCase().includes(wanted) || o.code.toLocaleLowerCase().includes(wanted),
-  );
-}
-
-/** The option a sheet's cell text names, as the server reads it: by its code, or by its
- * label in any case. */
-export function optionNamed<T extends { label: string; code: string }>(
-  options: readonly T[],
-  text: string,
-): T | undefined {
-  const given = text.trim();
-  return (
-    options.find((o) => o.code === given) ??
-    options.find((o) => o.label.toLocaleLowerCase() === given.toLocaleLowerCase())
   );
 }
 

@@ -111,11 +111,10 @@ bond, keeping every atom's stereochemistry.
   sodium, 7,501.0 g/mol; patisiran sodium, 14,304 Da), is beside it: 21.98
   g/mol more for each acidic proton of its phosphates and phosphorothioates,
   and none for a molecule with no acidic proton, such as a methylphosphonate
-  or a morpholino. The average molecular weight is from CIAAW's abridged standard
-  atomic weights (Prohaska et al., _Pure Appl. Chem._ 94, 573, 2022), sulfur
-  32.06; the monoisotopic mass from each element's most abundant isotope.
-  RDKit's own table, which the small_molecule plugin uses, has sulfur at
-  32.067, so a phosphorothioate weighs a little more there. An atom a
+  or a morpholino. The average molecular weight is from CIAAW's standard atomic
+  weights 2024, sulfur 32.06 and phosphorus 30.973761998, the table every Iki
+  plugin weighs by ([ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)); the monoisotopic mass from each element's most
+  abundant isotope. An atom a
   monomer's structure labels with its isotope (`[13CH]`, `[2H]`) weighs its
   nuclide's mass (RDKit's, from AME2020) in both, and the formula writes it as
   itself: ribose-¹³C₅ uridine is C4[13C]5H12N2O6, 249.16 g/mol.

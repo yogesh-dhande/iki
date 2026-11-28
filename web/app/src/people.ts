@@ -131,6 +131,18 @@ export interface WorkFilter {
   sort?: "due" | "updated" | undefined;
 }
 
+/** My work's address, `?open=true&project=…&type=…&state=…&sort=updated`: its filter. */
+export function validateWorkSearch(search: Record<string, unknown>): WorkFilter {
+  const out: WorkFilter = {};
+  if (search["open"] === true || search["open"] === "true") out.open = true;
+  for (const key of ["project", "type", "state"] as const) {
+    const value = search[key];
+    if (typeof value === "string" && value && value.length <= 200) out[key] = value;
+  }
+  if (search["sort"] === "updated") out.sort = "updated";
+  return out;
+}
+
 /** A page of your work at a time: what's assigned to you, or open to your lab roles. */
 export function workQuery(filter: WorkFilter) {
   return infiniteQueryOptions({
