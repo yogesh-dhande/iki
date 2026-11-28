@@ -66,6 +66,7 @@ def test_store_sample(
         "id": str(uuid4()),
         "hrid": f"{manifest('types/sample.yaml')['hrid']['prefix']}-000001",
         "type": f"{plugin['name']}.Sample",
+        "types": [f"{plugin['name']}.Sample", "iki/core.Entity"],
         "schema_version": 1,
         "revision": 1,
         "values": {"name": "Frozen aliquot", "kind": "blood"},

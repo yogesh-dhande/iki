@@ -108,8 +108,15 @@ def _filtered(form: FilterForm) -> QuerySet[AuditEvent]:
         events = events.filter(
             Q(actor_label__icontains=data["person"]) | Q(target_label__icontains=data["person"])
         )
-    if data["project"]:
-        events = events.filter(project=data["project"])
+    if place := data["project"]:
+        events = events.filter(
+            Q(project=place)
+            | Q(
+                project__isnull=True,
+                action__in=log.SPANNING_PROJECTS,
+                data__projects__contains=[str(place.pk)],
+            )
+        )
     if data["via"]:
         events = events.filter(via=data["via"])
     if data["agent"]:

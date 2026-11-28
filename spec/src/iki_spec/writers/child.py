@@ -34,7 +34,7 @@ import wasmtime
 from iki_spec.writers import MANIFEST
 from iki_spec.writers.check import check_module
 from iki_spec.writers.protocol import Closed, read_frame, read_json, write_frame, write_json
-from iki_spec.writers.runtime import ENTRIES, MAX_MEMORY, Instance, WriterFailed, engine
+from iki_spec.writers.runtime import ENTRIES, MAX_MEMORY, Instance, Limits, WriterFailed, engine
 
 
 class Refused(Exception):  # noqa: N818 - answered to the server as an error
@@ -167,13 +167,15 @@ def serve(
         memory = int(header["memory"])
         if not 0 < memory <= MAX_MEMORY:
             raise Refused("limits", "The writer's memory is outside its limits.")
+        # The deployment's limits, as the server gives them: Iki's where it doesn't.
+        limits = Limits.of(header.get("limits"))
         if modules is not None:
             if "path" in header:
                 raise Refused("refused", "The sandbox loads only the writers its image installed.")
             module = load_image(compiler, modules, writer, sha256)
         else:
             module = load_local(compiler, str(header["path"]), sha256)
-        instance = Instance(module, compiler, memory)
+        instance = Instance(module, compiler, memory, limits)
     except (KeyError, TypeError, ValueError) as error:
         write_json(stdout, {"error": {"code": "malformed", "message": f"Bad header: {error}"}})
         return 2
@@ -185,7 +187,8 @@ def serve(
         write_json(stdout, {"error": {"code": code, "message": str(error)}})
         return 1
     _confine()
-    write_json(stdout, {"ready": True})
+    # The ABI the module reads, which the server builds each request for.
+    write_json(stdout, {"ready": True, "abi": instance.abi})
     begun = False
     while True:
         try:
@@ -202,7 +205,7 @@ def serve(
                 # Each file starts from a fresh instance: a ZIP's files (`many: zip`) share
                 # nothing but the export they're in.
                 if begun:
-                    instance = Instance(module, compiler, memory)
+                    instance = Instance(module, compiler, memory, limits)
                 begun = True
             done = instance.call(str(entry), request)
         except WriterFailed as failed:

@@ -62,8 +62,45 @@ def test_header_without_observations_is_refused(tmp_path, analysis, blank_lines)
 def test_an_adc_lot_must_belong_to_the_selected_conjugate():
     antibody = {"id": "antibody"}
     adc = {"id": "adc", "values": {"carrier": [{"kind": "antibody_drug", "molecule": "antibody"}]}}
-    lot = {"id": "lot", "type": "iki/lots.ConjugateLot", "values": {"conjugate": "different"}}
+    lot = {
+        "id": "lot",
+        "type": "iki/lots.ConjugateLot",
+        "types": [
+            "iki/lots.ConjugateLot",
+            "iki/lots.BiologicLot",
+            "iki/lots.Lot",
+            "iki/core.Entity",
+        ],
+        "values": {"conjugate": "different"},
+    }
     with pytest.raises(ValueError, match="Select a lot"):
         SCRIPT["check_material"](antibody, adc, lot)
     lot["values"]["conjugate"] = "adc"
     SCRIPT["check_material"](antibody, adc, lot)
+
+
+def lot_of(type_name, *extends, **values):
+    return {
+        "id": "lot",
+        "type": type_name,
+        "types": [type_name, *extends, "iki/lots.BiologicLot", "iki/lots.Lot", "iki/core.Entity"],
+        "values": values,
+    }
+
+
+def test_a_labs_own_kind_of_lot_is_a_lot_of_its_antibody_or_conjugate():
+    """A lab's lot types that extend the protein or conjugate lot, as the lot input offers
+    them, are checked as those lots are."""
+    antibody = {"id": "antibody"}
+    adc = {"id": "adc", "values": {"carrier": [{"kind": "antibody_drug", "molecule": "antibody"}]}}
+    gmp = lot_of("acme/gmp.DrugSubstanceLot", "iki/lots.ProteinLot", protein="antibody")
+    SCRIPT["check_material"](antibody, None, gmp)
+    conjugated = lot_of("acme/gmp.ADCLot", "iki/lots.ConjugateLot", conjugate="adc")
+    SCRIPT["check_material"](antibody, adc, conjugated)
+    with pytest.raises(ValueError, match="Select a protein lot of the chosen antibody"):
+        SCRIPT["check_material"](antibody, None, conjugated)
+    with pytest.raises(ValueError, match="Select a lot of the chosen antibody–drug conjugate"):
+        SCRIPT["check_material"](antibody, adc, gmp)
+    gmp["values"]["protein"] = "another antibody"
+    with pytest.raises(ValueError, match="Select a protein lot of the chosen antibody"):
+        SCRIPT["check_material"](antibody, None, gmp)

@@ -1405,6 +1405,15 @@ def missing(entity: Entity) -> list[str]:
 # --- The organization ---------------------------------------------------------------------------
 
 
+def _by_a_person(by: User, what: str) -> None:
+    """Refuses a token, an app or an AI agent: as only a person signs, only a person, in
+    Iki's web app, does ``what``."""
+    if permissions.token_limits(by) is not None or log.current_agent_info() is not None:
+        raise PermissionDenied(
+            f"{what} is done by a person in Iki’s web app: no token, app or AI agent can."
+        )
+
+
 def certify(by: User, submitted_on: dt.date, reference: str) -> Certification:
     """An Org Admin records the organization's certification to the FDA (21 CFR 11.100(c))."""
     if not permissions.can(by, Action.ORG_MANAGE):
@@ -1426,10 +1435,21 @@ def certify(by: User, submitted_on: dt.date, reference: str) -> Certification:
     return found
 
 
-def unlock(by: User, user: User) -> None:
-    """An Org Admin unlocks someone's signing after failed attempts locked it."""
+def unlock(by: User, user: User, reason: str) -> None:
+    """An Org Admin unlocks someone else's signing after failed attempts locked it
+    (21 CFR 11.300(d)), in person, saying why: once they know who made the attempts. Nobody
+    unlocks their own, since someone may have been trying to sign as them."""
+    _by_a_person(by, "Unlocking someone’s signing")
     if not permissions.can(by, Action.ORG_MANAGE):
         raise PermissionDenied("Unlocking someone’s signing needs an Org Admin.")
+    if by.pk == user.pk:
+        raise PermissionDenied(
+            "Another Org Admin unlocks your signing: someone may have been trying to sign as "
+            "you, and they find out who first."
+        )
     if not locked_out(user):
         raise Refused(f"{user.name or user.email}’s signing isn’t locked.")
-    log.record("signature.unlocked", actor=by, target=user)
+    reason = reason.strip()
+    if not reason:
+        raise Invalid({"reason": ["Say why it’s safe to unlock: who made the failed attempts."]})
+    log.record("signature.unlocked", actor=by, target=user, data={"reason": reason[:2000]})

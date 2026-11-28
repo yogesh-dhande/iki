@@ -1,14 +1,17 @@
 apiVersion: iki/v1
 kind: ActionTest
-name: a_result_on_the_acceptance_limit_passes
+name: a_result_that_rounds_to_the_acceptance_limit_passes
 action: record_test
-description: Synthetic observation at the published lower limit for the historical USP sodium chloride assay.
+description: >-
+  A synthetic observation of 98.96% against the historical USP sodium chloride assay's
+  99.0% lower limit. Rounded to the limit's tenths, it's 99.0%, which conforms (USP General
+  Notices 7.20); the test keeps 98.96 as measured.
 params:
   {
     attribute: NaCl assay,
     method: USP Sodium Chloride assay (2015),
     unit: "% NaCl, dried basis",
-    value: 99.0,
+    value: 98.96,
   }
 inputs:
   case:
@@ -27,8 +30,8 @@ inputs:
                     attribute: NaCl assay,
                     method: USP Sodium Chloride assay (2015),
                     unit: "% NaCl, dried basis",
-                    lower: 99.0,
-                    upper: 100.5,
+                    lower: "99.0",
+                    upper: "100.5",
                   }
 expect:
   output:
@@ -40,9 +43,11 @@ expect:
           attribute: NaCl assay
           method: USP Sodium Chloride assay (2015)
           unit: "% NaCl, dried basis"
-          value: 99.0
-          lower: 99.0
-          upper: 100.5
+          value: 98.96
+          reported: "99.0"
+          rounding: limit_places
+          lower: "99.0"
+          upper: "100.5"
           outcome: pass
           sequence: 1
           observed_by: 00000000-0000-7000-8005-000000000001
@@ -80,14 +85,14 @@ inputs:
                     attribute: NaCl assay,
                     method: USP Sodium Chloride assay (2015),
                     unit: "% NaCl, dried basis",
-                    lower: 99.0,
-                    upper: 100.5,
+                    lower: "99.0",
+                    upper: "100.5",
                   }
 expect:
   output:
     creates:
       - type: iki/qc_release.ReleaseTest
-        values: { value: 98.9, outcome: oos, sequence: 1 }
+        values: { value: 98.9, reported: "98.9", outcome: oos, sequence: 1 }
       - type: iki/qc_release.QCOOSInvestigation
         values: { case: 00000000-0000-7000-8003-000000000001, test: { $create: measurement } }
     updates:
@@ -118,8 +123,8 @@ inputs:
                   procedure: SOP-A
                   procedure_revision: "2"
                   unit: nM
-                  lower: 20
-                  upper: 30
+                  lower: "20"
+                  upper: "30"
   assay:
     - type: iki/plate_assays.ResearchAssayResult
       values:
@@ -159,8 +164,8 @@ inputs:
                   procedure: SOP-A
                   procedure_revision: "2"
                   unit: nM
-                  lower: 20
-                  upper: 30
+                  lower: "20"
+                  upper: "30"
   assay:
     - type: iki/plate_assays.QCAssayResult
       values:

@@ -17,10 +17,14 @@ from test_runs import world
 from test_signatures import begin, evidence, ready, signed
 from test_states import ANALYST, QA, REVIEWER, put, roles, set_
 
+from iki_server.accounts import service_accounts
 from iki_server.audit import log as audit
 from iki_server.audit.models import Via
 from iki_server.entities import guards, states
 from iki_server.entities.models import Entity
+from iki_server.org import permissions
+from iki_server.org import services as org_services
+from iki_server.org.models import ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
 from iki_server.plugins.models import HistoryChange
 from iki_server.signatures import services as signing
@@ -72,6 +76,29 @@ def test_whoever_submitted_it_doesnt_approve_it(world: World) -> None:
     roles(world, admin=(REVIEWER, ANALYST))
     set_(world, "admin", batch["id"], "status", "in_review")
     assert set_(world, "editor", batch["id"], "status", "approved")["locked"]
+
+
+def test_a_service_account_doesnt_approve_its_own_submission(world: World) -> None:
+    """Four eyes holds for a service account as for a person: the actor is whoever the
+    change is recorded as made by."""
+    admin = world.users["org_admin"]
+    bridge = service_accounts.create("LIMS bridge", "Posts instrument results.", by=admin)
+    membership = ProjectMembership.objects.create(
+        project=world.project, user=bridge, role=ProjectRole.EDITOR
+    )
+    org_services.set_lab_roles(membership, {ANALYST, REVIEWER}, by=admin)
+    permissions.forget(bridge)
+    batch = Entity.objects.get(pk=made(world, {"name": "L-9"})["id"])
+    states.set_state(bridge, batch, "status", "in_review", expected_revision=batch.revision)
+    batch.refresh_from_db()
+    with pytest.raises(states.GuardRefused, match="You submitted L-9 for review") as refused:
+        states.set_state(bridge, batch, "status", "approved", expected_revision=batch.revision)
+    assert refused.value.guard == "four_eyes"
+    batch.refresh_from_db()
+    assert states.values_of(batch)["status"] == "in_review" and not batch.locked_by
+    # Someone else approves it.
+    roles(world, admin=(REVIEWER,))
+    assert set_(world, "admin", str(batch.pk), "status", "approved")["locked"]
 
 
 def test_a_guard_reads_another_state_field(world: World) -> None:
