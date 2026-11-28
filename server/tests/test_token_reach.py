@@ -67,6 +67,9 @@ REACHABLE = {
     ("GET", "/entity-types/{name}/import-template.csv"),
     ("GET", "/formats"),
     ("GET", "/starters"),
+    # The installed review procedures, and a type's deployment default (ADR 0302).
+    ("GET", "/review-procedures"),
+    ("GET", "/review-choices/{name}"),
     ("GET", "/actions"),
     ("GET", "/actions/{name}"),
     ("GET", "/workflows"),
@@ -274,6 +277,11 @@ def test_a_project_token_can_read_flow_definitions_and_only_its_projects_starter
     assert bearer(token, "GET", "/starters", None).status_code == 200
     assert bearer(token, "GET", f"/starters?project={chosen.pk}", None).status_code == 200
     problem(bearer(token, "GET", f"/starters?project={world.project.pk}", None), 404, "not_found")
+    # So is a project's choice of a type's review procedure.
+    choices = "/review-choices/acme/protein.PurityCheck"
+    assert bearer(token, "GET", choices, None).status_code == 200
+    assert bearer(token, "GET", f"{choices}?project={chosen.pk}", None).status_code == 200
+    problem(bearer(token, "GET", f"{choices}?project={world.project.pk}", None), 404, "not_found")
 
 
 def test_project_tokens_share_format_definitions_and_count_only_their_files() -> None:
