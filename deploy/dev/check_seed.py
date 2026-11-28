@@ -49,7 +49,7 @@ def check_seed(atlas: Project) -> None:
     require("iki/equipment.Booking", 3)
     require("iki/samples.ReviewedSample", signature="reviewed")
     require("iki/stability.Measurement", signature="signed")
-    require("iki/plate_assays.ResearchAssayResult", 2, signature="signed")
+    require("iki/plate_assays.AssayResult", 2, signature="signed_off")
     require("iki/reagents.CountStockLot", 2)
     require("iki/qc_release.ResearchCertificate", signature="signed_off")
     require("iki/qc_release.CertificateOfAnalysis", signature="issued")
@@ -61,23 +61,21 @@ def check_seed(atlas: Project) -> None:
     # The assay cores each return both fits. The analytical core also returns the
     # requested protein and sequencing evidence. A private, signed result alone cannot pass.
     require(
-        "iki/plate_assays.RequestedResearchAssayResult",
+        "iki/plate_assays.RequestedAssayResult",
         2,
-        signature="signed",
+        signature="signed_off",
         returned_from="Research plate assays",
         returned_to="Research plate assay requester",
     )
     require(
-        "iki/plate_assays.RequestedQCAssayResult",
+        "iki/plate_assays.RequestedAssayResult",
         2,
         signature="released",
         returned_from="QC plate assays",
         returned_to="QC plate assay requester",
     )
-    require(
-        "iki/requests.ResearchDeliverable", signature="signed_off", returned_from="Analytical Core"
-    )
-    require("iki/requests.QCDeliverable", 2, signature="released", returned_from="Analytical Core")
+    require("iki/requests.Deliverable", signature="signed_off", returned_from="Analytical Core")
+    require("iki/requests.Deliverable", 2, signature="released", returned_from="Analytical Core")
     require("iki/lots.PlasmidVerification", signature="signed_off")
 
     # The plasmid scenario banks its transformed strain as a physical isolate stock.

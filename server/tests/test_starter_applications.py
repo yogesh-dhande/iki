@@ -27,6 +27,23 @@ pytestmark = pytest.mark.django_db
 
 # Use the ordinary test installation's real roles to exercise the config service.
 ANALYST, REVIEWER, QA = (f"acme/protein.{r}" for r in ("analyst", "reviewer", "qa"))
+PLATE = "acme/plate_recipe."
+#: A recipe of the server's own, a type per flow, as the release, stability and experiment
+#: recipes still are: the shape these tests exercise, for types of a plugin of its own.
+RECIPE = starters.Starter(
+    id="dose-response",
+    version="2.0.0",
+    label="Dose-response plate assay",
+    description="Choose the review flow for new dose-response fits and assign the assay roles.",
+    plugin="acme/plate_recipe",
+    setting="review_flow",
+    result_base=PLATE + "Result",
+    flows={"research": PLATE + "ResearchResult", "regulated_qc": PLATE + "QCResult"},
+    roles={ANALYST: ProjectRole.EDITOR, REVIEWER: ProjectRole.VIEWER, QA: ProjectRole.VIEWER},
+    required_roles={"research": (ANALYST, REVIEWER), "regulated_qc": (ANALYST, REVIEWER, QA)},
+    independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
+    governs="dose-response fits",
+)
 
 
 @dataclass
@@ -38,12 +55,7 @@ class Setup:
 @pytest.fixture
 def setup(monkeypatch: pytest.MonkeyPatch) -> Setup:
     world = build_world()
-    recipe = replace(
-        starters.DOSE_RESPONSE,
-        roles={ANALYST: ProjectRole.EDITOR, REVIEWER: ProjectRole.VIEWER, QA: ProjectRole.VIEWER},
-        required_roles={"research": (ANALYST, REVIEWER), "regulated_qc": (ANALYST, REVIEWER, QA)},
-        independent_roles={"regulated_qc": (ANALYST, REVIEWER, QA)},
-    )
+    recipe = RECIPE
     monkeypatch.setattr(starters, "installed_starters", lambda: {recipe.id: recipe})
     member = world.project.memberships.get
     roles = {
@@ -83,7 +95,7 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     args = (project, "dose-response", "2.0.0", "regulated_qc", roles)
     plan = starters.preview(*args, by=admin)
     assert plan["changed"]
-    assert plan["result_type"] == starters.PLATE + "QCAssayResult"
+    assert plan["result_type"] == PLATE + "QCResult"
     assert plan["grants_to_add"] == {k: list(map(str, v)) for k, v in roles.items()}
     assert len(plan["plan"]) == 64
     assert not StarterApplication.objects.exists() and not LabRoleGrant.objects.exists()
@@ -126,7 +138,7 @@ def test_preview_apply_replay_and_switch(setup: Setup) -> None:
     again = starters.preview(*switch, by=admin)
     assert again == now
     switched = starters.apply(*switch, by=admin, plan=again["plan"])
-    assert switched["changed"] and switched["result_type"] == starters.PLATE + "ResearchAssayResult"
+    assert switched["changed"] and switched["result_type"] == PLATE + "ResearchResult"
     assert switched["grants_to_add"] == {REVIEWER: list(map(str, roles[REVIEWER]))}
     assert LabRoleGrant.objects.filter(role=QA).exists()
     assert LabRoleGrant.objects.filter(role=REVIEWER, granted_by=admin).exists()

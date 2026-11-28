@@ -535,7 +535,12 @@ def observation(
         raise ValueError("Leave the manual value empty when using a plate assay result.")
     values = assay["values"]
     flow = values.get("review_flow")
-    state = {"research": "signed", "regulated_qc": "released"}.get(flow)
+    # Its last state in core's result review, which plate assays are reviewed under.
+    state = (
+        {"research": "signed_off", "regulated_qc": "released"}.get(flow)
+        if values.get("review_procedure") == "iki/core.result_review@1"
+        else None
+    )
     if (
         state is None
         or values.get("review") != state

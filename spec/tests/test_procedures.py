@@ -97,6 +97,8 @@ review:
       on: [signed]
       check: record.value != null
       message: Record the value before signing.
+  statements:
+    released: I release this result to the project that asked.
 """
 
 CASE = """\
@@ -289,6 +291,7 @@ def test_a_reviewed_type_gets_its_review_field_and_pinned_fields(tmp_path: Path)
         (("      on: [signed]\n", "      on: [approved]\n"), "review-unneeded-state"),
         (("[people: [analysts, case.investigator]]", "[people: [value]]"), "not-a-person"),
         (("[people: [analysts, case.investigator]]", "[creator]"), "review-exclusion"),
+        (("    released: I release", "    approved: I release"), "review-unneeded-state"),
         (("  guards:\n    measured:", "  guards:\n    independent:"), "review-guard-name"),
         (
             ("      check: record.value != null", "      check: record.amount != null"),
@@ -376,6 +379,13 @@ def test_the_types_people_and_guards_join_the_compiled_states(tmp_path: Path) ->
     assert reviewed["measured"].check == "record.value != null"
     assert "measured" in states["submitted"].guards
     assert "measured" not in states["recorded"].guards
+    # Its signers attest in its own words where it gives them, and the procedure's elsewhere.
+    (release,) = states["released"].signatures
+    assert (release.meaning, release.label) == ("approval", "QA release")
+    assert release.statement == "I release this result to the project that asked."
+    (review,) = states["reviewed"].signatures
+    procedures_own = core_review().states["reviewed"].signature
+    assert procedures_own is not None and review.statement == procedures_own.statement
 
 
 def test_a_derived_record_takes_its_flows_final_signature_alone() -> None:

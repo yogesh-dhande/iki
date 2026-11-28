@@ -356,7 +356,7 @@ const RANKING: Schemas["ProjectTriggerOut"] = {
   name: "acme/request_priority.rank_arriving_requests",
   label: "Rank requests as they arrive",
   on: "request.received",
-  type: "iki/requests.PlainRequest",
+  type: "iki/requests.Request",
   action: "acme/request_priority.rank_requests",
   action_label: "Rank requests by project",
   input: "requests",

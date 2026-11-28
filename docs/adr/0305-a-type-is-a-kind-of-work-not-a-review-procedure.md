@@ -44,6 +44,15 @@ A request is pinned when it's sent to its service, from the service project's ch
 for its type, since the service owns how its work is reviewed (ADR 0132). Its
 deliverables follow it. A service's own request and deliverable types (ADR 0235) stay:
 they carry what the service asks and returns, and either procedure can review them.
+A service that hasn't chosen can't receive a request: sending it is refused, 409
+`procedure_not_chosen`. A requested assay result is the service's own work, so it's
+pinned at create by the service project's choice for assay results, as its other fits
+are, not by the request.
+
+A type merged into one keeps its own words for what is signed: `review.statements`
+gives a signed state's attestation, such as a deliverable's release "I release the
+independently reviewed deliverable to the requesting project." Others are the
+procedure's.
 
 A sample keeps its custody and testing in `status` and its review in `review`, each its
 own field (ADR 0125). The unsigned completion of a plain sample, a plain deliverable and

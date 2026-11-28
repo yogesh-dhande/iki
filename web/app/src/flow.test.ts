@@ -1,7 +1,7 @@
 /**
  * A type's flow as a diagram has it (ADR 0199), from the real plugins' flows as
- * `GET /entity-types/{type}/flow` serves them (ADR 0198): QC deliverables,
- * samples and requests, lots, and plate assays' research and regulated QC results
+ * `GET /entity-types/{type}/flow` serves them (ADR 0198): deliverables and plate assay
+ * results under core's result review's flows (ADR 0306), samples and requests, and lots
  * (flow-fixtures.json, which a server test keeps the plugins' own).
  */
 
@@ -33,21 +33,33 @@ function moves(flow: FlowField): string[] {
   return flow.transitions.map((t) => `${t.from} > ${t.to}${t.conditional ? " ?" : ""}`);
 }
 
+/** A reviewed type's review as it is under one of the flows its starters offer (ADR 0306). */
+function reviewOf(type: string, flow: string): FlowField {
+  const found = fixtures.types
+    .find((t) => t.type === type)
+    ?.review?.flows.find((f) => f.flow === flow)?.field;
+  if (!found) throw new Error(`No ${type} ${flow} review in the fixtures`);
+  return found as FlowField;
+}
+
 function modelOf(type: string, field: string): FlowModel {
   return flowModel(flowOf(type, field), ROLES);
 }
 
-const RESULT = "iki/requests.QCDeliverable";
+function reviewModel(type: string, flow: string): FlowModel {
+  return flowModel(reviewOf(type, flow), ROLES);
+}
+
+const RESULT = "iki/requests.Deliverable";
 const SAMPLE = "iki/samples.ReviewedSample";
 const PLAIN_SAMPLE = "iki/samples.PlainSample";
 const REQUEST = "iki/requests.Request";
 const LOT = "iki/lots.Lot";
-const RESEARCH = "iki/plate_assays.ResearchAssayResult";
-const QC = "iki/plate_assays.QCAssayResult";
+const ASSAY = "iki/plate_assays.AssayResult";
 
 describe("the plugins' flows", () => {
   it("draws an analysis result's regulated review: submitted, reviewed, released", () => {
-    expect(moves(flowOf(RESULT, "review"))).toEqual([
+    expect(moves(reviewOf(RESULT, "regulated_qc"))).toEqual([
       // Returned for correction only while it waits for review or release.
       "submitted > recorded",
       "reviewed > recorded",
@@ -61,14 +73,14 @@ describe("the plugins' flows", () => {
   });
 
   it("reads a research result's one sign-off, and that no one sets where it starts", () => {
-    const flow = flowOf(RESEARCH, "review");
+    const flow = reviewOf(ASSAY, "research");
     expect(flow.initial).toBe("recorded");
     // The guard also asks for a recorded fit: a record's, so it's conditional.
-    expect(moves(flow)).toEqual(["recorded > signed ?"]);
+    expect(moves(flow)).toEqual(["recorded > signed_off ?"]);
   });
 
   it("reads a regulated QC result's submission, independent review and QA release", () => {
-    expect(moves(flowOf(QC, "review"))).toEqual([
+    expect(moves(reviewOf(ASSAY, "regulated_qc"))).toEqual([
       "submitted > recorded",
       "reviewed > recorded",
       "recorded > submitted ?",
@@ -125,7 +137,7 @@ describe("the plugins' flows", () => {
 
 describe("a flow as a diagram has it", () => {
   it("says who sets each signed state and what they sign", () => {
-    const model = modelOf(RESULT, "review");
+    const model = reviewModel(RESULT, "regulated_qc");
     const released = model.nodes.find((n) => n.name === "released");
     expect(released).toMatchObject({
       setters: ["Sample and result QA"],
@@ -149,7 +161,7 @@ describe("a flow as a diagram has it", () => {
   });
 
   it("draws an unsigned lock's return on edit", () => {
-    const review = flowOf(RESULT, "review");
+    const review = reviewOf(RESULT, "regulated_qc");
     const states = review.states.map((s) =>
       s.name === "submitted" ? { ...s, signatures: [], on_edit: "recorded" } : s,
     );
@@ -208,25 +220,26 @@ describe("a flow as a diagram has it", () => {
   });
 
   it("says each state in words, with its guards' messages", () => {
-    const model = modelOf(RESULT, "review");
+    const model = reviewModel(RESULT, "regulated_qc");
     const node = (name: string) => {
       const found = model.nodes.find((n) => n.name === name);
       if (!found) throw new Error(name);
       return found;
     };
     expect(wayIn(node("recorded"), model)).toBe(
-      "Analyst, Reviewer or Sample and result QA set it from Submitted or Reviewed, saying why.",
+      "Analyst, Reviewer or Sample and result QA set it from Submitted or Independently reviewed, saying why.",
     );
     expect(wayIn(node("released"), model)).toBe(
-      "Sample and result QA sets it from Reviewed by signing it: QA release (Approval).",
+      "Sample and result QA sets it from Independently reviewed by signing it: QA release (Approval).",
     );
     expect(whatItMeans(node("submitted"), model)).toBe(
       "It locks the record: its values can’t change.",
     );
     expect(node("released").checks.map((c) => c.message)).toContain(
-      "Have someone in QA who did not create, submit, edit or review the deliverable release it.",
+      "It must be signed by someone other than whoever created the record, whoever changed it " +
+        "since it was Recorded and whoever signed it Submitted and Independently reviewed.",
     );
-    const research = modelOf(RESEARCH, "review");
+    const research = reviewModel(ASSAY, "research");
     expect(wayIn(research.nodes[0] as never, research)).toBe("No one moves a record back to it.");
     expect(plainMessage("You submitted {{ record.name }} for review.")).toBe(
       "You submitted … for review.",
@@ -234,7 +247,7 @@ describe("a flow as a diagram has it", () => {
   });
 
   it("knows where a record can go next", () => {
-    const model = modelOf(RESULT, "review");
+    const model = reviewModel(RESULT, "regulated_qc");
     expect(nextFrom(model, "submitted").map((n) => n.name)).toEqual(["recorded", "reviewed"]);
     expect(nextFrom(model, "released")).toEqual([]);
     const lot = modelOf(LOT, "disposition");
@@ -256,7 +269,7 @@ describe("a flow as a diagram has it", () => {
 
 describe("laying a flow out", () => {
   it("puts states side by side where they fit, and one above another where they don't", () => {
-    const model = modelOf(RESULT, "review");
+    const model = reviewModel(RESULT, "regulated_qc");
     const wide = layout(model, 1100);
     expect(wide.orientation).toBe("row");
     expect(wide.width).toBeLessThanOrEqual(1100);
@@ -270,7 +283,7 @@ describe("laying a flow out", () => {
   });
 
   it("keeps arcs that would cross in lanes of their own, forward on one side, back on the other", () => {
-    const placed = layout(modelOf(RESULT, "review"), 1100);
+    const placed = layout(reviewModel(RESULT, "regulated_qc"), 1100);
     const nodeTop = Math.min(...placed.nodes.map((n) => n.y));
     const nodeBottom = Math.max(...placed.nodes.map((n) => n.y + n.height));
     const ys = (id: string) =>

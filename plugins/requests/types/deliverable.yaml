@@ -3,12 +3,41 @@ apiVersion: iki/v1
 kind: EntityType
 name: Deliverable
 label: Deliverable
-abstract: true
-schema_version: 2
+schema_version: 3
+hrid: { prefix: DLV }
 description: >-
   What a service returns for a request: its outcome, its report and the material it
   covers. A service's own result type adds the evidence its work produces.
+result:
+  of: request
+  material: material
+  released: { field: review, states: [accepted, signed_off, released] }
+# Reviewed under the procedure its request was pinned to as it was sent (ADR 0305): the
+# service's choice, so a deliverable can't be returned under another.
+review:
+  pinned: { by: request }
+  needs:
+    final: [accepted, signed_off, released]
+    locks: final
+  guards:
+    active_request:
+      on: [signed, final]
+      check: record.request.standing == "open" && record.request.status == "in_progress"
+      message: Return the deliverable while the request is open and in progress at the service.
+    still_requested:
+      on: [signed, final]
+      check: record.material == null || size(covered_subjects) > 0
+      message: The material must still be on the request, or be an aliquot or sample of it.
+  statements:
+    signed_off: I checked the report and its evidence and return this deliverable to the requesting project.
+    released: I release the independently reviewed deliverable to the requesting project.
 fields:
+  request:
+    type: ref
+    to: Request
+    required: true
+    immutable: true
+    description: The request this deliverable answers.
   outcome:
     type: enum
     values: [fulfilled, unsuccessful]
@@ -25,5 +54,8 @@ fields:
     to: iki/core.Entity
     immutable: true
     description: The commissioned material or its recorded aliquot that this result covers.
+  notes:
+    type: text
+    description: What the analyst saw, and anything the project should know.
 display:
   title: "{{ hrid }}"

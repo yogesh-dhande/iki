@@ -17,6 +17,7 @@ from django.utils import timezone
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import build_world
 from scan_fixtures import clean_blob
+from service_reviews import serve
 from test_api_entities import patch
 from test_plate_review import _read_evidence, _requests
 from test_plugin_migrations import database, django, iki, migrate, sync
@@ -69,11 +70,11 @@ def exercise_qc() -> None:
     world = build_world()
     ready(world)
     project, editor = world.project, world.users["editor"]
-    plate = "iki/plate_assays."
+    plate, lab = "iki/plate_assays.", "iki/lab_roles."
     for person, roles in {
-        "editor": (PREFIX + "analyst", PREFIX + "reviewer", PREFIX + "qa", plate + "analyst"),
-        "runner": (PREFIX + "analyst", PREFIX + "reviewer", plate + "reviewer"),
-        "admin": (PREFIX + "qa", plate + "qa"),
+        "editor": (PREFIX + "analyst", PREFIX + "reviewer", PREFIX + "qa", lab + "analyst"),
+        "runner": (PREFIX + "analyst", PREFIX + "reviewer", lab + "reviewer"),
+        "admin": (PREFIX + "qa", lab + "qa"),
     }.items():
         membership = project.memberships.get(user=world.users[person])
         LabRoleGrant.objects.bulk_create(
@@ -191,10 +192,11 @@ def exercise_qc() -> None:
         execute("open_release", assay_inputs, testing_on=today.isoformat()),
         "ReleaseCase",
     )
+    # The project reviews its fits under Regulated QC, as its release testing is (ADR 0302).
+    serve(world.users["admin"], project, "regulated_qc", plate + "AssayResult")
     fit_values = {
         "read": read,
         "sample": str(assay_lot.pk),
-        "review_flow": "regulated_qc",
         "fit_version": fit_method["method"],
         "fit_status": "fitted",
         "qualifier": "within_range",
@@ -206,7 +208,7 @@ def exercise_qc() -> None:
     with pytest.raises(Invalid, match="sample or tube"):
         services.create(
             editor,
-            plate + "RequestedQCAssayResult",
+            plate + "RequestedAssayResult",
             project,
             {**fit_values, "request": str(request.pk), "procedure_revision": "2"},
             by_run=True,
@@ -214,7 +216,7 @@ def exercise_qc() -> None:
     for revision in ("1", "2"):
         saved = services.create(
             editor,
-            plate + "QCAssayResult",
+            plate + "AssayResult",
             project,
             {**fit_values, "procedure_revision": revision},
             by_run=True,

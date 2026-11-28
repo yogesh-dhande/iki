@@ -716,6 +716,8 @@ class ReviewSpec:
     #: People every independent state also excludes.
     independent_of: tuple[Exclusion, ...] = ()
     guards: dict[str, TypeGuard] = dataclasses.field(default_factory=dict)
+    #: What its signers attest to at a signed state, in its own words, by state.
+    statements: dict[str, str] = dataclasses.field(default_factory=dict)
     #: The fields of its records ``independent_of`` reads, as its validation found them.
     reads: tuple[str, ...] = ()
 
@@ -746,6 +748,9 @@ class ReviewSpec:
                 n: TypeGuard(guard=Guard.from_manifest(n, g), on=tuple(g.get("on") or ()))
                 for n, g in (data.get("guards") or {}).items()
                 if isinstance(g, dict)
+            },
+            statements={
+                str(k): v for k, v in (data.get("statements") or {}).items() if isinstance(v, str)
             },
         )
 

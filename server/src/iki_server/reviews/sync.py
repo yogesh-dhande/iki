@@ -123,6 +123,8 @@ class Table:
     flow: str
     #: The review state's column; None for a type that only opens work.
     state: str | None
+    #: Pinned as it's sent to its service, not as it's created: a request (ADR 0305).
+    at_send: bool = False
 
     @property
     def constraint(self) -> str:
@@ -163,6 +165,7 @@ def tables() -> list[Table]:
                 procedure=_column(model, "review_procedure"),
                 flow=_column(model, "review_flow"),
                 state=None if t.review.opens else _column(model, t.review.field),
+                at_send=registry.effective(t.qualified_name).request is not None,
             )
         )
     return out
@@ -192,7 +195,10 @@ def install(cursor: Any, wanted: Iterable[Table]) -> list[str]:  # noqa: ANN401 
         )
     for t in {t.name: t for t in needed.values()}.values():
         pinned = (
-            f"CHECK ((({t.procedure} IS NOT NULL) AND ({t.flow} IS NOT NULL)"
+            # A request isn't pinned until it's sent, and then for good.
+            f"CHECK ((({t.procedure} IS NULL) = ({t.flow} IS NULL)))"
+            if t.at_send
+            else f"CHECK ((({t.procedure} IS NOT NULL) AND ({t.flow} IS NOT NULL)"
             + (f" AND ({t.state} IS NOT NULL)" if t.state else "")
             + "))"
         )

@@ -8,12 +8,17 @@ below in dedicated training projects.
 
 Install `iki/plate_assays` with its declared dependencies and bind
 `iki/plate_assays.assay-tools` to a backend worker. As a project admin, open
-**Project settings**, choose **Set it up from a starter** and select
-**Dose-response plate assay**.
-Choose **Research** for one sign-off or **Regulated QC** for analyst submission,
-independent review and QA release. The analyst needs at least Editor access.
-A reviewer or QA signer needs at least Viewer access. Assign different people
-to the three regulated QC roles. [Deployment configuration](../../deploy/config-template/README.md)
+**Project settings → Starters** and find **Dose-response plate assay**.
+Choose **Research** for one sign-off by someone who didn't record the fit, or
+**Regulated QC** for the analyst's submission, an independent review and QA
+release. Then choose who holds the lab roles that play each part: Analyst,
+Reviewer and Sample and result QA. The analyst needs at least Editor access.
+A reviewer or QA signer needs at least Viewer access. Regulated QC needs three
+different people. [Deployment configuration](../../deploy/config-template/README.md)
+
+If the project runs assays that other projects request, also apply
+**Service deliverables**. It chooses how what the service sends back is
+reviewed, and the project can't receive requests until it's applied.
 
 To apply the same choice from the CLI, set `ASSAY_PROJECT` to the project UUID.
 Use direct, active **membership IDs** from `GET /api/v1/projects/{project_id}/members`
@@ -25,12 +30,12 @@ iki starter list --project "$ASSAY_PROJECT"
 
 FLOW=regulated_qc
 options=(
-  dose-response --version 2.0.0 --project "$ASSAY_PROJECT" --flow "$FLOW"
-  --role "iki/plate_assays.analyst=$ANALYST"
-  --role "iki/plate_assays.reviewer=$REVIEWER"
+  iki/plate_assays.dose_response --version 1.0.0 --project "$ASSAY_PROJECT" --flow "$FLOW"
+  --role "iki/lab_roles.analyst=$ANALYST"
+  --role "iki/lab_roles.reviewer=$REVIEWER"
 )
 if [[ "$FLOW" == regulated_qc ]]; then
-  options+=(--role "iki/plate_assays.qa=$QA")
+  options+=(--role "iki/lab_roles.qa=$QA")
 fi
 iki starter preview "${options[@]}"
 ```
@@ -42,10 +47,11 @@ review them and set `PLAN` to the identifier it prints.
 iki starter apply "${options[@]}" --plan "$PLAN"
 ```
 
-Applying saves the recipe version, review flow and grants. The project
-can still be empty. Reapplying the same choice is safe. To change the flow
-for future fits, preview and apply the new choice. Existing results retain
-their review requirements. A fit already running may need to be run again.
+Applying records the project's choice of procedure and flow, and the grants.
+The project can still be empty. Reapplying the same choice is safe. To change
+the flow for future fits, preview and apply the new choice. Each existing
+result keeps the flow it was recorded under. Until the project or an Org Admin
+chooses, a fit can't be recorded.
 
 ## Use your lab’s plate
 

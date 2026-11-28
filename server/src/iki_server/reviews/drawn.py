@@ -47,6 +47,8 @@ class Drawn:
     field: str | None
     follows: str | None
     flows: list[DrawnFlow] = dataclasses.field(default_factory=list)
+    #: Pinned as it's sent, by the choice of the project it's sent to (ADR 0305).
+    on_send: bool = False
 
 
 def _governing(type_name: str, review: ReviewSpec) -> list[str]:
@@ -157,4 +159,5 @@ def drawn(type_name: str, project: Project | None, pin: pins.Pin | None = None) 
         field=None if review.opens else review.field,
         follows=review.by,
         flows=list(flows.values()),
+        on_send=pins.at_send(type_name),
     )

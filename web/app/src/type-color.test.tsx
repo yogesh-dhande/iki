@@ -22,8 +22,8 @@ describe("a type's color", () => {
     // The dev deployment's types: many share a prefix, which plain FNV-1a crowds together.
     const types = [
       "iki/core.Alignment",
-      "iki/requests.PlainRequest",
-      "iki/requests.QCDeliverable",
+      "iki/requests.Request",
+      "iki/requests.Deliverable",
       "iki/antibody.Antibody",
       "iki/core.App",
       "iki/plasmid.Assembly",

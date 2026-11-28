@@ -147,9 +147,9 @@ client.notifications.watch("SAM-000013")  # or "muted", or "default"
 
 # Requests between projects (ADR 0132): sent to a core that takes them, for good,
 # with the samples it names. The core writes its own fields; you write yours.
-core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest")[0]
+core = iki.projects.services("kinase-atlas", type="iki/requests.Request")[0]
 lot = {"title": "Lot 12", "materials": [sample["id"]]}
-asked = iki.entities.create("iki/requests.PlainRequest", lot, project="kinase-atlas")
+asked = iki.entities.create("iki/requests.Request", lot, project="kinase-atlas")
 iki.entities.submit(asked["hrid"], core["project"], revision=asked["revision"], reason="Lot 12")
 iki.entities.request(asked["hrid"])["results"]  # what the core released back
 queue = {"field": "sent_to", "op": "eq", "value": core["project"]["id"]}  # the core's queue

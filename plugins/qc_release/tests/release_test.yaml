@@ -126,7 +126,7 @@ inputs:
                   lower: "20"
                   upper: "30"
   assay:
-    - type: iki/plate_assays.ResearchAssayResult
+    - type: iki/plate_assays.AssayResult
       values:
         sample: 00000000-0000-7000-8003-000000000099
         endpoint_kind: IC50
@@ -138,6 +138,7 @@ inputs:
         fit_status: fitted
         qualifier: within_range
         review: recorded
+        review_procedure: iki/core.result_review@1
         review_flow: research
 expect: { error: signed }
 ---
@@ -167,7 +168,7 @@ inputs:
                   lower: "20"
                   upper: "30"
   assay:
-    - type: iki/plate_assays.QCAssayResult
+    - type: iki/plate_assays.AssayResult
       values:
         sample: 00000000-0000-7000-8003-000000000099
         endpoint_kind: IC50
@@ -179,6 +180,7 @@ inputs:
         fit_status: fitted
         qualifier: within_range
         review: released
+        review_procedure: iki/core.result_review@1
         review_flow: regulated_qc
 expect:
   output:

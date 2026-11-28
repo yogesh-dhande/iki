@@ -254,6 +254,17 @@
           "description": "People every state that declares `independent_of` also excludes: `{people: [fields]}`, whom its person fields name, each with an optional `when`.",
           "$ref": "https://ikisci.org/schemas/review-procedure/v1#/$defs/independentOf"
         },
+        "statements": {
+          "description": "What its signers attest to at each signed state it needs, in its own words, such as a deliverable's “I release the independently reviewed deliverable to the requesting project.” The procedure's statement is used for the others.",
+          "type": "object",
+          "maxProperties": 10,
+          "propertyNames": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+          },
+          "additionalProperties": {
+            "$ref": "https://ikisci.org/schemas/field/v1#/$defs/signature/properties/statement"
+          }
+        },
         "guards": {
           "description": "Its own conditions on the procedure's states, by name, each `on` some states, appended to what the procedure declares (ADR 0128).",
           "type": "object",

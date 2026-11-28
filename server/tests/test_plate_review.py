@@ -1,8 +1,8 @@
-"""Sign real plate results in the project doing the work and deliver them to the requester."""
+"""Review plate results in the project doing the work, under the procedure it chose, and
+deliver them to the requester (ADRs 0302, 0305)."""
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 from api_client import Api
@@ -10,19 +10,17 @@ from django.core.exceptions import PermissionDenied
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
 from scan_fixtures import clean_blob
+from service_reviews import CORE, REQUEST, serve
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_signatures import begin, evidence, ready, signed
 
-from iki_server.entities import registry, requests, services, states
+from iki_server.entities import requests, services, states
 from iki_server.entities.models import Entity, ProjectLink, Revision
 from iki_server.entities.values import Invalid
 from iki_server.files.models import File
 from iki_server.org.models import LabRoleGrant, Project, ProjectMembership, ProjectRole
 from iki_server.org.services import Refused
-from iki_server.runs import catalog
-from iki_server.runs.services import plugin_settings
-from iki_server.setup import starters
-from iki_server.setup.models import StarterApplication
+from iki_server.reviews import pins
 from iki_server.signatures.models import Signature
 from iki_server.signatures.services import finish, verify
 
@@ -30,8 +28,8 @@ __all__ = ["database"]
 
 PLUGIN = PLUGINS / "plate_assays"
 PREFIX = "iki/plate_assays."
-RESEARCH = "iki/requests.ResearchRequest"
-QC = "iki/requests.QCRequest"
+RESULT = PREFIX + "AssayResult"
+REQUESTED = PREFIX + "RequestedAssayResult"
 
 
 def test_both_plate_review_flows_deliver_the_signed_result(tmp_path: Path, database: str) -> None:
@@ -51,24 +49,28 @@ def test_both_plate_review_flows_deliver_the_signed_result(tmp_path: Path, datab
     assert exercise.returncode == 0, exercise.stdout + exercise.stderr
 
 
-def _check_inherited_flows(world: World) -> None:
+def _check_drawn_flows(world: World) -> None:
+    """A requested result is reviewed as an assay result is: its flows are the plugin's
+    starter's, drawn from core's result review (ADR 0306)."""
     api = Api(world.browser("viewer"))
-    research = api.get(f"/entity-types/{PREFIX}RequestedResearchAssayResult/flow")
-    assert research.status_code == 200, research.content
-    (field,) = research.json()["fields"]
-    assert field["transitions"] == [{"from": "recorded", "to": "signed", "conditional": True}]
-    regulated = api.get(f"/entity-types/{PREFIX}RequestedQCAssayResult/flow")
-    assert regulated.status_code == 200, regulated.content
-    (field,) = regulated.json()["fields"]
-    assert field["initial"] == "recorded"
-    assert {(e["from"], e["to"], e["conditional"]) for e in field["transitions"]} == {
-        ("submitted", "recorded", False),
-        ("reviewed", "recorded", False),
-        ("recorded", "submitted", True),
-        ("submitted", "reviewed", True),
-        ("reviewed", "released", True),
+    drawn = api.get(f"/entity-types/{REQUESTED}/flow")
+    assert drawn.status_code == 200, drawn.content
+    review = drawn.json()["review"]
+    flows = {f["flow"]: f["field"] for f in review["flows"]}
+    assert set(flows) == {"research", "regulated_qc"}
+    assert flows["research"]["transitions"] == [
+        {"from": "recorded", "to": "signed_off", "conditional": True}
+    ]
+    regulated = flows["regulated_qc"]
+    assert regulated["initial"] == "recorded"
+    assert {(e["from"], e["to"]) for e in regulated["transitions"]} == {
+        ("submitted", "recorded"),
+        ("reviewed", "recorded"),
+        ("recorded", "submitted"),
+        ("submitted", "reviewed"),
+        ("reviewed", "released"),
     }
-    assert all(state["on_edit"] is None for state in field["states"])
+    assert all(state["on_edit"] is None for state in regulated["states"])
 
 
 def _requests(world: World) -> tuple[Entity, Entity, Entity]:
@@ -76,23 +78,20 @@ def _requests(world: World) -> tuple[Entity, Entity, Entity]:
     editor = world.users["editor"]
     ProjectMembership.objects.create(project=asking, user=editor, role=ProjectRole.EDITOR)
     requests.set_intake(
-        world.project, types=[RESEARCH, QC], from_registry=True, sources=[], by=world.users["admin"]
+        world.project, types=[REQUEST], from_registry=True, sources=[], by=world.users["admin"]
     )
+    serve(world.users["admin"], world.project, "research")
     sample = services.create(editor, "iki/inventory.Tube", asking, {"name": "Review tube"}).entity
 
-    def send(type_name: str, tubes: list[str]) -> Entity:
+    def send(tubes: list[str]) -> Entity:
         saved = services.create(
-            editor, type_name, asking, {"title": "Synthetic plate review", "tubes": tubes}
+            editor, REQUEST, asking, {"title": "Synthetic plate review", "tubes": tubes}
         )
         request = Entity.objects.get(pk=saved.entity.pk)
         requests.submit(editor, request, world.project, expected_revision=request.revision)
         return request
 
-    return (
-        send(RESEARCH, [str(sample.pk)]),
-        send(QC, [str(sample.pk)]),
-        Entity.objects.get(pk=sample.pk),
-    )
+    return send([str(sample.pk)]), send([str(sample.pk)]), Entity.objects.get(pk=sample.pk)
 
 
 def _sign(world: World, who: str, record: Entity, to: str, reason: str = "") -> Signature:
@@ -106,7 +105,7 @@ def _sign(world: World, who: str, record: Entity, to: str, reason: str = "") -> 
 
 def exercise_reviews() -> None:
     world = build_world()
-    _check_inherited_flows(world)
+    _check_drawn_flows(world)
     ready(world)
     for principal, held in {
         "editor": ("analyst", "reviewer", "qa"),
@@ -116,62 +115,52 @@ def exercise_reviews() -> None:
     }.items():
         membership = world.project.memberships.get(user=world.users[principal])
         for role in held:
-            LabRoleGrant.objects.create(membership=membership, role=PREFIX + role)
+            LabRoleGrant.objects.create(membership=membership, role="iki/lab_roles." + role)
 
     request, qc_request, sample = _requests(world)
-    editor = world.users["editor"]
+    editor, admin = world.users["editor"], world.users["admin"]
     read_id = _read_evidence(world, str(sample.pk))
 
-    def result(type_name: str, flow: str) -> Entity:
+    def result(answers: Entity) -> Entity:
         fields = {
             "read": read_id,
             "sample": str(sample.pk),
-            "request": str(qc_request.pk if type_name == "RequestedQCAssayResult" else request.pk),
-            "review_flow": flow,
+            "request": str(answers.pk),
             "fit_version": "4PL-OLS/1",
             "fit_status": "unreportable",
         }
-        saved = services.create(editor, PREFIX + type_name, world.project, fields, by_run=True)
+        saved = services.create(editor, REQUESTED, world.project, fields, by_run=True)
         return Entity.objects.get(pk=saved.entity.pk)
 
-    asking = request.owner_project
-    assert asking
-    fit = catalog.action(PREFIX + "fit_curve")
-    assert fit
-    application = StarterApplication.objects.create(
-        project=world.project,
-        starter="dose-response",
-        version=starters.DOSE_RESPONSE.version,
-        flow="research",
-        applied_by=world.users["admin"],
-    )
-    research = result("RequestedResearchAssayResult", "research")
-    with pytest.raises(Invalid, match="starter in this project uses research"):
-        result("RequestedQCAssayResult", "regulated_qc")
-    with pytest.raises(Invalid, match="A research assay result records the Research flow"):
-        result("RequestedResearchAssayResult", "regulated_qc")
+    # Until the project chooses how its fits are reviewed, none can be recorded.
+    with pytest.raises(pins.ProcedureNotChosen):
+        result(request)
+    serve(admin, world.project, "research", RESULT)
+    research = result(request)
+    assert pins.pin_of(research) == pins.Pin(CORE, "research")
+    # An action can't choose another: the server pins what the project chose (ADR 0302).
+    with pytest.raises(Invalid, match="set by Iki"):
+        services.create(
+            editor,
+            REQUESTED,
+            world.project,
+            {
+                "read": read_id,
+                "sample": str(sample.pk),
+                "request": str(request.pk),
+                "review_flow": "regulated_qc",
+            },
+            by_run=True,
+        )
 
-    # The administrator switches while the research result is awaiting sign-off.
-    application.flow = "regulated_qc"
-    application.save()
-    # A newly installed plugin may advertise a recipe this server doesn't yet offer.
-    # The previously applied choice remains binding for runs and direct creates.
-    with patch.dict(registry.plugins()[fit.plugin].starters, {"dose-response": "99.0.0"}):
-        starters.installed_starters.cache_clear()
-        assert "dose-response" not in starters.installed_starters()
-        assert plugin_settings(fit, world.project)["review_flow"] == "regulated_qc"
-        assert plugin_settings(fit, asking)["review_flow"] == "research"
-        with pytest.raises(Invalid, match="starter in this project uses regulated_qc"):
-            services.create(
-                editor,
-                PREFIX + "ResearchAssayResult",
-                world.project,
-                {"read": read_id, "sample": str(sample.pk)},
-            )
-    starters.installed_starters.cache_clear()
+    # The Admin switches while the research result is awaiting sign-off: it keeps its flow.
+    serve(admin, world.project, "regulated_qc", RESULT)
     with pytest.raises(PermissionDenied):
-        begin(world, "viewer", str(research.pk), "signed", field="review")
-    pending = begin(world, "admin", str(research.pk), "signed", field="review")
+        begin(world, "viewer", str(research.pk), "signed_off", field="review")
+    # Its creator can't sign its review (ADR 0301).
+    with pytest.raises(Refused):
+        begin(world, "editor", str(research.pk), "signed_off", field="review")
+    pending = begin(world, "admin", str(research.pk), "signed_off", field="review")
     services.update(editor, request, {"tubes": []}, expected_revision=request.revision)
     refused = finish(pending, evidence(world, "admin"))
     assert refused.signature_id is None and "sample or tube" in refused.message
@@ -180,12 +169,12 @@ def exercise_reviews() -> None:
     qc_request.refresh_from_db()
     services.update(editor, qc_request, {"tubes": []}, expected_revision=qc_request.revision)
     with pytest.raises(Invalid, match="sample or tube"):
-        result("RequestedQCAssayResult", "regulated_qc")
+        result(qc_request)
     request.refresh_from_db()
     services.update(
         editor, request, {"tubes": [str(sample.pk)]}, expected_revision=request.revision
     )
-    witness = _sign(world, "admin", research, "signed")
+    witness = _sign(world, "admin", research, "signed_off")
     assert Signature.objects.filter(entity=research).count() == 1
     assert json.loads(witness.content)["values"]["fit_status"] == "unreportable"
     assert ProjectLink.objects.filter(entity=research, via_request=request).exists()
@@ -198,27 +187,24 @@ def exercise_reviews() -> None:
     services.update(
         editor, qc_request, {"tubes": [str(sample.pk)]}, expected_revision=qc_request.revision
     )
-    qc = result("RequestedQCAssayResult", "regulated_qc")
-    with pytest.raises(Invalid):
-        services.update(editor, qc, {"review_flow": "research"}, expected_revision=qc.revision)
-    with pytest.raises(Invalid, match="can't change once it's set"):
-        services.update(
-            editor, qc, {"review_flow": "research"}, expected_revision=qc.revision, by_run=True
-        )
+    qc = result(qc_request)
+    assert pins.pin_of(qc) == pins.Pin(CORE, "regulated_qc")
+    for by_run in (False, True):
+        with pytest.raises(Invalid):
+            services.update(
+                editor,
+                qc,
+                {"review_flow": "research"},
+                expected_revision=qc.revision,
+                by_run=by_run,
+            )
     with pytest.raises(Refused):
         begin(world, "viewer", str(qc.pk), "released", field="review")
-    services.update(
-        world.users["admin"],
-        qc,
-        {"notes": "Checked dilution labels"},
-        expected_revision=qc.revision,
-    )
+    services.update(admin, qc, {"notes": "Checked dilution labels"}, expected_revision=qc.revision)
     _sign(world, "editor", qc, "submitted")
     # The submitted QC result still needs an independent reviewer and QA after switching.
-    application.flow = "research"
-    application.save()
-    with pytest.raises(Invalid, match="starter in this project uses research"):
-        result("RequestedQCAssayResult", "regulated_qc")
+    serve(admin, world.project, "research", RESULT)
+    assert pins.pin_of(qc) == pins.Pin(CORE, "regulated_qc")
     for author in ("editor", "admin"):
         with pytest.raises(Refused):
             begin(world, author, str(qc.pk), "reviewed", field="review")

@@ -1882,7 +1882,15 @@ class _Semantics:
         if review.opens:
             extra = [
                 k
-                for k in ("pinned", "derived", "needs", "guards", "independent_of", "field")
+                for k in (
+                    "pinned",
+                    "derived",
+                    "needs",
+                    "guards",
+                    "statements",
+                    "independent_of",
+                    "field",
+                )
                 if k in raw
             ]
             for key in extra:
@@ -1920,6 +1928,17 @@ class _Semantics:
                         "paired with this type, or put the guard `on: [signed]` or "
                         "`on: [final]`.",
                     )
+        for state in review.statements:
+            if state not in named:
+                self.add(
+                    "review-unneeded-state",
+                    f"`{state}` isn't a state `{entity_type.name}` says it needs, so it has no "
+                    "signature of its own to attest to.",
+                    source,
+                    ("review", "statements", state),
+                    key=True,
+                    hint="Name it in `needs: final` or `needs: states`.",
+                )
         kind = self.people_kind(entity_type)
         for index, ex in enumerate(review.independent_of):
             at = ("review", "independent_of", index)

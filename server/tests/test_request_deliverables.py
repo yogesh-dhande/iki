@@ -1,7 +1,9 @@
-"""QC deliverables require independent signatures, and their material still on the request.
-An analytical service's own measurements are its result type's: see
+"""A deliverable returned under Regulated QC needs independent signatures, and its material
+still on the request: core's result review, compiled with the deliverable's own guards
+(ADRs 0301, 0305). An analytical service's own measurements are its result type's: see
 examples/plugins/analytical_testing."""
 
+import dataclasses
 from collections.abc import Mapping
 from functools import cache
 from typing import Any
@@ -9,7 +11,8 @@ from typing import Any
 import pytest
 from first_party_dependencies import FIRST_PARTY, PLUGINS
 
-from iki_spec import rules
+from iki_spec import procedures, rules
+from iki_spec.builtin import core_plugin
 from iki_spec.model import EntityType, Field, Plugin
 from iki_spec.validate import load_plugin
 
@@ -26,7 +29,13 @@ def request_plugin() -> Plugin:
 
 @pytest.fixture(scope="module")
 def analysis_result() -> EntityType:
-    return request_plugin().types["iki/requests.QCDeliverable"]
+    """The deliverable, as one pinned to Regulated QC has it."""
+    deliverable = request_plugin().types["iki/requests.Deliverable"]
+    assert deliverable.review is not None
+    procedure = core_plugin().procedures["iki/core.result_review@1"]
+    binding = {slot: f"{procedures.SHARED_ROLES}.{slot}" for slot in procedure.slots}
+    review = procedures.review_field(deliverable.review, procedure, "regulated_qc", binding=binding)
+    return dataclasses.replace(deliverable, fields={**deliverable.fields, "review": review})
 
 
 def allows(
@@ -36,7 +45,6 @@ def allows(
     person: str,
     values: dict[str, Any],
     *,
-    reviewed_from: str = "submitted",
     value_editor: str | None = None,
     covered: bool = True,
 ) -> bool:
@@ -44,19 +52,19 @@ def allows(
     review = result_type.fields["review"]
     guards = review.states[target].guards.values()
     types = request_plugin().types
-    fields = {**types["iki/requests.Deliverable"].fields, **result_type.fields}
+    fields = result_type.fields
     request = types["iki/requests.Request"]
 
     def refs(name: str) -> tuple[str, Mapping[str, Field]]:
-        return (request.label, request.fields) if name == "iki/requests.QCRequest" else (name, {})
+        return (request.label, request.fields) if name == "iki/requests.Request" else (name, {})
 
     record = rules.record_schema(result_type.label, fields, refs)
     variables = rules.guard_variables(record, {"review": review}, [], review)
     history = [{"from": "", "to": "recorded", "by": "creator"}]
-    if current != "recorded" and reviewed_from == "submitted":
+    if current != "recorded":
         history.append({"from": "recorded", "to": "submitted", "by": "analyst"})
     if current in ("reviewed", "released"):
-        history.append({"from": reviewed_from, "to": "reviewed", "by": "reviewer"})
+        history.append({"from": "submitted", "to": "reviewed", "by": "reviewer"})
     if current == "released":
         history.append({"from": "reviewed", "to": "released", "by": "qa"})
     context = {
@@ -93,7 +101,8 @@ def test_each_signature_needs_the_material_still_on_the_request(
     analysis_result: EntityType, target: str
 ) -> None:
     current = {"submitted": "recorded", "reviewed": "submitted", "released": "reviewed"}[target]
-    signer = {"submitted": "analyst", "reviewed": "reviewer", "released": "qa"}[target]
+    # Its maker submits it: whoever recorded it (ADR 0301).
+    signer = {"submitted": "creator", "reviewed": "reviewer", "released": "qa"}[target]
     on_request = {"material": {"id": "sample-id"}}
     assert allows(analysis_result, current, target, signer, on_request)
     assert not allows(analysis_result, current, target, signer, on_request, covered=False)
@@ -114,14 +123,13 @@ def test_qa_cannot_release_a_result_they_created_or_submitted(
     assert not allows(analysis_result, "reviewed", "released", person, values)
 
 
-def test_an_older_unsigned_review_needs_fresh_review(analysis_result: EntityType) -> None:
+def test_a_review_follows_a_submission_and_a_correction_needs_both_again(
+    analysis_result: EntityType,
+) -> None:
     values = {"material": {"id": "sample-id"}}
-    assert allows(
-        analysis_result, "reviewed", "recorded", "analyst", values, reviewed_from="recorded"
-    )
-    assert not allows(
-        analysis_result, "reviewed", "released", "qa", values, reviewed_from="recorded"
-    )
+    assert not allows(analysis_result, "recorded", "reviewed", "reviewer", values)
+    assert allows(analysis_result, "reviewed", "recorded", "analyst", values)
+    assert not allows(analysis_result, "recorded", "released", "qa", values)
 
 
 @pytest.mark.parametrize(

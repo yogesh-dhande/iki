@@ -64,9 +64,10 @@ outlier rejection, mass-concentration doses and fits across channels.
 
 A lab that has qualified another method, such as a five-parameter logistic,
 writes it in its own plugin. That plugin depends on `iki/plate_assays`. Its
-action reads a **Plate read** and a sample, and creates a **Research assay
-result** or a **QC assay result**. It sets `review_flow` to that class's flow
-and records the method under the lab's own name, such as `acme/5PL-WLS/1`.
+action reads a **Plate read** and a sample, and creates an **Assay result**,
+or a **Requested assay result** for a request. It records the method under the
+lab's own name, such as `acme/5PL-WLS/1`. Iki pins each result to the review
+flow its project chose, as it does a 4PL-OLS result: the action doesn't choose.
 
 The result follows the same review, signatures and project flow as a 4PL-OLS
 result. A release criterion that names the lab's method accepts it. The

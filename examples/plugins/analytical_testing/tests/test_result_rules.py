@@ -46,9 +46,7 @@ def refused(types: Mapping[str, EntityType], values: Mapping[str, Any]) -> set[s
     """The rules an AnalyticalResult with ``values`` breaks, for a request asking for
     ``values["asked"]``."""
     result = types[f"{EXAMPLE_NAME}.AnalyticalResult"]
-    request = fields_of(
-        types, f"{REQUESTS}Request", f"{REQUESTS}QCRequest", f"{EXAMPLE_NAME}.AnalyticalRequest"
-    )
+    request = fields_of(types, f"{REQUESTS}Request", f"{EXAMPLE_NAME}.AnalyticalRequest")
 
     def refs(name: str) -> tuple[str, Mapping[str, Field]] | None:
         return ("Analytical request", request) if name.endswith(".AnalyticalRequest") else None

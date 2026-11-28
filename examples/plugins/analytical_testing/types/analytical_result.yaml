@@ -1,13 +1,13 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
-# One measurement the core returns: a QC deliverable, signed by its analyst, an
-# independent reviewer and QA. Its checks run as it's saved, and again at each
+# One measurement the core returns: a deliverable, reviewed under its request's
+# procedure, such as Regulated QC: signed by its analyst, an independent reviewer and QA. Its checks run as it's saved, and again at each
 # signature, so a request changed since can't be signed with an old answer.
 apiVersion: iki/v1
 kind: EntityType
 name: AnalyticalResult
 label: Analytical result
-extends: iki/requests.QCDeliverable
+extends: iki/requests.Deliverable
 schema_version: 1
 hrid: { prefix: ANT }
 description: One measurement of a sample an analytical request sent, and whether it passed.

@@ -10,7 +10,7 @@
     "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
     "kind": { "description": "What the manifest declares: `Starter`.", "const": "Starter" },
     "name": {
-      "description": "The starter's name in snake_case. Elsewhere it is `plugin.name`, such as `iki/proteomics.proteomics_search_review`.",
+      "description": "The starter's name in snake_case. Elsewhere it is `plugin.name`, such as `iki/proteomics.search_review`.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
     },
     "version": {

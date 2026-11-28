@@ -120,7 +120,7 @@ def test_a_part_is_played_by_the_role_the_projects_admin_binds_it_to(world: Worl
 def test_a_recipe_has_no_slots_to_bind(world: World) -> None:
     body = {**setup(world, "research"), "slots": {"reviewer": REVIEWER}}
     problem(
-        api_as(world, "admin").post("/starters/dose-response/preview", body),
+        api_as(world, "admin").post("/starters/lot-release-testing/preview", body),
         422,
         "validation_failed",
     )

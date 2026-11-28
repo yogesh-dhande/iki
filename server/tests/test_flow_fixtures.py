@@ -23,10 +23,10 @@ FIXTURES = ROOT / "web" / "app" / "src" / "flow-fixtures.json"
 #: The plugins, and the types of each that the tests draw.
 DRAWN = {
     "lab_roles": (),
-    "requests": ("QCDeliverable", "Request"),
+    "requests": ("Deliverable", "Request"),
     "samples": ("ReviewedSample", "PlainSample"),
     "lots": ("Lot",),
-    "plate_assays": ("ResearchAssayResult", "QCAssayResult"),
+    "plate_assays": ("AssayResult",),
     "stability": ("Measurement",),
     "experiments": ("Experiment",),
     "proteomics": ("ProteomicsResult",),
@@ -70,10 +70,21 @@ def served() -> dict[str, Any]:
                 "review": None,
             }
             if review is not None:
-                # Each flow its starter offers, played as the starter binds it (ADR 0306).
+                # Each flow its starter offers, played as the starter binds it (ADR 0306):
+                # a follower's, the starter of the type that pins it.
+                known = loaded.plugin.types
+                governing = (
+                    [spec.qualified_name] if review.by is None else list(spec.fields[review.by].to)
+                )
+                lineage: set[str] = set()
+                for name in governing:
+                    at: str | None = name
+                    while at is not None and at in known:
+                        lineage.add(at)
+                        at = known[at].extends
                 flows = []
                 for starter in loaded.plugin.starters.values():
-                    if starter.governs != spec.qualified_name:
+                    if starter.governs not in lineage:
                         continue
                     procedure = installed[starter.procedure]
                     binding = {
@@ -85,7 +96,14 @@ def served() -> dict[str, Any]:
                         for slot in procedure.slots
                     }
                     for flow in starter.flows:
-                        field = procedures.review_field(review, procedure, flow, binding=binding)
+                        # The opener has no review field; its followers do.
+                        field = (
+                            None
+                            if review.opens
+                            else _flow_field(
+                                procedures.review_field(review, procedure, flow, binding=binding)
+                            )
+                        )
                         flows.append(
                             {
                                 "procedure": starter.procedure,
@@ -99,10 +117,16 @@ def served() -> dict[str, Any]:
                                 "chosen": False,
                                 "default": False,
                                 "pinned": False,
-                                "field": _flow_field(field),
+                                "field": field,
                             }
                         )
-                drawn["review"] = {"field": review.field, "follows": review.by, "flows": flows}
+                drawn["review"] = {
+                    "field": None if review.opens else review.field,
+                    "follows": review.by,
+                    # A request is pinned as it's sent, by the service's choice (ADR 0305).
+                    "on_send": review.opens and spec.request is not None,
+                    "flows": flows,
+                }
             types.append(drawn)
     return {"roles": dict(sorted(roles.items())), "types": types}
 

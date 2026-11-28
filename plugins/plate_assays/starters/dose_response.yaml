@@ -1,0 +1,14 @@
+apiVersion: iki/v1
+kind: Starter
+name: dose_response
+version: 1.0.0
+label: Dose-response plate assay
+description: Choose how new dose-response fits are reviewed, and who records, reviews and releases them.
+governs: iki/plate_assays.AssayResult
+procedure: iki/core.result_review@1
+flows: [research, regulated_qc]
+suggested: research
+slots:
+  analyst: { minimum: editor }
+  reviewer: { minimum: viewer }
+  qa: { minimum: viewer }

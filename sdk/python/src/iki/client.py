@@ -625,7 +625,7 @@ class Entities(_Part):
         the records its ``sends`` fields name, such as its samples. ``revision`` as for
         :meth:`update`::
 
-            core = iki.projects.services("kinase-atlas", type="iki/requests.PlainRequest")[0]
+            core = iki.projects.services("kinase-atlas", type="iki/requests.Request")[0]
             iki.entities.submit("REQ-000003", core["project"], revision=1, reason="Lot 12")
         """
         return cast(

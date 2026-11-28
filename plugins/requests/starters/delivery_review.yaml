@@ -1,0 +1,20 @@
+apiVersion: iki/v1
+kind: Starter
+name: delivery_review
+version: 1.0.0
+label: Service deliverables
+description: >-
+  Choose how this service's deliverables are reviewed before they go back to the project
+  that asked. Each request is pinned to the choice as it arrives.
+governs: iki/requests.Request
+procedure: iki/core.result_review@1
+flows: [accepted, research, regulated_qc]
+suggested: research
+summaries:
+  accepted: >-
+    Someone at the service delivers the recorded deliverable, which locks it. No one signs
+    it. For routine work the asking project checks itself.
+slots:
+  analyst: { minimum: editor }
+  reviewer: { minimum: viewer }
+  qa: { minimum: viewer }

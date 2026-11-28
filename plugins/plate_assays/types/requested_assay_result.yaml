@@ -1,0 +1,12 @@
+apiVersion: iki/v1
+kind: EntityType
+name: RequestedAssayResult
+label: Requested assay result
+extends: AssayResult
+schema_version: 1
+hrid: { prefix: RAR }
+description: A fit of a requested sample's readings, returned to the project that asked once it's reviewed.
+result:
+  { of: request, material: sample, released: { field: review, states: [signed_off, released] } }
+fields:
+  request: { type: ref, to: iki/requests.Request, required: true, immutable: true }

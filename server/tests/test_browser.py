@@ -4987,15 +4987,16 @@ def test_a_record_shows_where_it_is_in_its_flow(
     page.context.close()
 
 
-#: The flows the dose-response starter's results follow: plate assays' own (the app's
-#: flow-fixtures.json, which test_flow_fixtures keeps what the endpoint serves).
+#: The flows a server recipe's results follow, a type per flow: drawn as a plate assay
+#: result's review is under core's flows of the same name (the app's flow-fixtures.json,
+#: which test_flow_fixtures keeps what the endpoint serves).
 FLOW_FIXTURES = Path(__file__).parents[2] / "web" / "app" / "src" / "flow-fixtures.json"
-PLATE = "iki/plate_assays."
+PLATE = "acme/plate_recipe."
 
 
 def _starter_api(page: Page) -> dict[str, Any]:
-    """Answers the starter API as a deployment with plate assays installed would (ADR 0198):
-    this one's fixture plugins don't include them. This stubs the API for the screen's sake
+    """Answers the starter API as a deployment with a server recipe would (ADR 0198), for a
+    plugin this one's fixture plugins don't include. This stubs the API for the screen's sake
     and is not its coverage: what the endpoints themselves do, including role grants,
     is tested against the real server in test_starter_applications, test_starter_api and
     test_dose_response_starter. Members, projects and everything else here are the real
@@ -5011,7 +5012,8 @@ def _starter_api(page: Page) -> dict[str, Any]:
         PLATE + "reviewer": ("Assay reviewer", "viewer"),
         PLATE + "qa": ("Assay QA", "viewer"),
     }
-    flows = {"research": "ResearchAssayResult", "regulated_qc": "QCAssayResult"}
+    flows = {"research": "ResearchResult", "regulated_qc": "QCResult"}
+    assay = next(t for t in fixtures["types"] if t["type"] == "iki/plate_assays.AssayResult")
     summaries = {
         "research": "A result is recorded, then one reviewer signs it off. For discovery work, "
         "where one check is enough.",
@@ -5056,7 +5058,11 @@ def _starter_api(page: Page) -> dict[str, Any]:
         name = urllib.parse.unquote(route.request.url.split("/entity-types/")[1]).removesuffix(
             "/flow"
         )
-        route.fulfill(json=next(t for t in fixtures["types"] if t["type"] == name))
+        flow = next(f for f, base in flows.items() if name == PLATE + base)
+        drawn = next(f["field"] for f in assay["review"]["flows"] if f["flow"] == flow)
+        # Its steps played by the recipe's own roles, as a recipe's are.
+        own = json.loads(json.dumps(drawn).replace("iki/lab_roles.", PLATE))
+        route.fulfill(json={"type": name, "label": "Assay result", "fields": [own], "review": None})
 
     def lab_roles(route: Any) -> None:
         served = route.fetch().json()
@@ -5116,7 +5122,7 @@ def _starter_api(page: Page) -> dict[str, Any]:
         route.fulfill(json=plan)
 
     page.route(re.compile(r"/api/v1/starters(\?.*)?$"), lambda r: r.fulfill(json=starters()))
-    page.route(re.compile(r"/api/v1/entity-types/.*(?:Research|QC)AssayResult/flow$"), flow_of)
+    page.route(re.compile(r"/api/v1/entity-types/.*(?:Research|QC)Result/flow$"), flow_of)
     page.route(re.compile(r"/api/v1/lab-roles$"), lab_roles)
     page.route(re.compile(r"/api/v1/starters/dose-response/(preview|apply)$"), setup)
     page.reload()
@@ -5255,7 +5261,7 @@ def test_leaving_the_starters_as_they_arrive_leaves_no_error(open_as: Any) -> No
     error for it. Here the starters arrive just after the Admin heads elsewhere, and the
     card they draw would ask for the selected result type’s flow."""
     page: Page = open_as("admin", "/projects/kinase-atlas/settings/starters/")
-    result_flow = re.compile(r"/api/v1/entity-types/.*plate_assays\.ResearchAssayResult/flow$")
+    result_flow = re.compile(r"/api/v1/entity-types/.*plate_recipe\.ResearchResult/flow$")
     with page.expect_request(result_flow):
         _starter_api(page)
     card = page.get_by_role("region", name="Dose-response plate assay")

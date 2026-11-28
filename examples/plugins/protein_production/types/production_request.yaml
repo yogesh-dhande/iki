@@ -1,12 +1,12 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
-# The core's request type: a Research request, so a reviewer at the core signs
-# off what it returns. It sends one protein, and asks for a mass of it.
+# The core's request type. Its deliverables are reviewed as the core chose, such as
+# Research: a reviewer at the core signs off what it returns. It sends one protein, and asks for a mass of it.
 apiVersion: iki/v1
 kind: EntityType
 name: ProductionRequest
 label: Production request
-extends: iki/requests.ResearchRequest
+extends: iki/requests.Request
 schema_version: 1
 hrid: { prefix: PPR }
 description: A request to express and purify a protein the asking project sends.

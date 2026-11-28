@@ -12,9 +12,6 @@
     "iki/lots.stock_keeper": "Stock keeper",
     "iki/lots.verification_analyst": "Verification analyst",
     "iki/lots.verification_reviewer": "Verification reviewer",
-    "iki/plate_assays.analyst": "Assay analyst",
-    "iki/plate_assays.qa": "Assay QA",
-    "iki/plate_assays.reviewer": "Assay reviewer",
     "iki/stability.analyst": "Stability analyst",
     "iki/stability.coordinator": "Stability coordinator",
     "iki/stability.qa": "Stability QA",
@@ -22,208 +19,392 @@
   },
   "types": [
     {
-      "type": "iki/requests.QCDeliverable",
-      "label": "QC deliverable",
-      "fields": [
-        {
-          "name": "review",
-          "label": "Review",
-          "initial": "recorded",
-          "states": [
-            {
-              "name": "recorded",
-              "label": "Recorded",
-              "description": null,
-              "set_by": ["iki/lab_roles.analyst", "iki/lab_roles.reviewer", "iki/lab_roles.qa"],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": "required",
-              "guards": [
-                {
-                  "name": "before_release",
-                  "description": null,
-                  "check": "state.from == \"submitted\" || state.from == \"reviewed\"",
-                  "when": null,
-                  "message": "Only a submitted or reviewed deliverable can return to Recorded."
-                }
-              ],
-              "signatures": []
-            },
-            {
-              "name": "submitted",
-              "label": "Submitted",
-              "description": null,
-              "set_by": ["iki/lab_roles.analyst"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
+      "type": "iki/requests.Deliverable",
+      "label": "Deliverable",
+      "fields": [],
+      "review": {
+        "field": "review",
+        "follows": "request",
+        "on_send": false,
+        "flows": [
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "accepted",
+            "label": "Accept without sign-off",
+            "summary": "Someone at the service delivers the recorded deliverable, which locks it. No one signs it. For routine work the asking project checks itself.",
+            "starter": "iki/requests.delivery_review",
+            "suggested": false,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": {
+              "name": "review",
+              "label": "Review",
+              "initial": "recorded",
+              "states": [
                 {
                   "name": "recorded",
-                  "description": null,
-                  "check": "state.from == \"recorded\"",
-                  "when": null,
-                  "message": "Submit the deliverable from Recorded."
+                  "label": "Recorded",
+                  "description": "The work is recorded and can be edited.",
+                  "set_by": [],
+                  "locks": false,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [],
+                  "signatures": []
                 },
                 {
-                  "name": "active_request",
-                  "description": null,
-                  "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
-                  "when": null,
-                  "message": "Sign the deliverable while the request is open and in progress at the service."
-                },
-                {
-                  "name": "still_requested",
-                  "description": null,
-                  "check": "record.material == null || size(covered_subjects) > 0",
-                  "when": null,
-                  "message": "The material must still be on the request, or be an aliquot or sample of it."
+                  "name": "accepted",
+                  "label": "Accepted",
+                  "description": "The work is accepted as recorded, without a signature, and locked.",
+                  "set_by": ["iki/lab_roles.analyst", "iki/lab_roles.reviewer"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"recorded\"",
+                      "when": null,
+                      "message": "A record moves to Accepted only from Recorded."
+                    },
+                    {
+                      "name": "active_request",
+                      "description": null,
+                      "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
+                      "when": null,
+                      "message": "Return the deliverable while the request is open and in progress at the service."
+                    },
+                    {
+                      "name": "still_requested",
+                      "description": null,
+                      "check": "record.material == null || size(covered_subjects) > 0",
+                      "when": null,
+                      "message": "The material must still be on the request, or be an aliquot or sample of it."
+                    }
+                  ],
+                  "signatures": []
                 }
               ],
-              "signatures": [
+              "transitions": [
                 {
-                  "meaning": "authorship",
-                  "meaning_label": "Authorship",
-                  "verb": "Authored",
-                  "label": "Authorship",
-                  "statement": "I recorded this deliverable and its evidence.",
-                  "roles": ["iki/lab_roles.analyst"]
+                  "from": "recorded",
+                  "to": "accepted",
+                  "conditional": true
                 }
               ]
-            },
-            {
-              "name": "reviewed",
-              "label": "Reviewed",
-              "description": null,
-              "set_by": ["iki/lab_roles.reviewer"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
+            }
+          },
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "research",
+            "label": "Research",
+            "summary": "The work is recorded, then one reviewer, who didn't make or edit it, signs it off. For discovery work, where one check is enough.",
+            "starter": "iki/requests.delivery_review",
+            "suggested": true,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": {
+              "name": "review",
+              "label": "Review",
+              "initial": "recorded",
+              "states": [
+                {
+                  "name": "recorded",
+                  "label": "Recorded",
+                  "description": "The work is recorded and can be edited.",
+                  "set_by": [],
+                  "locks": false,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [],
+                  "signatures": []
+                },
+                {
+                  "name": "signed_off",
+                  "label": "Signed off",
+                  "description": "A reviewer who didn't make or edit it has signed it off.",
+                  "set_by": ["iki/lab_roles.reviewer"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"recorded\"",
+                      "when": null,
+                      "message": "A record moves to Signed off only from Recorded."
+                    },
+                    {
+                      "name": "independent",
+                      "description": null,
+                      "check": "history.review[0].by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                      "when": null,
+                      "message": "It must be signed by someone other than whoever created the record and whoever changed it since it was Recorded."
+                    },
+                    {
+                      "name": "active_request",
+                      "description": null,
+                      "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
+                      "when": null,
+                      "message": "Return the deliverable while the request is open and in progress at the service."
+                    },
+                    {
+                      "name": "still_requested",
+                      "description": null,
+                      "check": "record.material == null || size(covered_subjects) > 0",
+                      "when": null,
+                      "message": "The material must still be on the request, or be an aliquot or sample of it."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "review",
+                      "meaning_label": "Review",
+                      "verb": "Reviewed",
+                      "label": "Review",
+                      "statement": "I checked the report and its evidence and return this deliverable to the requesting project.",
+                      "roles": ["iki/lab_roles.reviewer"]
+                    }
+                  ]
+                }
+              ],
+              "transitions": [
+                {
+                  "from": "recorded",
+                  "to": "signed_off",
+                  "conditional": true
+                }
+              ]
+            }
+          },
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "regulated_qc",
+            "label": "Regulated QC",
+            "summary": "Its maker signs the submission, an independent reviewer signs the review, and QA signs the release: three different people, each signing in again. For GxP and QC work.",
+            "starter": "iki/requests.delivery_review",
+            "suggested": false,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": {
+              "name": "review",
+              "label": "Review",
+              "initial": "recorded",
+              "states": [
+                {
+                  "name": "recorded",
+                  "label": "Recorded",
+                  "description": "The work is recorded and can be edited.",
+                  "set_by": ["iki/lab_roles.analyst", "iki/lab_roles.reviewer", "iki/lab_roles.qa"],
+                  "locks": false,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": "required",
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from in [\"submitted\", \"reviewed\"]",
+                      "when": null,
+                      "message": "A record moves to Recorded only from Submitted or Independently reviewed."
+                    }
+                  ],
+                  "signatures": []
+                },
                 {
                   "name": "submitted",
-                  "description": null,
-                  "check": "state.from == \"submitted\"",
-                  "when": null,
-                  "message": "Review the deliverable after its analyst submits it."
+                  "label": "Submitted",
+                  "description": "Its maker has signed it and submitted it for review.",
+                  "set_by": ["iki/lab_roles.analyst"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"recorded\"",
+                      "when": null,
+                      "message": "A record moves to Submitted only from Recorded."
+                    },
+                    {
+                      "name": "maker",
+                      "description": null,
+                      "check": "history.review[0].by == actor.person || edits.review.recorded.exists(e, e.by == actor.person)",
+                      "when": null,
+                      "message": "Only whoever created this record, or edited it since it was Recorded, can sign it."
+                    },
+                    {
+                      "name": "active_request",
+                      "description": null,
+                      "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
+                      "when": null,
+                      "message": "Return the deliverable while the request is open and in progress at the service."
+                    },
+                    {
+                      "name": "still_requested",
+                      "description": null,
+                      "check": "record.material == null || size(covered_subjects) > 0",
+                      "when": null,
+                      "message": "The material must still be on the request, or be an aliquot or sample of it."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "authorship",
+                      "meaning_label": "Authorship",
+                      "verb": "Authored",
+                      "label": "Authorship",
+                      "statement": "I made this record, and what it says is accurate and complete.",
+                      "roles": ["iki/lab_roles.analyst"]
+                    }
+                  ]
                 },
-                {
-                  "name": "independent_review",
-                  "description": null,
-                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
-                  "when": null,
-                  "message": "Have a reviewer who did not create, submit or edit the deliverable sign it."
-                },
-                {
-                  "name": "active_request",
-                  "description": null,
-                  "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
-                  "when": null,
-                  "message": "Sign the deliverable while the request is open and in progress at the service."
-                },
-                {
-                  "name": "still_requested",
-                  "description": null,
-                  "check": "record.material == null || size(covered_subjects) > 0",
-                  "when": null,
-                  "message": "The material must still be on the request, or be an aliquot or sample of it."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "review",
-                  "meaning_label": "Review",
-                  "verb": "Reviewed",
-                  "label": "Review",
-                  "statement": "I reviewed the delivery report, outcome, and supporting evidence.",
-                  "roles": ["iki/lab_roles.reviewer"]
-                }
-              ]
-            },
-            {
-              "name": "released",
-              "label": "Released",
-              "description": null,
-              "set_by": ["iki/lab_roles.qa"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
                 {
                   "name": "reviewed",
-                  "description": null,
-                  "check": "state.from == \"reviewed\" && last.review.reviewed.from == \"submitted\"",
-                  "when": null,
-                  "message": "Release the submitted deliverable after its independent review."
+                  "label": "Independently reviewed",
+                  "description": "A reviewer independent of its maker and submitter has signed the review.",
+                  "set_by": ["iki/lab_roles.reviewer"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"submitted\"",
+                      "when": null,
+                      "message": "A record moves to Independently reviewed only from Submitted."
+                    },
+                    {
+                      "name": "independent",
+                      "description": null,
+                      "check": "history.review[0].by != actor.person && edits.review.recorded.all(e, e.by != actor.person) && (last.review.submitted == null || last.review.submitted.by != actor.person)",
+                      "when": null,
+                      "message": "It must be signed by someone other than whoever created the record, whoever changed it since it was Recorded and whoever signed it Submitted."
+                    },
+                    {
+                      "name": "active_request",
+                      "description": null,
+                      "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
+                      "when": null,
+                      "message": "Return the deliverable while the request is open and in progress at the service."
+                    },
+                    {
+                      "name": "still_requested",
+                      "description": null,
+                      "check": "record.material == null || size(covered_subjects) > 0",
+                      "when": null,
+                      "message": "The material must still be on the request, or be an aliquot or sample of it."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "review",
+                      "meaning_label": "Review",
+                      "verb": "Reviewed",
+                      "label": "Review",
+                      "statement": "I reviewed this record and found it in order.",
+                      "roles": ["iki/lab_roles.reviewer"]
+                    }
+                  ]
                 },
                 {
-                  "name": "independent_release",
-                  "description": null,
-                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
-                  "when": null,
-                  "message": "Have someone in QA who did not create, submit, edit or review the deliverable release it."
-                },
-                {
-                  "name": "active_request",
-                  "description": null,
-                  "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
-                  "when": null,
-                  "message": "Sign the deliverable while the request is open and in progress at the service."
-                },
-                {
-                  "name": "still_requested",
-                  "description": null,
-                  "check": "record.material == null || size(covered_subjects) > 0",
-                  "when": null,
-                  "message": "The material must still be on the request, or be an aliquot or sample of it."
+                  "name": "released",
+                  "label": "QA released",
+                  "description": "QA, independent of everyone before, has released it.",
+                  "set_by": ["iki/lab_roles.qa"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"reviewed\"",
+                      "when": null,
+                      "message": "A record moves to QA released only from Independently reviewed."
+                    },
+                    {
+                      "name": "independent",
+                      "description": null,
+                      "check": "history.review[0].by != actor.person && edits.review.recorded.all(e, e.by != actor.person) && (last.review.submitted == null || last.review.submitted.by != actor.person) && (last.review.reviewed == null || last.review.reviewed.by != actor.person)",
+                      "when": null,
+                      "message": "It must be signed by someone other than whoever created the record, whoever changed it since it was Recorded and whoever signed it Submitted and Independently reviewed."
+                    },
+                    {
+                      "name": "active_request",
+                      "description": null,
+                      "check": "record.request.standing == \"open\" && record.request.status == \"in_progress\"",
+                      "when": null,
+                      "message": "Return the deliverable while the request is open and in progress at the service."
+                    },
+                    {
+                      "name": "still_requested",
+                      "description": null,
+                      "check": "record.material == null || size(covered_subjects) > 0",
+                      "when": null,
+                      "message": "The material must still be on the request, or be an aliquot or sample of it."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "approval",
+                      "meaning_label": "Approval",
+                      "verb": "Approved",
+                      "label": "QA release",
+                      "statement": "I release the independently reviewed deliverable to the requesting project.",
+                      "roles": ["iki/lab_roles.qa"]
+                    }
+                  ]
                 }
               ],
-              "signatures": [
+              "transitions": [
                 {
-                  "meaning": "approval",
-                  "meaning_label": "Approval",
-                  "verb": "Approved",
-                  "label": "QA release",
-                  "statement": "I release the independently reviewed deliverable to the requesting project.",
-                  "roles": ["iki/lab_roles.qa"]
+                  "from": "submitted",
+                  "to": "recorded",
+                  "conditional": false
+                },
+                {
+                  "from": "reviewed",
+                  "to": "recorded",
+                  "conditional": false
+                },
+                {
+                  "from": "recorded",
+                  "to": "submitted",
+                  "conditional": true
+                },
+                {
+                  "from": "submitted",
+                  "to": "reviewed",
+                  "conditional": true
+                },
+                {
+                  "from": "reviewed",
+                  "to": "released",
+                  "conditional": true
                 }
               ]
             }
-          ],
-          "transitions": [
-            {
-              "from": "submitted",
-              "to": "recorded",
-              "conditional": false
-            },
-            {
-              "from": "reviewed",
-              "to": "recorded",
-              "conditional": false
-            },
-            {
-              "from": "recorded",
-              "to": "submitted",
-              "conditional": true
-            },
-            {
-              "from": "submitted",
-              "to": "reviewed",
-              "conditional": true
-            },
-            {
-              "from": "reviewed",
-              "to": "released",
-              "conditional": true
-            }
-          ]
-        }
-      ],
-      "review": null
+          }
+        ]
+      }
     },
     {
       "type": "iki/requests.Request",
@@ -442,7 +623,52 @@
           ]
         }
       ],
-      "review": null
+      "review": {
+        "field": null,
+        "follows": null,
+        "on_send": true,
+        "flows": [
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "accepted",
+            "label": "Accept without sign-off",
+            "summary": "Someone at the service delivers the recorded deliverable, which locks it. No one signs it. For routine work the asking project checks itself.",
+            "starter": "iki/requests.delivery_review",
+            "suggested": false,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": null
+          },
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "research",
+            "label": "Research",
+            "summary": "The work is recorded, then one reviewer, who didn't make or edit it, signs it off. For discovery work, where one check is enough.",
+            "starter": "iki/requests.delivery_review",
+            "suggested": true,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": null
+          },
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "regulated_qc",
+            "label": "Regulated QC",
+            "summary": "Its maker signs the submission, an independent reviewer signs the review, and QA signs the release: three different people, each signing in again. For GxP and QC work.",
+            "starter": "iki/requests.delivery_review",
+            "suggested": false,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": null
+          }
+        ]
+      }
     },
     {
       "type": "iki/samples.ReviewedSample",
@@ -1209,232 +1435,292 @@
       "review": null
     },
     {
-      "type": "iki/plate_assays.ResearchAssayResult",
-      "label": "Research assay result",
-      "fields": [
-        {
-          "name": "review",
-          "label": "Review",
-          "initial": "recorded",
-          "states": [
-            {
-              "name": "recorded",
-              "label": "Recorded",
-              "description": null,
-              "set_by": [],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [],
-              "signatures": []
-            },
-            {
-              "name": "signed",
-              "label": "Signed off",
-              "description": null,
-              "set_by": ["iki/plate_assays.reviewer"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
+      "type": "iki/plate_assays.AssayResult",
+      "label": "Assay result",
+      "fields": [],
+      "review": {
+        "field": "review",
+        "follows": null,
+        "on_send": false,
+        "flows": [
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "research",
+            "label": "Research",
+            "summary": "The work is recorded, then one reviewer, who didn't make or edit it, signs it off. For discovery work, where one check is enough.",
+            "starter": "iki/plate_assays.dose_response",
+            "suggested": true,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": {
+              "name": "review",
+              "label": "Review",
+              "initial": "recorded",
+              "states": [
                 {
-                  "name": "recorded_fit",
-                  "description": null,
-                  "check": "state.from == \"recorded\" && record.review_flow == \"research\" && record.fit_status != null && record.fit_version != null",
-                  "when": null,
-                  "message": "Sign the recorded fit produced under the research review flow."
+                  "name": "recorded",
+                  "label": "Recorded",
+                  "description": "The work is recorded and can be edited.",
+                  "set_by": [],
+                  "locks": false,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [],
+                  "signatures": []
+                },
+                {
+                  "name": "signed_off",
+                  "label": "Signed off",
+                  "description": "A reviewer who didn't make or edit it has signed it off.",
+                  "set_by": ["iki/lab_roles.reviewer"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"recorded\"",
+                      "when": null,
+                      "message": "A record moves to Signed off only from Recorded."
+                    },
+                    {
+                      "name": "independent",
+                      "description": null,
+                      "check": "history.review[0].by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
+                      "when": null,
+                      "message": "It must be signed by someone other than whoever created the record and whoever changed it since it was Recorded."
+                    },
+                    {
+                      "name": "recorded_fit",
+                      "description": null,
+                      "check": "record.fit_status != null && record.fit_version != null",
+                      "when": null,
+                      "message": "Sign a recorded fit, with its method."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "review",
+                      "meaning_label": "Review",
+                      "verb": "Reviewed",
+                      "label": "Review",
+                      "statement": "I checked the measurements, exclusions and reported fit.",
+                      "roles": ["iki/lab_roles.reviewer"]
+                    }
+                  ]
                 }
               ],
-              "signatures": [
+              "transitions": [
                 {
-                  "meaning": "review",
-                  "meaning_label": "Review",
-                  "verb": "Reviewed",
-                  "label": "Review",
-                  "statement": "I checked the measurements, exclusions and reported fit.",
-                  "roles": ["iki/plate_assays.reviewer"]
+                  "from": "recorded",
+                  "to": "signed_off",
+                  "conditional": true
                 }
               ]
             }
-          ],
-          "transitions": [
-            {
-              "from": "recorded",
-              "to": "signed",
-              "conditional": true
-            }
-          ]
-        }
-      ],
-      "review": null
-    },
-    {
-      "type": "iki/plate_assays.QCAssayResult",
-      "label": "QC assay result",
-      "fields": [
-        {
-          "name": "review",
-          "label": "Review",
-          "initial": "recorded",
-          "states": [
-            {
-              "name": "recorded",
-              "label": "Recorded",
-              "description": null,
-              "set_by": [
-                "iki/plate_assays.analyst",
-                "iki/plate_assays.reviewer",
-                "iki/plate_assays.qa"
-              ],
-              "locks": false,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": "required",
-              "guards": [
+          },
+          {
+            "procedure": "iki/core.result_review@1",
+            "procedure_label": "Result review",
+            "flow": "regulated_qc",
+            "label": "Regulated QC",
+            "summary": "Its maker signs the submission, an independent reviewer signs the review, and QA signs the release: three different people, each signing in again. For GxP and QC work.",
+            "starter": "iki/plate_assays.dose_response",
+            "suggested": false,
+            "chosen": false,
+            "default": false,
+            "pinned": false,
+            "field": {
+              "name": "review",
+              "label": "Review",
+              "initial": "recorded",
+              "states": [
                 {
-                  "name": "correctable",
-                  "description": null,
-                  "check": "state.from == \"submitted\" || state.from == \"reviewed\"",
-                  "when": null,
-                  "message": "Return a submitted or reviewed result for correction."
-                }
-              ],
-              "signatures": []
-            },
-            {
-              "name": "submitted",
-              "label": "Submitted",
-              "description": null,
-              "set_by": ["iki/plate_assays.analyst"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
-                {
-                  "name": "recorded_fit",
-                  "description": null,
-                  "check": "state.from == \"recorded\" && record.review_flow == \"regulated_qc\" && record.fit_status != null && record.fit_version != null",
-                  "when": null,
-                  "message": "Submit a recorded fit produced under the regulated QC flow."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "authorship",
-                  "meaning_label": "Authorship",
-                  "verb": "Authored",
-                  "label": "Authorship",
-                  "statement": "I made this record, and what it says is accurate and complete.",
-                  "roles": ["iki/plate_assays.analyst"]
-                }
-              ]
-            },
-            {
-              "name": "reviewed",
-              "label": "Independently reviewed",
-              "description": null,
-              "set_by": ["iki/plate_assays.reviewer"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
+                  "name": "recorded",
+                  "label": "Recorded",
+                  "description": "The work is recorded and can be edited.",
+                  "set_by": ["iki/lab_roles.analyst", "iki/lab_roles.reviewer", "iki/lab_roles.qa"],
+                  "locks": false,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": "required",
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from in [\"submitted\", \"reviewed\"]",
+                      "when": null,
+                      "message": "A record moves to Recorded only from Submitted or Independently reviewed."
+                    }
+                  ],
+                  "signatures": []
+                },
                 {
                   "name": "submitted",
-                  "description": null,
-                  "check": "state.from == \"submitted\"",
-                  "when": null,
-                  "message": "Review the analyst's signed submission."
+                  "label": "Submitted",
+                  "description": "Its maker has signed it and submitted it for review.",
+                  "set_by": ["iki/lab_roles.analyst"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"recorded\"",
+                      "when": null,
+                      "message": "A record moves to Submitted only from Recorded."
+                    },
+                    {
+                      "name": "maker",
+                      "description": null,
+                      "check": "history.review[0].by == actor.person || edits.review.recorded.exists(e, e.by == actor.person)",
+                      "when": null,
+                      "message": "Only whoever created this record, or edited it since it was Recorded, can sign it."
+                    },
+                    {
+                      "name": "recorded_fit",
+                      "description": null,
+                      "check": "record.fit_status != null && record.fit_version != null",
+                      "when": null,
+                      "message": "Sign a recorded fit, with its method."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "authorship",
+                      "meaning_label": "Authorship",
+                      "verb": "Authored",
+                      "label": "Authorship",
+                      "statement": "I made this record, and what it says is accurate and complete.",
+                      "roles": ["iki/lab_roles.analyst"]
+                    }
+                  ]
                 },
-                {
-                  "name": "independent",
-                  "description": null,
-                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
-                  "when": null,
-                  "message": "A reviewer independent of the creator, submitter and editors must sign."
-                }
-              ],
-              "signatures": [
-                {
-                  "meaning": "review",
-                  "meaning_label": "Review",
-                  "verb": "Reviewed",
-                  "label": "Review",
-                  "statement": "I reviewed this record and found it in order.",
-                  "roles": ["iki/plate_assays.reviewer"]
-                }
-              ]
-            },
-            {
-              "name": "released",
-              "label": "QA released",
-              "description": null,
-              "set_by": ["iki/plate_assays.qa"],
-              "locks": true,
-              "on_edit": null,
-              "holds_amount": false,
-              "reason": null,
-              "guards": [
                 {
                   "name": "reviewed",
-                  "description": null,
-                  "check": "state.from == \"reviewed\" && last.review.reviewed.from == \"submitted\"",
-                  "when": null,
-                  "message": "QA releases an independently reviewed submission."
+                  "label": "Independently reviewed",
+                  "description": "A reviewer independent of its maker and submitter has signed the review.",
+                  "set_by": ["iki/lab_roles.reviewer"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"submitted\"",
+                      "when": null,
+                      "message": "A record moves to Independently reviewed only from Submitted."
+                    },
+                    {
+                      "name": "independent",
+                      "description": null,
+                      "check": "history.review[0].by != actor.person && edits.review.recorded.all(e, e.by != actor.person) && (last.review.submitted == null || last.review.submitted.by != actor.person)",
+                      "when": null,
+                      "message": "It must be signed by someone other than whoever created the record, whoever changed it since it was Recorded and whoever signed it Submitted."
+                    },
+                    {
+                      "name": "recorded_fit",
+                      "description": null,
+                      "check": "record.fit_status != null && record.fit_version != null",
+                      "when": null,
+                      "message": "Sign a recorded fit, with its method."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "review",
+                      "meaning_label": "Review",
+                      "verb": "Reviewed",
+                      "label": "Review",
+                      "statement": "I reviewed this record and found it in order.",
+                      "roles": ["iki/lab_roles.reviewer"]
+                    }
+                  ]
                 },
                 {
-                  "name": "independent",
-                  "description": null,
-                  "check": "history.review[0].by != actor.person && last.review.submitted.by != actor.person && last.review.reviewed.by != actor.person && edits.review.recorded.all(e, e.by != actor.person)",
-                  "when": null,
-                  "message": "QA release requires a signer independent of the analyst, reviewer and editors."
+                  "name": "released",
+                  "label": "QA released",
+                  "description": "QA, independent of everyone before, has released it.",
+                  "set_by": ["iki/lab_roles.qa"],
+                  "locks": true,
+                  "on_edit": null,
+                  "holds_amount": false,
+                  "reason": null,
+                  "guards": [
+                    {
+                      "name": "route",
+                      "description": null,
+                      "check": "state.from == \"reviewed\"",
+                      "when": null,
+                      "message": "A record moves to QA released only from Independently reviewed."
+                    },
+                    {
+                      "name": "independent",
+                      "description": null,
+                      "check": "history.review[0].by != actor.person && edits.review.recorded.all(e, e.by != actor.person) && (last.review.submitted == null || last.review.submitted.by != actor.person) && (last.review.reviewed == null || last.review.reviewed.by != actor.person)",
+                      "when": null,
+                      "message": "It must be signed by someone other than whoever created the record, whoever changed it since it was Recorded and whoever signed it Submitted and Independently reviewed."
+                    },
+                    {
+                      "name": "recorded_fit",
+                      "description": null,
+                      "check": "record.fit_status != null && record.fit_version != null",
+                      "when": null,
+                      "message": "Sign a recorded fit, with its method."
+                    }
+                  ],
+                  "signatures": [
+                    {
+                      "meaning": "approval",
+                      "meaning_label": "Approval",
+                      "verb": "Approved",
+                      "label": "QA release",
+                      "statement": "I approve this record.",
+                      "roles": ["iki/lab_roles.qa"]
+                    }
+                  ]
                 }
               ],
-              "signatures": [
+              "transitions": [
                 {
-                  "meaning": "approval",
-                  "meaning_label": "Approval",
-                  "verb": "Approved",
-                  "label": "QA release",
-                  "statement": "I approve this record.",
-                  "roles": ["iki/plate_assays.qa"]
+                  "from": "submitted",
+                  "to": "recorded",
+                  "conditional": false
+                },
+                {
+                  "from": "reviewed",
+                  "to": "recorded",
+                  "conditional": false
+                },
+                {
+                  "from": "recorded",
+                  "to": "submitted",
+                  "conditional": true
+                },
+                {
+                  "from": "submitted",
+                  "to": "reviewed",
+                  "conditional": true
+                },
+                {
+                  "from": "reviewed",
+                  "to": "released",
+                  "conditional": true
                 }
               ]
             }
-          ],
-          "transitions": [
-            {
-              "from": "submitted",
-              "to": "recorded",
-              "conditional": false
-            },
-            {
-              "from": "reviewed",
-              "to": "recorded",
-              "conditional": false
-            },
-            {
-              "from": "recorded",
-              "to": "submitted",
-              "conditional": true
-            },
-            {
-              "from": "submitted",
-              "to": "reviewed",
-              "conditional": true
-            },
-            {
-              "from": "reviewed",
-              "to": "released",
-              "conditional": true
-            }
-          ]
-        }
-      ],
-      "review": null
+          }
+        ]
+      }
     },
     {
       "type": "iki/stability.Measurement",
@@ -1978,6 +2264,7 @@
       "review": {
         "field": "review",
         "follows": null,
+        "on_send": false,
         "flows": [
           {
             "procedure": "iki/core.result_review@1",

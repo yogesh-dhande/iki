@@ -266,7 +266,7 @@ def test_each_booking_says_whom_and_what_its_for(
     run["refs"][REQUEST] = {
         "hrid": "REQ-000004",
         "title": "16S rRNA V4 amplicon panel",
-        "type": "iki/requests.PlainRequest",
+        "type": "iki/requests.Request",
         "archived": False,
         "purged": False,
     }

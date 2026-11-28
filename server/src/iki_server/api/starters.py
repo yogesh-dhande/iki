@@ -92,8 +92,8 @@ class StarterChoiceOut(Schema):
 
 class StarterOut(Schema):
     id: str = Field(
-        description="A plugin's starter, qualified (`iki/proteomics.proteomics_search_review`), "
-        "or one of the server's own recipes (`dose-response`)."
+        description="A plugin's starter, qualified (`iki/plate_assays.dose_response`), "
+        "or one of the server's own recipes (`experiment-review`)."
     )
     version: str
     label: str

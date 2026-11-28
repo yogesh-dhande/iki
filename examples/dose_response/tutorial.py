@@ -15,11 +15,15 @@ from uuid import UUID, uuid4
 from . import public_plate as plate
 
 FLOWS = {
-    "research": ("Research plate assays", "Research plate assay requester", "ResearchRequest"),
-    "regulated_qc": ("QC plate assays", "QC plate assay requester", "QCRequest"),
+    "research": ("Research plate assays", "Research plate assay requester"),
+    "regulated_qc": ("QC plate assays", "QC plate assay requester"),
 }
-VERSION = "2.0.0"
+#: The plate assay's own starter, and the one its requests' service applies (ADR 0303).
+STARTERS = ("iki/plate_assays.dose_response", "iki/requests.delivery_review")
+VERSION = "1.0.0"
 PLATE = "iki/plate_assays."
+LAB = "iki/lab_roles."
+REQUEST = "iki/requests.Request"
 
 
 class Api(Protocol):
@@ -65,7 +69,7 @@ class Receipt:
 
 
 def projects(api: Api, team: str, flow: str, key: str, receipt: Receipt) -> tuple[str, str]:
-    service, requester, _ = FLOWS[flow]
+    service, requester = FLOWS[flow]
     names = (service, requester)
     mine = f"Tox21 AID 1224835 training projects. Tutorial run {key}."
     existing = {}
@@ -107,54 +111,51 @@ def configure(
     reviewer: str,
     qa: str | None,
 ) -> None:
-    catalogue = api.request("GET", f"/starters?project={core}")
-    starter = next((s for s in catalogue if s["id"] == "dose-response"), None)
-    if not starter or starter["version"] != VERSION:
-        raise ValueError(f"Install dose-response {VERSION} before loading this tutorial.")
-    if starter["applied"] and starter["applied"]["flow"] != flow:
-        raise ValueError(
-            "The training project's review flow has changed. Leave its settings intact."
-        )
+    catalogue = {s["id"]: s for s in api.request("GET", f"/starters?project={core}")}
+    for name in STARTERS:
+        starter = catalogue.get(name)
+        if not starter or starter["version"] != VERSION:
+            raise ValueError(f"Install {name} {VERSION} before loading this tutorial.")
+        if starter["applied"] and starter["applied"]["flow"] != flow:
+            raise ValueError(
+                "The training project's review flow has changed. Leave its settings intact."
+            )
     members = {m["user"]["id"]: m for m in pages(api, f"/projects/{core}/members") if m["user"]}
-    assignments = {PLATE + "analyst": analyst, PLATE + "reviewer": reviewer}
+    # The parts each flow asks for, played by the lab's shared roles (ADR 0304).
+    assignments = {LAB + "analyst": analyst, LAB + "reviewer": reviewer}
     if qa:
-        assignments[PLATE + "qa"] = qa
-    for person in set(assignments.values()):
+        assignments[LAB + "qa"] = qa
+    for person in set(assignments.values()) | {coordinator}:
         if person not in members:
-            role = "editor" if person == analyst else "viewer"
+            role = "editor" if person in (analyst, coordinator) else "viewer"
             members[person] = api.request(
                 "PUT", f"/projects/{core}/members/users/{person}", json={"role": role}
             )
-    request_roles = {coordinator: {"iki/lab_roles.coordinator"}}
-    if qa:
-        request_roles.setdefault(qa, set()).add("iki/lab_roles.qa")
-    else:
-        request_roles.setdefault(reviewer, set()).add("iki/lab_roles.reviewer")
-    for person, required in request_roles.items():
-        member = members[person]
-        held = {r["role"] for r in member["lab_roles"]}
-        if required - held:
-            api.request(
-                "PUT",
-                f"/projects/{core}/members/{member['id']}/lab-roles",
-                json={"roles": sorted(held | required)},
-            )
-    choice = {
-        "project": core,
-        "flow": flow,
-        "version": VERSION,
-        "role_assignments": {role: [members[person]["id"]] for role, person in assignments.items()},
-    }
-    plan = api.request("POST", "/starters/dose-response/preview", json=choice)
-    if plan["changed"]:
-        api.request("POST", "/starters/dose-response/apply", json={**choice, "plan": plan["plan"]})
+    member = members[coordinator]
+    held = {r["role"] for r in member["lab_roles"]}
+    if LAB + "coordinator" not in held:
+        api.request(
+            "PUT",
+            f"/projects/{core}/members/{member['id']}/lab-roles",
+            json={"roles": sorted(held | {LAB + "coordinator"})},
+        )
+    roles = {role: [members[person]["id"]] for role, person in assignments.items()}
+    for name in STARTERS:
+        choice = {
+            "project": core,
+            "flow": flow,
+            "version": VERSION,
+            "role_assignments": roles,
+        }
+        plan = api.request("POST", f"/starters/{name}/preview", json=choice)
+        if plan["changed"]:
+            api.request("POST", f"/starters/{name}/apply", json={**choice, "plan": plan["plan"]})
     intake_path = f"/projects/{core}/intake"
     intake = api.request("GET", intake_path)
-    request_type = "iki/requests." + FLOWS[flow][2]
     if not (intake["types"] or intake["projects"] or intake["from_registry"]):
-        api.request("PUT", intake_path, json={"types": [request_type], "projects": [requester]})
+        api.request("PUT", intake_path, json={"types": [REQUEST], "projects": [requester]})
     elif (
-        [t["name"] for t in intake["types"]] != [request_type]
+        [t["name"] for t in intake["types"]] != [REQUEST]
         or [p["id"] for p in intake["projects"]] != [requester]
         or intake["from_registry"]
     ):
@@ -294,7 +295,7 @@ def material(api: Api, receipt: Receipt, core: str, requester: str, flow: str) -
         api,
         receipt,
         requester,
-        "iki/requests." + FLOWS[flow][2],
+        REQUEST,
         {
             "title": plate.PLATE_NAME,
             "tubes": list(tubes.values()),

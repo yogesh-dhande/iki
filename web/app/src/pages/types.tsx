@@ -253,7 +253,7 @@ export function TypeDetail() {
         ) : null}
       </section>
       {type.lab_list ? <ListOptions type={type} types={types} /> : null}
-      <TypeFlows name={type.name} />
+      <TypeFlows name={type.name} plural={type.label_plural} />
       <section aria-labelledby="fields-title">
         <h2 className="section-title" id="fields-title">
           Fields
@@ -320,7 +320,7 @@ export function TypeDetail() {
 /** How its records move between the states of each state field (ADR 0199): a diagram,
  * and the same in words, with what its guards say. A reviewed type's review field is drawn
  * once for each flow its records can follow (ADR 0306): `?project=` says whose choice. */
-function TypeFlows({ name }: { name: string }) {
+function TypeFlows({ name, plural }: { name: string; plural: string }) {
   const { project: slug } = useSearch({ from: "/types/$" });
   const project = useQuery({ ...projectQuery(slug ?? ""), enabled: Boolean(slug) });
   // Fetched beside the type, not before it: the rest of its page doesn't wait for it, and
@@ -351,7 +351,12 @@ function TypeFlows({ name }: { name: string }) {
         edit returns it. Choose a state to follow its arrows.
       </p>
       {flow.review ? (
-        <TypeReview review={flow.review} project={project.data?.name} roles={roles} />
+        <TypeReview
+          review={flow.review}
+          project={project.data?.name}
+          plural={plural}
+          roles={roles}
+        />
       ) : null}
       {flow.fields.map((field) => (
         <div className="card flow-card" key={field.name}>
@@ -368,23 +373,34 @@ function TypeFlows({ name }: { name: string }) {
 function TypeReview({
   review,
   project,
+  plural,
   roles,
 }: {
   review: NonNullable<TypeFlow["review"]>;
   project: string | undefined;
+  plural: string;
   roles: Record<string, string>;
 }) {
   const used = review.flows.find((f) => f.chosen) ?? review.flows.find((f) => f.default);
   const flows = [...review.flows].sort((a, b) => Number(b === used) - Number(a === used));
-  const where = project ? `in ${project}` : "where a project hasn’t chosen its own";
+  const whose = used?.chosen ? ", the project’s choice" : ", the deployment’s default";
+  let says: string;
+  if (review.on_send) {
+    // A request is pinned as it's sent, by the choice of the service it's sent to (ADR 0305).
+    const sent = `${inSentence(plural)} sent to ${project ?? "a project that hasn’t chosen its own"}`;
+    says = used
+      ? `What’s delivered for ${sent} is reviewed under ${reviewFlowName(used)}${whose}. Each keeps the procedure in force when it was sent.`
+      : `No review procedure is chosen for ${sent}, so it can’t take them until its Admin chooses one in Project settings → Starters.`;
+  } else {
+    const where = project ? `in ${project}` : "where a project hasn’t chosen its own";
+    says = used
+      ? `Reviewed ${where} under ${reviewFlowName(used)}${whose}. Each record keeps the procedure it was made under.`
+      : `No review procedure is chosen ${where}, so records can’t be made until a project’s Admin chooses one in Project settings → Starters.`;
+  }
   return (
     <>
       <p>
-        {used
-          ? `Reviewed ${where} under ${reviewFlowName(used)}${
-              used.chosen ? ", the project’s choice" : ", the deployment’s default"
-            }. Each record keeps the procedure it was made under.`
-          : `No review procedure is chosen ${where}, so records can’t be made until a project’s Admin chooses one in Project settings → Starters.`}
+        {says}
         {review.follows
           ? ` A record follows the procedure of the one its ${review.follows} names.`
           : ""}
@@ -404,7 +420,9 @@ function TypeReview({
             <FlowDiagram flow={f.field} roles={roles} />
           ) : (
             <p className="muted">
-              It opens work for others: its own records don’t move through review states.
+              {review.on_send
+                ? "What’s delivered for it is reviewed this way: its own records don’t move through review states."
+                : "It opens work for others: its own records don’t move through review states."}
             </p>
           )}
         </div>

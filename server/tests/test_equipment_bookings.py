@@ -17,6 +17,7 @@ import pytest
 from api_client import Api
 from first_party_dependencies import PLUGINS, ROOT, build_order
 from org_world import World, build_world
+from service_reviews import serve
 from test_plugin_migrations import database, django, iki, migrate, sync
 from test_states import roles
 
@@ -32,7 +33,7 @@ __all__ = ["database"]
 PLUGIN = PLUGINS / "equipment"
 EQUIPMENT = "iki/equipment."
 BOOKING = EQUIPMENT + "Booking"
-PLAIN = "iki/requests.PlainRequest"
+PLAIN = "iki/requests.Request"
 REQUESTER = "outsider"
 #: The people of the core (the world's project): its coordinator, an analyst who runs
 #: its instruments, an engineer who looks after them, and a member with no bookings.
@@ -88,6 +89,7 @@ def exercise() -> None:
     requests.set_intake(
         core, types=[PLAIN], from_registry=False, sources=[asking], by=users[COORDINATOR]
     )
+    serve(users["admin"], core)
     request = _make(world, REQUESTER, PLAIN, asking, title="16S rRNA V4 amplicon panel")
     requests.submit(users[REQUESTER], request, core, expected_revision=request.revision)
     request.refresh_from_db()

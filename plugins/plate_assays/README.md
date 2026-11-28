@@ -12,18 +12,27 @@ retain those identifiers for comparison with the approved release criterion.
 ## Set up review
 
 Install `iki/plate_assays` with its declared dependencies and bind
-`iki/plate_assays.assay-tools` to a backend worker. Apply the dose-response
-starter in the assay project to choose Research or Regulated QC and grant lab
-roles to its members. The analyst needs Editor access. Reviewers and QA need at
-least Viewer access. The lab can then
+`iki/plate_assays.assay-tools` to a backend worker. Fits are reviewed under
+core's result review (`iki/core.result_review@1`). In the assay project, apply
+the **Dose-response plate assay** starter (`iki/plate_assays.dose_response`) in
+Project settings → Starters to choose Research (suggested) or Regulated QC, and
+grant the shared lab roles (Analyst, Reviewer, Sample and result QA) to its
+members. The analyst needs Editor access. Reviewers and QA need at least Viewer
+access. The lab can then
 use its own plate layouts, materials and reader files. For a training run
 with published apigenin and daidzein activity measurements, load the
 [Tox21 tutorial](../../examples/dose_response/README.md) in its own projects.
 
-Projects without a starter use
-the plugin's deployment setting `review_flow`, which defaults to `research`.
-Each result keeps the flow selected when it was created.
-[Run a first dose-response plate assay](../../docs/guides/first-dose-response-assay.md)
+An Org Admin can instead set the deployment's default in Admin → Review
+procedures, with a reason, for every project that hasn't chosen. Until one of
+them chooses, a fit can't be recorded: the run is refused with 409
+`procedure_not_chosen`. Each result keeps the flow it was recorded under.
+
+| Flow                                                                                    | Who signs                                                                                                                     |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Research                                                                                | A reviewer who didn't create or edit the result signs it off.                                                                 |
+| Regulated QC                                                                            | Whoever made it signs its submission, an independent reviewer signs its review and someone in QA who did neither releases it. |
+| [Run a first dose-response plate assay](../../docs/guides/first-dose-response-assay.md) |
 
 ## Run an assay
 
@@ -32,7 +41,7 @@ Each result keeps the flow selected when it was created.
    concentrations of samples in a series. **Assign a dilution series** fills
    an empty block from its starting well, nominal concentration, fold dilution
    and number of concentrations. Replicates occupy parallel rows or columns.
-   If the assay answers a request, select the submitted Research or QC request matching the review flow.
+   If the assay answers a request, select the request the project's service received.
 2. Choose the plate's **reader file format** and attach the export. Iki reads
    two formats, each a declared subset with a version recorded on every read:
    a BMG LABTECH MARS absorbance endpoint CSV in OD (`bmg_mars_absorbance/1`),
@@ -53,10 +62,12 @@ Each result keeps the flow selected when it was created.
    `A4: bubble noted at acquisition`. Open the result's **Curve** tab to inspect
    each reading, the excluded wells, parameters, endpoint and approximate
    95% confidence limits. [Source potencies and worked flavonoid fits](data/curve-example.md)
-4. In research mode, sign off the recorded result. In regulated QC, the analyst
-   submits it, an independent reviewer signs it and a different member of QA
-   releases it. Open a signature to verify the revision signed. A requested
-   result is delivered to the asking project when its final signature is complete.
+4. Under Research, a reviewer signs off the recorded result. Under Regulated QC,
+   the analyst submits it, an independent reviewer signs it and a different
+   member of QA releases it. Open a signature to verify the revision signed. A
+   requested result is delivered to the asking project when its final signature
+   is complete. It's reviewed under the assay project's choice for fits, which
+   the project also applies to its own.
 
 The fit uses the individual measurements in their source units for the selected sample.
 Control wells remain available for inspection. Extrapolated midpoints carry
@@ -65,7 +76,7 @@ readings and the reason an estimate was unavailable.
 [Assay design decision](../../docs/adr/0188-a-plate-read-keeps-the-wells-behind-a-fitted-endpoint.md)
 
 A lab that has qualified its own method writes it in its own plugin. Its
-results are Research or QC assay results under the same review. They
+results are assay results under the same review. They
 record the lab's method, such as `acme/5PL-WLS/1`.
 [A lab's own method](data/methods.md#a-labs-own-method)
 [Named fit methods](../../docs/adr/0248-a-dose-response-fit-is-a-named-versioned-method.md)
