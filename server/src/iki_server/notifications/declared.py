@@ -10,7 +10,7 @@ does. A request between projects (ADR 0132, 0142) tells its service when it's se
 (:func:`sent`), in the service's project, by the lab roles held there; and the project
 that asked when one of its results is released (:func:`released`).
 A bulk import, which tells webhooks of its changes in one event, tells nobody record
-by record, as it fires no trigger (:func:`iki_server.entities.services.quietly`).
+by record, as it fires no trigger (:func:`iki_server.entities.pipeline.quietly`).
 
 Each firing is checked at send time, for each person: they're active and a person, not a
 service account; they can read the record (and, for a change to a record it refers to,
@@ -209,9 +209,9 @@ def released(request: Entity, result: Entity, revision: Revision, actor: User | 
 
 
 def _quiet() -> bool:
-    from iki_server.entities import services as entities
+    from iki_server.entities import pipeline
 
-    return entities._quiet.get()
+    return pipeline.is_quiet()
 
 
 def _sends(n: TypeNotification, before_after: tuple[Any, Any] | None) -> bool:

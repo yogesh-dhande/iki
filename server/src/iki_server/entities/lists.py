@@ -41,7 +41,7 @@ from psycopg import sql
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import entries, identity, registry, services, unique
+from iki_server.entities import entries, identity, pipeline, registry, services, unique
 from iki_server.entities.models import LIST_LABEL_INDEX, Entity, Revision, RevisionKind
 from iki_server.entities.values import (
     Invalid,
@@ -64,7 +64,6 @@ from iki_spec.model import (
     LIST_MAX_OPTIONS,
     LIST_POSITION,
     EntityType,
-    stored_in_list_table,
 )
 
 __all__ = [
@@ -408,26 +407,19 @@ def _new_option(
     instance.identity_hash = identity.hash_for(  # type: ignore[attr-defined]
         instance, form.entity_type, services._lists(form, values)
     )
-    instance.save()
-    rows = services.Rows(form, None, instance)
     fields = form.entry_fields()
-    touched = [p for p in form.parts if p.entry and not p.extension]
-    for part in form.parts:
-        if not part.entry:
-            continue
-        if part.extension and any(values.get(n) is not None for n in part.fields):
-            row = rows.ensure(part)
-            for name, f in part.fields.items():
-                if name in values and not stored_in_list_table(f):
-                    services._set(row, f, values[name])
-            row.save()
-            touched.append(part)
-        for name, f in part.fields.items():
-            if stored_in_list_table(f) and values.get(name):
-                services._write_list(part, f, instance.pk, values[name])
-    changed = sorted(n for n, v in values.items() if v is not None and n in fields)
-    revision = services._revise(instance, RevisionKind.CREATED, changed, user, reason, via=via)
-    services._write_history(touched, rows, revision.number)
+    plan = pipeline.Plan(
+        user=user,
+        form=form,
+        kind=RevisionKind.CREATED,
+        entity=instance,
+        rows=services.Rows(form, None, instance),
+        values={n: v for n, v in values.items() if n in fields},
+        reason=reason,
+        via=via,
+    )
+    # Checked above: an option's rules are its list's, its code and label (ADR 0270).
+    pipeline.commit(plan, None)
     return Entity.objects.get(pk=instance.pk)
 
 
@@ -505,10 +497,18 @@ def reorder(
             locked = Entity.objects.select_for_update().get(pk=row.pk)
             if locked.purged_at is not None:
                 raise Refused(services.purged(locked))
-            stored = services.Rows(form, None, row)
-            touched = services._write(form, stored, {LIST_POSITION: position}, row.pk)
-            revision = services._revise(locked, RevisionKind.CURATED, [LIST_POSITION], user, reason)
-            services._write_history(touched, stored, revision.number)
+            plan = pipeline.Plan(
+                user=user,
+                form=form,
+                kind=RevisionKind.CURATED,
+                entity=locked,
+                rows=services.Rows(form, None, row),
+                values={LIST_POSITION: position},
+                reason=reason,
+            )
+            # Its place is its list's, which no record's rule reads.
+            revision = pipeline.commit(plan, None).revision
+            assert revision is not None  # noqa: S101 - it moves
             revisions.append(revision)
         if revisions:
             log.record(
@@ -544,7 +544,11 @@ def archive(user: User, entry: Entity, *, archived: bool = True, reason: str) ->
         locked.archived_at = dt.datetime.now(dt.UTC) if archived else None
         locked.save(update_fields=["archived_at"])
         kind = RevisionKind.ARCHIVED if archived else RevisionKind.RESTORED
-        revision = services._revise(locked, kind, [], user, reason)
+        # It changes none of its values, which the records naming it keep.
+        plan = pipeline.Plan(
+            user=user, form=shape(locked.type), kind=kind, entity=locked, reason=reason
+        )
+        revision = pipeline.commit(plan, None).revision
         option = option_of(locked)
         log.record(
             "list.option_archived" if archived else "list.option_restored",
