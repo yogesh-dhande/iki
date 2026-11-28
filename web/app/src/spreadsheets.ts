@@ -129,7 +129,7 @@ export function rowsQuery(made: SheetImport, outcome: Outcome | undefined) {
     queryFn: async ({ pageParam, signal }) =>
       unwrap(
         await iki.GET("/api/v1/spreadsheet-imports/{import_id}/rows", {
-          headers: seen(made.revision),
+          headers: ifMatch(made.revision),
           params: {
             path: { import_id: made.id },
             query: {
@@ -154,13 +154,10 @@ export async function startImport(projectId: string, file: string, type: string)
   );
 }
 
-/** If-Match: the revision a request is made from. */
-const seen = ifMatch;
-
 export async function changeImport(id: string, revision: number, change: SheetChange) {
   return unwrap(
     await iki.PATCH("/api/v1/spreadsheet-imports/{import_id}", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
       body: change,
     }),
   );
@@ -169,7 +166,7 @@ export async function changeImport(id: string, revision: number, change: SheetCh
 export async function previewImport(id: string, revision: number) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/preview", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
     }),
   );
 }
@@ -181,7 +178,7 @@ export async function commitImport(
 ) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/commit", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
       body,
     }),
   );
@@ -190,7 +187,7 @@ export async function commitImport(
 export async function discardImport(id: string, revision: number) {
   unwrap(
     await iki.DELETE("/api/v1/spreadsheet-imports/{import_id}", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
     }),
   );
 }
@@ -209,7 +206,7 @@ export async function savedMappings(project: string, type: string, signal: Abort
 export async function saveMapping(id: string, revision: number, body: SaveMapping) {
   return unwrap(
     await iki.POST("/api/v1/spreadsheet-imports/{import_id}/mappings", {
-      params: { path: { import_id: id }, header: seen(revision) },
+      params: { path: { import_id: id }, header: ifMatch(revision) },
       body,
     }),
   );
@@ -224,14 +221,11 @@ export async function replaceMapping(
 ) {
   return unwrap(
     await iki.PUT("/api/v1/spreadsheet-mappings/{mapping_id}", {
-      params: { path: { mapping_id: mapping.id }, header: seen(mapping.revision) },
+      params: { path: { mapping_id: mapping.id }, header: ifMatch(mapping.revision) },
       body: { name, import: imported.id, import_revision: imported.revision },
     }),
   );
 }
-
-/** It moved on from the revision a request was made from (412). */
-export { isStale };
 
 // --- Saving changes in turn ---------------------------------------------------------------
 

@@ -4,6 +4,7 @@
  */
 
 import type { Schemas } from "@ikisci/sdk";
+import { focusManager } from "@tanstack/react-query";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -663,12 +664,12 @@ describe("editing an entity", () => {
       revision: 3,
       values: { ...sample().values, count: 9, name: "Plasma (theirs)" },
     });
-    answer("GET /api/v1/entities/" + SAMPLE_ID, theirs);
-    answer("PATCH /api/v1/entities/" + SAMPLE_ID, (call: { headers: Headers }) =>
-      call.headers.get("If-Match") === '"2"'
-        ? problem(412, "stale", "Someone changed it since you read it.")
-        : sample({ revision: 4 }),
-    );
+    // Someone else saved first: Iki refuses the old revision, and the page reads theirs.
+    answer("PATCH /api/v1/entities/" + SAMPLE_ID, (call: { headers: Headers }) => {
+      if (call.headers.get("If-Match") !== '"2"') return sample({ revision: 4 });
+      answer("GET /api/v1/entities/SMP-000001", theirs);
+      return problem(412, "stale", "Someone changed it since you read it.");
+    });
     const { user } = await renderApp("/entities/SMP-000001/edit/");
     const name = screen.getByRole("textbox", { name: "Name" });
     await user.clear(name);
@@ -719,30 +720,74 @@ describe("editing an entity", () => {
 
   it("keeps a draft visible if someone releases the record before the save", async () => {
     onSample();
-    answer(
-      "GET /api/v1/entities/" + SAMPLE_ID,
-      sample({
-        revision: 4,
-        locked: true,
-        locked_by: ["review"],
-        can: { ...sample().can, edit: false, correct: false },
-      }),
-    );
-    answer("PATCH /api/v1/entities/" + SAMPLE_ID, problem(412, "stale", "Someone changed it."));
+    const released = sample({
+      revision: 4,
+      locked: true,
+      locked_by: ["review"],
+      can: { ...sample().can, edit: false, correct: false },
+    });
+    answer("PATCH /api/v1/entities/" + SAMPLE_ID, () => {
+      answer("GET /api/v1/entities/SMP-000001", released);
+      return problem(412, "stale", "Someone changed it.");
+    });
     const { user } = await renderApp("/entities/SMP-000001/edit/");
     await user.type(screen.getByRole("textbox", { name: "Name" }), "B");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
-    expect(
-      await screen.findByText(
-        "You can no longer edit this record. Your unsaved values are shown below.",
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "SMP-000001 was locked while you were editing, so nothing can be saved.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("What you typed is still below, to copy.");
     expect(screen.getByRole("textbox", { name: "Name" })).toHaveValue("Plasma AB");
     expect(screen.getByRole("button", { name: "Save changes" })).toHaveAttribute(
       "aria-disabled",
       "true",
     );
     expect(calls("PATCH")).toHaveLength(1);
+  });
+
+  it("says at once that it was locked, by whom, keeps what was typed, and sends nothing", async () => {
+    onSample();
+    const { user } = await renderApp("/entities/SMP-000001/edit/");
+    const name = screen.getByRole("textbox", { name: "Name" });
+    await user.clear(name);
+    await user.type(name, "Plasma B");
+    // A reviewer locks it; the tab coming back reads it again.
+    answer(
+      "GET /api/v1/entities/SMP-000001",
+      sample({
+        revision: 3,
+        locked: true,
+        locked_by: ["status"],
+        can: { ...sample().can, edit: false, correct: false },
+      }),
+    );
+    answer(`GET /api/v1/entities/SMP-000001/revisions/3`, {
+      number: 3,
+      kind: "state_changed",
+      user: { id: "u2", name: "Ravi Iyer", email: "ravi@example.com" },
+      created_at: new Date(Date.now() - 120_000).toISOString(),
+      state: {
+        field: { name: "status", label: "Status" },
+        from: { name: "in_review", label: "In review" },
+        to: { name: "reviewed", label: "Reviewed" },
+        signatures: [],
+      },
+    });
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+      await Promise.resolve();
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "SMP-000001 was locked while you were editing, so nothing can be saved.",
+    );
+    expect(await within(alert).findByText(/Ravi Iyer set its Status to Reviewed/)).toBeVisible();
+    expect(name).toHaveValue("Plasma B");
+    const save = screen.getByRole("button", { name: "Save changes" });
+    expect(save).toHaveAttribute("aria-disabled", "true");
+    await user.click(save);
+    expect(calls("PATCH")).toEqual([]);
   });
 });
 

@@ -364,7 +364,6 @@ def _private_work_and_basic_deliveries(
         core,
         request=str(request.pk),
         scheduled_on="2026-11-24",
-        instrument="Training bench",
         notes="Internal queue notes",
     )
     cancelled = _make(world, "editor", WORK, core, request=str(request.pk))

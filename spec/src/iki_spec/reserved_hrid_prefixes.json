@@ -109,6 +109,7 @@
     "STB": "iki/stability.Study",
     "STM": "iki/stability.Measurement",
     "STP": "iki/stability.Pull",
+    "SUP": "iki/inventory.Supplier",
     "TST": "iki/strains.TransformedStrain",
     "TUB": "iki/inventory.Tube",
     "VER": "iki/lots.PlasmidVerification",

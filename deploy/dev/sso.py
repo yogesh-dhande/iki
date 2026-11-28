@@ -639,6 +639,12 @@ def entry_of(entity: dict[str, Any]) -> str:
     return str(entry["id"] if entry else entity["id"])
 
 
+def supplier(session: requests.Session, project: dict[str, Any], name: str) -> str:
+    """The registry's supplier of that name (iki/inventory.Supplier), registered if it
+    hasn't got it: what a record's ``supplier`` holds."""
+    return entry_of(created(session, project, "iki/inventory.Supplier", {"name": name}))
+
+
 def option(session: requests.Session, project: dict[str, Any], listed: str, code: str) -> str:
     """The ID of a lab list's option (ADR 0270) a record names, found by its code among
     the options the project's registry offers."""
@@ -2478,11 +2484,13 @@ def cell_bank_history(alice: requests.Session, project: dict[str, Any]) -> None:
         parent = record(alice, effects[plugin + "ParentalLine"])
         parent_ids.add(parent["id"])
         source = record(alice, effects[plugin + "CellLineSource"])
-        if (
+        # The supplier is the registry's, registered by the name Cellosaurus gives it.
+        named = matching_records(alice, project, "iki/inventory.Supplier", "name", supplier)
+        if len(named) != 1 or (
             source["values"]["supplier"],
             source["values"]["catalogue_id"],
             source["values"]["line"],
-        ) != (supplier, catalogue_id, entry_of(parent)):
+        ) != (entry_of(named[0]), catalogue_id, entry_of(parent)):
             fail(f"{imported['hrid']} returned unexpected supplier details {source['values']}")
         sources[supplier] = source
     if (
@@ -3180,7 +3188,6 @@ def work_and_deliverable(
             "request": request["id"],
             "priority": "high",
             "scheduled_on": "2026-11-24",
-            "instrument": "Training bench",
             "notes": "Prepare the workspace and check the handoff.",
         },
     )
@@ -4126,7 +4133,7 @@ def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
         {
             "polymer": polymer["id"],
             "catalogue_number": "SRM 1478",
-            "supplier": "National Institute of Standards and Technology",
+            "supplier": supplier(alice, project, "National Institute of Standards and Technology"),
             "notes": "Demonstration lot. Certified values from NIST SRM 1478, July 1992.",
             "mn": 35800,
             "mn_method": option(alice, project, "iki/lots.MolarMassMethod", "membrane_osmometry"),
@@ -4663,7 +4670,7 @@ def reagent_stock(alice: requests.Session, project: dict[str, Any]) -> None:
         "catalogue_number",
         {
             "name": "Corning 15 mL centrifuge tubes",
-            "supplier": "Corning",
+            "supplier": supplier(alice, project, "Corning"),
             "catalogue_number": "430790",
             "pack_size": 50,
             "stock_unit": "1",

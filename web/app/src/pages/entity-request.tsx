@@ -5,20 +5,12 @@
  * released.
  */
 
-import { unwrap } from "@ikisci/sdk";
+import { unwrap, isStale } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useId, useState } from "react";
 
-import {
-  iki,
-  isStale,
-  problemOf,
-  projectQuery,
-  seesProjectQuery,
-  useApiMutation,
-  useOpenedRevision,
-} from "../api";
+import { iki, problemOf, projectQuery, seesProjectQuery, useApiMutation } from "../api";
 import {
   ENTITIES,
   entityQuery,
@@ -40,6 +32,7 @@ import {
   type Service,
   type TwoSides,
 } from "../requests";
+import { changedProblem, useRevisioned, type IfMatch } from "../revisioned";
 import {
   Button,
   buttonClass,
@@ -347,7 +340,7 @@ function SendDialog({
   const [reason, setReason] = useState("");
   const [missing, setMissing] = useState(false);
   const send = useApiMutation(
-    async ({ service, header }: { service: string; header: { "If-Match": string } }) =>
+    async ({ service, header }: { service: string; header: IfMatch }) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/submit", {
           params: { path: { ref: entity.id }, header },
@@ -359,23 +352,20 @@ function SendDialog({
   );
   const service = services.find((s) => s.project.id === chosen);
   // What it sends is the revision the person opened this at, which they reviewed.
-  const opened = useOpenedRevision(entity.revision, { error: send.error });
-  const stale = isStale(send.error);
+  const rev = useRevisioned(entity, { error: send.error, refresh: ENTITIES });
   return (
     <ConfirmDialog
       isOpen
       title={`Send ${entity.hrid} to a service`}
       confirmLabel={service ? `Send to ${service.project.name}` : "Send"}
       confirmVariant="primary"
-      busy={send.isPending}
+      busy={send.isPending || rev.rereading}
       problem={
-        stale && send.error
-          ? {
-              ...send.error.problem,
-              detail:
-                "Someone changed it while this was open. The page now shows their change: check it, then send it again.",
-            }
-          : send.error
+        rev.changed
+          ? changedProblem(
+              "Someone changed it while this was open. The page now shows their change: check it, then send it again.",
+            )
+          : send.error && !isStale(send.error)
             ? problemOf(send.error)
             : undefined
       }
@@ -385,22 +375,18 @@ function SendDialog({
           setMissing(true);
           return;
         }
-        send.mutate(
-          { service: service.project.id, header: opened.ifMatch },
-          {
-            onSuccess: (saved) => {
-              client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-              onClose();
-              say(`Sent ${saved.hrid} to ${service.project.name}.`);
+        rev.submit((header) => {
+          send.mutate(
+            { service: service.project.id, header },
+            {
+              onSuccess: (saved) => {
+                client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+                onClose();
+                say(`Sent ${saved.hrid} to ${service.project.name}.`);
+              },
             },
-            onError: (error) => {
-              // Read it again, so sending again sends the revision it's at now.
-              if (error.problem.code === "stale") {
-                void client.invalidateQueries({ queryKey: ENTITIES });
-              }
-            },
-          },
-        );
+          );
+        });
       }}
     >
       <RadioField

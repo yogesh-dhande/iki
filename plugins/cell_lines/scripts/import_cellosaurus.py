@@ -124,11 +124,15 @@ def main() -> None:
         {"type": "iki/cell_lines.ParentalLine", "key": "line", "values": values, "origin": origin}
     ]
     if supplier is not None:
+        # The supplier is a registry entry by its name: the registry's own if it has it.
+        creates.append(
+            {"type": "iki/inventory.Supplier", "key": "supplier", "values": {"name": supplier}}
+        )
         creates.append(
             {
                 "type": "iki/cell_lines.CellLineSource",
                 "values": {
-                    "supplier": supplier,
+                    "supplier": {"$create": "supplier"},
                     "catalogue_id": catalogue_id,
                     "line": {"$create": "line"},
                 },

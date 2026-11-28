@@ -3,7 +3,8 @@
 Register a parental cell line under its primary Cellosaurus accession, or under
 the lab's own accession for a line Cellosaurus doesn't list, such as a primary
 line established in the lab. A **Cell line
-catalogue source** links a supplier and its catalogue number to the registered
+catalogue source** links a supplier, one of the registry's
+(`iki/inventory.Supplier`), and its catalogue number to the registered
 line. A line can have several suppliers or several catalogue numbers. For example,
 WI-38 is `CVCL_0579`, sold by ATCC as `CCL-75`. The accession field links to
 the catalogue. [Cellosaurus](https://www.cellosaurus.org/CVCL_0579) · [ATCC](https://www.atcc.org/products/ccl-75)
@@ -19,9 +20,10 @@ sample** is an observation collected from a culture, with its data file.
 
 1. Create a **Parental cell line**, or run **Register a parental line from
    Cellosaurus**. Upload one Cellosaurus text export and, for supplier
-   material, enter the exact supplier and catalogue ID. The action checks the
-   primary accession and, when given, the supplier cross-reference, and records
-   the input file as provenance. Leave both blank for material without a
+   material, enter the supplier as Cellosaurus names it, such as ATCC, and the
+   catalogue ID. The action checks the primary accession and, when given, the
+   supplier cross-reference, registers the supplier by that name if the registry
+   hasn't got it, and records the input file as provenance. Leave both blank for material without a
    catalogue number, such as a line from a collaborator.
    Repeating registration reuses the line and catalogue source. Importing a
    different supplier's record keeps its source alongside the first. The

@@ -4,11 +4,11 @@
  * not of the others.
  */
 
-import { unwrap, type Schemas } from "@ikisci/sdk";
+import { unwrap, type Schemas, isStale } from "@ikisci/sdk";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 
-import { fieldErrors, iki, isStale, problemOf, useApiMutation, useOpenedRevision } from "../api";
+import { fieldErrors, iki, problemOf, useApiMutation } from "../api";
 import {
   ENTITIES,
   editReturns,
@@ -35,6 +35,7 @@ import {
 } from "../ui";
 import { WORK } from "../people";
 import { listed } from "../requests";
+import { changedProblem, useRevisioned, type IfMatch } from "../revisioned";
 
 type StateCan = Schemas["StateCan"];
 
@@ -258,7 +259,7 @@ function SetStateDialog({
   const client = useQueryClient();
   const target = options.find((o) => o.name === state);
   const set = useApiMutation(
-    async (header: { "If-Match": string }) =>
+    async (header: IfMatch) =>
       unwrap(
         await iki.POST("/api/v1/entities/{ref}/states/{field}", {
           params: { path: { ref: entity.id, field: field.name }, header },
@@ -269,30 +270,27 @@ function SetStateDialog({
     [ENTITIES, WORK],
   );
   // From the revision the person opened it at, which they reviewed.
-  const opened = useOpenedRevision(entity.revision, { error: set.error });
-  const problem = set.error ? problemOf(set.error) : undefined;
-  const stale = isStale(set.error);
+  const rev = useRevisioned(entity, { error: set.error, refresh: ENTITIES });
+  const problem = set.error && !isStale(set.error) ? problemOf(set.error) : undefined;
   const errors = fieldErrors(problem);
   const reasonError =
     errors["reason"] ??
     (missing && target
       ? `Setting its ${field.label} to ${target.label} needs a reason: say why.`
       : undefined);
-  const from = stateLabel(field, stateOf(entity, field));
+  const from = stateLabel(field, stateOf(rev.read, field));
   return (
     <ConfirmDialog
       isOpen
       title={`Set ${field.label} of ${entity.hrid}`}
       confirmLabel={`Set ${field.label}`}
       confirmVariant="primary"
-      busy={set.isPending}
+      busy={set.isPending || rev.rereading}
       problem={
-        stale && problem
-          ? {
-              ...problem,
-              detail:
-                "Someone changed it while this was open. The page now shows their change: check it, then try again.",
-            }
+        rev.changed
+          ? changedProblem(
+              "Someone changed it while this was open. The page now shows their change: check it, then try again.",
+            )
           : problem && !errors["reason"]
             ? problem
             : undefined
@@ -303,18 +301,15 @@ function SetStateDialog({
           setMissing(true);
           return;
         }
-        set.mutate(opened.ifMatch, {
-          onSuccess: (saved) => {
-            client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
-            onClose();
-            const now = stateLabel(field, stateOf(saved, field) || state);
-            say(`${saved.hrid}’s ${field.label} is ${now} now.`);
-          },
-          onError: (error) => {
-            if (error.problem.code === "stale") {
-              void client.invalidateQueries({ queryKey: ENTITIES });
-            }
-          },
+        rev.submit((header) => {
+          set.mutate(header, {
+            onSuccess: (saved) => {
+              client.setQueryData(entityQuery(saved.hrid).queryKey, saved);
+              onClose();
+              const now = stateLabel(field, stateOf(saved, field) || state);
+              say(`${saved.hrid}’s ${field.label} is ${now} now.`);
+            },
+          });
         });
       }}
     >
