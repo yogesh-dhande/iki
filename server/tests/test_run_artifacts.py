@@ -101,7 +101,7 @@ def test_a_run_keeps_its_artifacts_for_its_readers(world: World) -> None:
     assert answer["run_status"] == "succeeded"
     found = listed(world, run, "viewer")
     assert found.status_code == 200, found.content
-    items = found.json()
+    items = found.json()["items"]
     assert [(a["attempt"], a["path"], a["state"]) for a in items] == [
         (1, "alignment.fasta", "kept"),
         (1, "alignment.txt", "kept"),
@@ -152,7 +152,7 @@ def test_a_failed_run_keeps_them_too(world: World) -> None:
     failed = pod.report(job, "fail", reason="failed", message="It fell over.")
 
     assert failed.json()["run_status"] == "failed"
-    assert [a["state"] for a in listed(world, run).json()] == ["kept"]
+    assert [a["state"] for a in listed(world, run).json()["items"]] == ["kept"]
 
 
 @pytest.mark.parametrize(
@@ -228,7 +228,7 @@ def test_retention_over_deletes_their_bytes_every_version_and_records_it(world: 
         .list_object_versions(Bucket=storage.bucket(), Prefix=key)
         .get("Versions")
     )
-    items = {a["path"]: a for a in listed(world, run).json()}
+    items = {a["path"]: a for a in listed(world, run).json()["items"]}
     assert items["alignment.txt"]["state"] == "deleted"
     assert items["alignment.txt"]["deleted_at"] is not None
     assert items["alignment.txt"]["sha256"] == hashlib.sha256(ALIGNMENT).hexdigest()

@@ -1,6 +1,7 @@
 # 0115. Registries keep identities, and each project keeps its own record
 
 - Status: Accepted
+- Amended by [0292](0292-a-registry-role-is-one-grant-scoped-to-the-registry-or-a-list.md) for how registrars are stored and granted
 - Date: 2026-11-17
 - Refines: [0007](0007-typed-table-per-type-entity-storage.md),
   [0033](0033-plugin-codegen-and-migrations.md),
@@ -11,6 +12,8 @@
   [0080](0080-triggers-run-actions-when-entities-change.md),
   [0082](0082-unique-fields-link-records-in-other-systems.md),
   [0096](0096-bundles-carry-entities-between-deployments-with-their-history.md)
+- Amended: 2026-11-27 by [0165](0165-a-subtype-of-a-registered-type-has-registry-fields-of-its-own.md)
+  — a replacement may be of another type under the same identity owner
 
 ## Context
 
@@ -209,7 +212,10 @@ CPD-000456, with a reason: two registrations that normalisation should
 have made one, or a structure registered wrongly. The superseded entry
 keeps its ID and values, is marked with what replaced it, and can't be
 registered again. The replacement must be a live entry of the same type
-in the same registry. A supersession can't be undone.
+in the same registry. A supersession can't be undone. (Amended 2026-11-27,
+ADR 0165: or of another type under the same identity owner, which a
+registrar may register for it, and a record moved to one of another type
+is a new record, the old one archived.)
 
 **Holders are told, and move their records themselves.** Each holding
 project's Admins, and whoever added its record, get a notification, and
@@ -228,7 +234,10 @@ lot to its corrected parent is in a registration system. Each referring
 record is otherwise saved as any edit is: its rules are checked, a rule that
 holds it holds it with the move's reason, one that refuses refuses the whole
 move, and a check that read the old reference is cleared and runs again.
-Archived records, and those of detached plugins, keep their references. A project that holds
+The moved record is checked the same way, by the values its new entry gives it
+that differ from the old one's: a rule it would break refuses the move, one that
+holds holds it for the move's reason, and a check that read one of those values
+is cleared and runs again. Archived records, and those of detached plugins, keep their references. A project that holds
 the replacement already can't move the old record onto it; it archives one
 of the two. Each move is audited as `entity.moved`.
 

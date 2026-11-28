@@ -241,7 +241,8 @@ def test_each_download_is_in_the_audit_log(world: World, lab: dict[str, Any]) ->
     assert event.data["format"] == "csv"
     assert event.data["file"] == "Kinase Atlas Proteins.csv"
     assert event.data["search"] == {
-        "type": PROTEIN,
+        # The types asked for: `type` is repeated for several (ADR 0291).
+        "type": [PROTEIN],
         "exact_type": False,
         "project": str(world.project.pk),
         "archived": None,

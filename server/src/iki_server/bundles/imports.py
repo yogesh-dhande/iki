@@ -363,6 +363,14 @@ class _Planner:
             self._entities(batch)
         outside = self._outside()
         self._runs()
+        # The keys its signatures are checked with: those trusted here, and those it
+        # brings, each shown before it's trusted (ADR 0126, ADR 0148).
+        from iki_server.signatures import signing_keys
+
+        listed = signing_keys.listed(
+            self.bundle.manifest.get("signing_keys", []), source=self.bundle.source
+        )
+        self.problems.extend(listed.problems)
         c = self.counts
         if c.conflict:
             self.problems.append(
@@ -392,6 +400,7 @@ class _Planner:
             "types": types,
             "files": stored,
             "outside": outside,
+            "signing_keys": listed.new,
             "problems": self.problems,
             "applicable": not self.problems,
         }
@@ -634,7 +643,7 @@ class _Planner:
                 continue
             found = here.get(digest)
             entity_type = registry.types().get(line["type"])
-            listed = entity_type is not None and entity_type.is_list
+            listed = entity_type is not None and entity_type.is_lab_list
             if found is not None:
                 self.counts.entries_here += 1
                 why = self._against_entry(line, found)
@@ -705,7 +714,7 @@ class _Planner:
                 f"{here.superseded_by.hrid}."
             )
         found = registry.types().get(here.type)
-        if found is not None and found.is_list:
+        if found is not None and found.is_lab_list:
             # A lab list's option is its code here (ADR 0270): its label, description and
             # place are this registry's curators', whatever the bundle's registry calls it.
             return ""

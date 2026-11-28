@@ -5,7 +5,13 @@
   "description": "A deployment's `plugins.lock.yaml`: every plugin it installs, each pinned to a git commit.",
   "type": "object",
   "required": ["apiVersion", "kind", "plugins"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": {
       "const": "iki/v1"
     },
@@ -17,6 +23,21 @@
       "type": "array",
       "items": {
         "$ref": "#/$defs/plugin"
+      }
+    },
+    "hrids": {
+      "description": "HRID prefixes this deployment gives types in place of their plugins' (ADR 0033), such as `{ iki/reagents.Buffer: IBUF }`: for two plugins that take one prefix. Only a type with no records yet can be given one, or moved back. Core's types keep theirs.",
+      "type": "object",
+      "propertyNames": {
+        "description": "A type, `namespace/plugin.Type`.",
+        "type": "string",
+        "maxLength": 112,
+        "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\\.[A-Z][A-Za-z0-9]*$"
+      },
+      "additionalProperties": {
+        "description": "2 to 8 capital letters or digits, starting with a letter.",
+        "type": "string",
+        "pattern": "^[A-Z][A-Z0-9]{1,7}$"
       }
     }
   },

@@ -2369,8 +2369,12 @@ def qc_release(alice: requests.Session, project: dict[str, Any]) -> None:
     # The certificate states each criterion's final result and says it's for research,
     # without the failed attempt or its investigation.
     coa = certificate["values"]["coa"]
-    if [row["value"] for row in coa["results"]] != [99.9, 0.2] or "research" not in coa.get(
-        "intended_use", ""
+    # Each result as reported to its limits' place (USP General Notices 7.20), and the
+    # material it's for by name (ICH Q7 §11.41).
+    if (
+        [row["reported"] for row in coa["results"]] != ["99.9", "0.2"]
+        or coa["material"]["name"] != "Sodium chloride"
+        or "research" not in coa.get("intended_use", "")
     ):
         fail(f"{certificate['hrid']} states the wrong results: {coa}")
     sign(certificate, "review", "signed_off")
@@ -4132,11 +4136,11 @@ def polymers(alice: requests.Session, project: dict[str, Any]) -> None:
             ),
         },
     )
-    run = launch(alice, project, "iki/lots.compute_polymer_lot", {"lot": lot["id"]})
+    # Molar-mass dispersity, Mw/Mn (https://doi.org/10.1351/PAC-REC-08-05-02), which the
+    # lot works out as it's saved (ADR 0297).
     measured = record(alice, lot["id"])["values"]
-    # Molar-mass dispersity, Mw/Mn: https://doi.org/10.1351/PAC-REC-08-05-02
     if (measured.get("polymer"), measured.get("dispersity")) != (entry_of(polymer), 1.045):
-        fail(f"{run['hrid']} returned {measured} for NIST SRM 1478")
+        fail(f"{lot['hrid']} was saved as {measured} for NIST SRM 1478")
     ok(f"{lot['hrid']} links to {polymer['hrid']} and has Đ 1.045 from the SRM 1478 certificate")
 
 
@@ -4973,7 +4977,7 @@ def equipment_calibration(
         disposition["status"] != "signed"
         or not disposition["set"]
         or original["revision"] != result["revision"]
-        or not proofs["items"][0]["verification"]["valid"]
+        or not proofs["signatures"][0]["verification"]["valid"]
     ):
         fail(f"{impact['hrid']} did not preserve {result['hrid']}'s signed revision")
     ok(f"{use['hrid']} pins the calibration; {impact['hrid']} keeps QA's repeat decision")
@@ -5675,16 +5679,16 @@ def lots(alice: requests.Session, project: dict[str, Any]) -> None:
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
-    # Its 4 cystines take 8 H off its sequence's 14,313.0 g/mol: 37,970 / 14,304.94.
+    # Its 4 cystines take 8 H off its sequence's 14,313.18 g/mol: 37,970 / 14,305.12.
     if (got.get("a280_extinction"), got.get("concentration"), got.get("a280_estimate")) != (
         2.6543,
-        1.9967,
+        1.9968,
         False,
     ):
-        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9967 mg/mL at 2.6543")
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 1.9968 mg/mL at 2.6543")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}'s A280 of 0.53, diluted 1 in 10, is "
-        f"1.9967 mg/mL of lysozyme at its cystines' 2.6543 mL/(mg·cm) ({run['hrid']})"
+        f"1.9968 mg/mL of lysozyme at its cystines' 2.6543 mL/(mg·cm) ({run['hrid']})"
     )
 
 
@@ -5714,7 +5718,7 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     run = launch(alice, project, action, {}, {"identifiers": "caffeine"}, within=300)
     if run["network"] != ["pubchem.ncbi.nlm.nih.gov"]:
         fail(f"{run['hrid']} may reach {run['network']}, not PubChem alone")
-    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    attempt = every(alice, f"/runs/{run['id']}/attempts")[-1]
     reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
     if reached != {("pubchem.ncbi.nlm.nih.gov", 443, None)}:
         fail(f"{run['hrid']} reached {reached}, not PubChem alone")
@@ -5731,7 +5735,7 @@ def pubchem(alice: requests.Session, project: dict[str, Any]) -> dict[str, Any]:
     }
     if {k: values.get(k) for k in expected} != expected:
         fail(f"{run['hrid']} registered caffeine as {values}")
-    origins = api_call(alice, "GET", f"/entities/{compound['id']}/origins").json()
+    origins = every(alice, f"/entities/{compound['id']}/origins")
     if not any(
         o["source"] == "PubChem"
         and o["id"] == "2519"
@@ -5823,7 +5827,7 @@ def aligned(alice: requests.Session, project: dict[str, Any]) -> list[dict[str, 
         or metrics.get("length") != 149
     ):
         fail(f"{run['hrid']} measured {metrics}, not 65/149 identical columns (43.6%)")
-    kept = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    kept = every(alice, f"/runs/{run['hrid']}/artifacts")
     if sorted((k["path"], k["state"]) for k in kept) != [
         ("alignment.fasta", "kept"),
         ("alignment.txt", "kept"),
@@ -5944,7 +5948,7 @@ TRASTUZUMAB_VL = (
 #: cysteine's thiol free): formula, average and monoisotopic masses, chain count, and
 #: molar absorbance at 280 nm (Pace's, as Biopython's ProtParam gives its chains: 35,410
 #: and 14,440).
-FV_COMPOSITION = ("C1105H1687N297O344S7", 24860.46, 24845.1689, 2, 49850)
+FV_COMPOSITION = ("C1105H1687N297O344S7", 24860.81, 24845.1689, 2, 49850)
 #: The antibody plugin's numbering-tools image (plugins/antibody/environments/numbering-tools.yaml).
 NUMBERING_TOOLS = (
     "ghcr.io/yogesh-dhande/iki-antibody-numbering-tools"
@@ -6060,7 +6064,7 @@ def dashboard(alice: requests.Session, project: dict[str, Any], relatives: str) 
     """The project's page opens with Globins (ADR 0090), which Alice, its Admin, chooses.
     An app about one protein can't be the dashboard: it's a tab on their pages."""
     path = f"/projects/{project['id']}/dashboard"
-    choices = {a["name"]: a["hrid"] for a in api_call(alice, "GET", f"{path}/choices").json()}
+    choices = {a["name"]: a["hrid"] for a in every(alice, f"{path}/choices")}
     if "Globins" not in choices or "Relatives" in choices:
         fail(f"the dashboard's choices are {sorted(choices)}, not Globins and no Relatives")
     refused = api_call(alice, "PUT", path, {"app": relatives})
@@ -6183,7 +6187,7 @@ def antibodies(alice: requests.Session, project: dict[str, Any]) -> None:
         run = launch(
             alice, project, "iki/antibody.number_chains", {"protein": chain["id"]}, within=900
         )
-        (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+        (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
         if attempt["environment_build"] != NUMBERING_TOOLS.rpartition("@")[2]:
             fail(f"{run['hrid']} didn't run in the numbering-tools image: {attempt}")
         if attempt["template"] != "container-numbering":
@@ -6329,7 +6333,7 @@ def complexes(alice: requests.Session, project: dict[str, Any], fv: dict[str, An
 def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any]) -> None:
     """A protein lot of the Fv, a complex (ADR 0162): its concentration from its A280 and
     the Fv's composition, kept with each thiol free, with its two disulfides applied:
-    49,850 + 2 x 125 L/(mol.cm) over 24,860.46 - 4 x 1.00794 g/mol, 2.0156 mL/(mg.cm)."""
+    49,850 + 2 x 125 L/(mol.cm) over 24,860.81 - 4 x 1.008 g/mol, 2.0155 mL/(mg.cm)."""
     lot = created(
         alice,
         project,
@@ -6345,11 +6349,11 @@ def fv_lot(alice: requests.Session, project: dict[str, Any], fv: dict[str, Any])
     )
     run = launch(alice, project, "iki/lots.compute_protein_lot", {"lot": lot["id"]})
     got = record(alice, lot["id"])["values"]
-    if (got.get("a280_extinction"), got.get("concentration")) != (2.0156, 4.2172):
-        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 4.2172 mg/mL at 2.0156")
+    if (got.get("a280_extinction"), got.get("concentration")) != (2.0155, 4.2172):
+        fail(f"{run['hrid']} worked out {lot['hrid']} as {got}, not 4.2172 mg/mL at 2.0155")
     ok(
         f"iki/lots.compute_protein_lot: {lot['hrid']}, a lot of {fv['hrid']}, is 4.2172 mg/mL "
-        f"at the Fv's 2.0156 mL/(mg.cm), with its 2 disulfides ({run['hrid']})"
+        f"at the Fv's 2.0155 mL/(mg.cm), with its 2 disulfides ({run['hrid']})"
     )
 
 
@@ -6461,7 +6465,7 @@ def predicted(
         {"antibody": antibody},
         within=1800,
     )
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != IMMUNEBUILDER_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the ImmuneBuilder structure-tools image: {attempt}")
     if attempt["template"] != "container-antibody-structures":
@@ -6529,7 +6533,7 @@ def aligned_many(
         {"proteins": [beta["id"], myoglobin["id"]], "reference": alpha["id"]},
         within=900,
     )
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != ALIGNMENT_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the alignment-tools image: {attempt}")
     if attempt["template"] != "container-alignments":
@@ -6544,7 +6548,7 @@ def aligned_many(
         or not values["method"].startswith("MAFFT v7.505")
     ):
         fail(f"{created[0]['hrid']} is {values}")
-    (kept,) = api_call(alice, "GET", f"/runs/{run['hrid']}/artifacts").json()
+    (kept,) = every(alice, f"/runs/{run['hrid']}/artifacts")
     stored = api_call(alice, "GET", f"/files/{values['aligned']}/content-url").json()
     if kept["path"] != "alignment.fasta" or stored["sha256"] != kept["sha256"]:
         fail(f"{created[0]['hrid']}'s file isn't the alignment.fasta {run['hrid']} kept")
@@ -6709,7 +6713,7 @@ def alphafold(alice: requests.Session, project: dict[str, Any]) -> None:
     run = launch(alice, project, action, {}, {"accessions": "P01542"}, within=300)
     if run["network"] != ["alphafold.ebi.ac.uk"]:
         fail(f"{run['hrid']} may reach {run['network']}, not AlphaFold DB alone")
-    attempt = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()[-1]
+    attempt = every(alice, f"/runs/{run['id']}/attempts")[-1]
     reached = {(e["host"], e["port"], e["refused"]) for e in attempt["network"]}
     if reached != {("alphafold.ebi.ac.uk", 443, None)}:
         fail(f"{run['hrid']} reached {reached}, not AlphaFold DB alone")
@@ -6774,7 +6778,7 @@ def secondary(alice: requests.Session, project: dict[str, Any], structure: dict[
     action = "iki/protein.assign_secondary_structure"
     # A pod of its own pulls the image (about 1 GB) first.
     run = launch(alice, project, action, {"structure": structure["id"]}, within=900)
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != STRUCTURE_TOOLS.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't run in the structure-tools image: {attempt}")
     if attempt["template"] != "container-structures" or not attempt["worker"].startswith(
@@ -6864,7 +6868,7 @@ def _contained(
     if run["status"] != "succeeded":
         fail(f"{run['hrid']} ({action}) {run['status']}: {run['error']}")
     got = api_call(alice, "GET", f"/entities/{sample['id']}").json()["values"]
-    (attempt,) = api_call(alice, "GET", f"/runs/{run['id']}/attempts").json()
+    (attempt,) = every(alice, f"/runs/{run['id']}/attempts")
     if attempt["environment_build"] != TOOLS_IMAGE.rpartition("@")[2]:
         fail(f"{run['hrid']} didn't record its image: {attempt}")
     if not attempt["worker"].startswith("iki-run-"):
@@ -6876,7 +6880,7 @@ def containers(alice: requests.Session, project: dict[str, Any]) -> None:
     """The execution fixture's actions on the container tier (ADR 0061, 0062): the provisioner
     starts a pod of its own in iki-runs for one, running the environment's image with
     iki-worker copied in; the other, persistent, runs one after another on a warm pod."""
-    listed = {a["name"]: a for a in api_call(alice, "GET", "/actions").json()}
+    listed = {a["name"]: a for a in every(alice, "/actions")}
     for action in (
         "fixtures/worker_execution.assign_storage",
         "fixtures/worker_execution.tidy_storage",

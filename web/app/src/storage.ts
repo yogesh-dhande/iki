@@ -14,7 +14,7 @@ import {
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import { everyPage, iki } from "./api";
-import type { EntityType } from "./entities";
+import { fetchPageRead } from "./page-reads";
 
 export type Shape = Schemas["ShapeOut"];
 export type Container = Schemas["ContainerOut"];
@@ -41,7 +41,6 @@ export type Finding = ReconciliationLine["finding"];
 export type Resolution = "moved" | "removed" | "placed" | "kept";
 export type LabelSize = Schemas["LabelSizeOut"];
 export type PreparedLabel = Schemas["LabelOut"];
-export type TypeStorage = Schemas["TypeStorageOut"];
 
 export const STORAGE = ["storage"] as const;
 
@@ -52,6 +51,12 @@ export const placesQuery = queryOptions({
       unwrap(await iki.GET("/api/v1/storage/places", { params: { query: page }, signal })),
     ),
 });
+
+/** A container's page's address: `?at=A1`, the position it opens on. */
+export function validateContainerSearch(search: Record<string, unknown>): { at?: string } {
+  const at = typeof search["at"] === "string" ? search["at"].slice(0, 8) : undefined;
+  return at ? { at } : {};
+}
 
 export function containerQuery(ref: string) {
   return queryOptions({
@@ -109,31 +114,20 @@ export function checkedOutQuery(custodian?: string) {
   });
 }
 
-/** What was received into someone's custody without a location, and isn't put away yet. */
-export const awaitingPutAwayQuery = queryOptions({
+/** What was received into someone's custody without a location, and isn't put away yet:
+ * longest held first, a page at a time ("Show more"), so a long backlog stays quick to open. */
+export const awaitingPutAwayQuery = infiniteQueryOptions({
   queryKey: [...STORAGE, "awaiting-put-away"],
-  queryFn: ({ signal }) =>
-    everyPage(async (page) =>
-      unwrap(
-        await iki.GET("/api/v1/storage/awaiting-put-away", { params: { query: page }, signal }),
-      ),
+  initialPageParam: undefined as string | undefined,
+  queryFn: async ({ pageParam, signal }) =>
+    unwrap(
+      await iki.GET("/api/v1/storage/awaiting-put-away", {
+        params: { query: pageParam ? { cursor: pageParam } : {} },
+        signal,
+      }),
     ),
+  getNextPageParam: (last) => last.next_cursor ?? undefined,
 });
-
-export function reconciliationsQuery(ref: string) {
-  return queryOptions({
-    queryKey: [...STORAGE, "reconciliations", ref.toUpperCase()],
-    queryFn: ({ signal }) =>
-      everyPage(async (page) =>
-        unwrap(
-          await iki.GET("/api/v1/storage/containers/{ref}/reconciliations", {
-            params: { path: { ref }, query: page },
-            signal,
-          }),
-        ),
-      ),
-  });
-}
 
 export const labelSizesQuery = queryOptions({
   queryKey: [...STORAGE, "label-sizes"],
@@ -161,13 +155,6 @@ export function reconciliationQuery(id: string) {
           signal,
         }),
       ),
-  });
-}
-
-export function receiptQuery(id: string) {
-  return queryOptions({
-    queryKey: [...STORAGE, "receipt", id],
-    queryFn: async ({ signal }) => readReceipt(id, signal),
   });
 }
 
@@ -366,6 +353,26 @@ export async function previewReceiptPlacement(
       body: choice,
     }),
   );
+}
+
+/** Why each of a receipt's accepted lines can't go in a box at all, if it can't, before a well
+ * is chosen: completing checks the same again. Keyed by the receipt's revision and the box, and
+ * outside STORAGE: a storage write (completing this receipt, say) mustn't ask it again of a
+ * receipt that's no longer open. */
+export function placeableQuery(receipt: string, revision: number, box: string) {
+  return queryOptions({
+    queryKey: ["receipt-placeable", receipt, revision, box],
+    queryFn: async ({ signal }) =>
+      unwrap(
+        await iki.POST("/api/v1/receipts/{receipt_id}/put-away/placeable", {
+          params: { path: { receipt_id: receipt }, header: ifMatch(revision) },
+          body: { box },
+          fetch: fetchPageRead,
+          signal,
+        }),
+      ),
+    staleTime: 0,
+  });
 }
 
 export async function completeReceipt(
@@ -568,15 +575,6 @@ export {
   positionLabel,
   rowLabel,
 } from "@ikisci/science/box-map";
-
-/** Where its type says its records are kept, or hold others: none, for any other. */
-export function storageOf(type: EntityType | undefined): TypeStorage | null {
-  return type?.storage ?? null;
-}
-
-export function isContainer(type: EntityType | undefined): boolean {
-  return !!type?.storage?.holds.length;
-}
 
 /** A step's name: its title, or its HRID. */
 export function stepName(step: Pick<Step, "hrid" | "title">): string {

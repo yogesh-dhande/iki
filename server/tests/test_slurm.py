@@ -16,12 +16,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils import timezone
 from org_world import World, build_world
 from test_api_entities import api_as
+from test_run_batches import lock_held
 from test_run_results import done, output
 from test_runs import TEMPLATE, protein
 from test_workers import LOCAL, WorkerClient
 
 from iki_server.audit.models import AuditEvent
-from iki_server.entities import registry
+from iki_server.entities import access, registry
 from iki_server.runs import catalog, costs, provisioner, queue, services, slurm, workers
 from iki_server.runs.models import (
     ActionRun,
@@ -322,6 +323,30 @@ def test_a_pinned_kubernetes_secret_cannot_follow_a_run_to_slurm(
     assert "no longer binds" in ended.error["message"]
 
 
+@pytest.mark.django_db(transaction=True)
+def test_a_login_nodes_lease_reads_its_job_after_counting_and_claiming(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cluster's other login nodes don't wait while a lease reads what its job reads:
+    its claim, counted against its template's `max_concurrent`, has committed."""
+    queue_run(world)
+    node = login_node(world)
+    held: list[bool] = []
+    readable = access.project_reference_ids
+
+    def reading(project: Any, ids: Any) -> Any:
+        held.append(lock_held("iki_slurm:hpc1", hashed="hashtext(%s)"))
+        return readable(project, ids)
+
+    monkeypatch.setattr(access, "project_reference_ids", reading)
+
+    leased = node.lease()
+
+    assert leased.status_code == 200, leased.content
+    assert held and not any(held)
+    assert leased.json()["job"]["slurm"]["template"] == "hpc-gpu"
+
+
 def test_a_cluster_holds_many_jobs_at_once_up_to_its_templates_limit(world: World) -> None:
     for i in range(3):
         queue_run(world, name="ACDEFG"[: i + 1])
@@ -441,7 +466,17 @@ def test_a_project_is_charged_to_its_own_account_or_its_run_fails_with_why(
     del compute["templates"]["hpc-gpu"]["slurm"]["account"]
     use(compute)
     run = queue_run(world, name="ACDEF")
+    queued = Job.objects.get(run_id=run["id"])
     assert node.lease().status_code == 204
+    # It ends as it was queued: no worker held it, and no template counts it.
+    ended = Job.objects.get(run_id=run["id"])
+    assert (ended.worker_id, ended.template, ended.started_at, ended.lease_token) == (
+        None,
+        queued.template,
+        None,
+        None,
+    )
+    assert not SlurmJob.objects.filter(job=ended).exists()
     failed = ActionRun.objects.get(pk=run["id"])
     assert failed.status == RunStatus.FAILED
     assert failed.error is not None
@@ -487,7 +522,7 @@ def test_the_worker_says_what_slurm_reports_and_the_run_page_shows_it(world: Wor
     assert "submitted as Slurm job 4242" in other["detail"]
     bad = node.report(payload, "slurm", state="EXPLODED")
     assert bad.status_code == 422
-    attempts = api_as(world, "viewer").get(f"/runs/{run['id']}/attempts").json()
+    attempts = api_as(world, "viewer").every(f"/runs/{run['id']}/attempts")
     shown = attempts[0]["slurm"]
     assert attempts[0]["state"] == "pending"
     assert (shown["slurm_id"], shown["state"], shown["reason"]) == ("4242", "PENDING", "Priority")
@@ -583,7 +618,7 @@ def test_compute_admins_see_clusters_and_set_projects_accounts(world: World) -> 
     admin = api_as(world, "compute_admin")
     login_node(world)
     queue_run(world)
-    (cluster,) = admin.get("/compute/slurm").json()
+    (cluster,) = admin.every("/compute/slurm-clusters")
     assert cluster["name"] == "hpc1"
     assert cluster["workers_online"] == 1
     (template,) = cluster["templates"]
@@ -593,14 +628,14 @@ def test_compute_admins_see_clusters_and_set_projects_accounts(world: World) -> 
         2,
     )
     assert template["price"]["per_gpu_hour"] == 1.10
-    path = f"/compute/slurm/hpc1/accounts/{world.project.pk}"
+    path = f"/compute/slurm-clusters/hpc1/accounts/{world.project.pk}"
     bad = admin.put(path, {"account": "rd proteins; rm"})
     assert bad.status_code == 422
     given = admin.put(path, {"account": "rd-proteins"})
     assert given.status_code == 200, given.content
     assert given.json()["account"] == "rd-proteins"
     assert admin.put(path, {"account": "rd-structure"}).status_code == 200
-    (listed,) = admin.get("/compute/slurm/hpc1/accounts").json()["items"]
+    (listed,) = admin.get("/compute/slurm-clusters/hpc1/accounts").json()["items"]
     assert listed["project"]["id"] == str(world.project.pk)
     assert admin.delete(path).status_code == 204
     events = AuditEvent.objects.filter(action="slurm_account.changed").order_by("id")
@@ -609,9 +644,9 @@ def test_compute_admins_see_clusters_and_set_projects_accounts(world: World) -> 
         ("rd-proteins", "rd-structure"),
         ("rd-structure", None),
     ]
-    assert admin.get("/compute/slurm/hpc9/accounts").status_code == 404
+    assert admin.get("/compute/slurm-clusters/hpc9/accounts").status_code == 404
     # Only Compute admins.
-    assert api_as(world, "runner").get("/compute/slurm").status_code == 403
+    assert api_as(world, "runner").get("/compute/slurm-clusters").status_code == 403
     assert api_as(world, "runner").put(path, {"account": "mine"}).status_code == 403
 
 

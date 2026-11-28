@@ -47,6 +47,22 @@ class Api:
     def get(self, path: str, **query: Any) -> Response:
         return self.call("GET", path, **query)
 
+    def every(self, path: str, **query: Any) -> list[Any]:
+        """Every item of a collection the API pages (ADR 0291), following ``next_cursor``
+        a page of 100 at a time, for a test that needs the whole collection (from
+        ``cursor`` on, if given)."""
+        items: list[Any] = []
+        cursor = query.pop("cursor", None)
+        while True:
+            response = self.get(path, **query, limit=100, **({"cursor": cursor} if cursor else {}))
+            assert response.status_code == 200, (response.status_code, response.content[:500])
+            page = response.json()
+            assert set(page) >= {"items", "next_cursor"}, page
+            items += page["items"]
+            cursor = page["next_cursor"]
+            if not cursor:
+                return items
+
     def post(self, path: str, body: Any = None, **kw: Any) -> Response:
         return self.call("POST", path, body, **kw)
 

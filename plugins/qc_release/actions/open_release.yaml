@@ -7,7 +7,7 @@ description: >-
   test the lot again against the same specification, name its latest case and say why.
 inputs:
   lot: { type: iki/lots.Lot }
-  schedule: { type: SpecificationSchedule, include: [versions] }
+  schedule: { type: SpecificationSchedule, include: [versions, material] }
   previous:
     type: ReleaseCase
     optional: true

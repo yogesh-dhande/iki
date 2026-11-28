@@ -98,7 +98,7 @@ def test_shared_labels_at_their_recorded_positions_do_not_produce_a_move_or_remo
     } == {(count.first["id"], "A1", "A1", "matched"), (count.second["id"], "A2", "A2", "matched")}
     assert all(row["observation"]["code"] == LABEL for row in reviewed["lines"])
     assert {row["observation"]["identity_basis"] for row in reviewed["lines"]} == {"position"}
-    evidence = api.get(f"{path}/history").json()["items"]
+    evidence = api.get(f"{path}/observations").json()["items"]
     assert {(e["line_id"], e["after"]["identity_basis"]) for e in evidence} == {
         (row["id"], "position") for row in reviewed["lines"]
     }
@@ -138,7 +138,7 @@ def test_a_shared_label_at_an_unrecorded_position_needs_an_explicit_choice(
     assert invalid.status_code == 409, invalid.content
     assert invalid.json()["code"] == "scan_unavailable" and "candidates" not in invalid.json()
     assert api.get(path).json() == original
-    assert api.get(f"{path}/history").json()["items"] == []
+    assert api.get(f"{path}/observations").json()["items"] == []
     assert contents(api, count.box) == placements
     assert list(Event.objects.order_by("pk").values_list("pk", flat=True)) == movements
     assert AuditEvent.objects.count() == audits
@@ -158,7 +158,7 @@ def test_a_shared_label_at_an_unrecorded_position_needs_an_explicit_choice(
     chosen = lines[count.second["id"]]
     assert chosen["observation"]["identity_basis"] == "choice"
     assert lines[None]["finding"] == "empty" and lines[None]["found"] == "A4"
-    evidence = api.get(f"{path}/history", line_id=chosen["id"]).json()["items"]
+    evidence = api.get(f"{path}/observations", line_id=chosen["id"]).json()["items"]
     assert len(evidence) == 1 and evidence[0]["after"]["identity_basis"] == "choice"
     assert contents(api, count.box) == placements
 
@@ -200,7 +200,7 @@ def test_the_chosen_tube_must_still_have_the_scanned_label(count: Count, world: 
     rejected = api.post(f"{path}/scans", {"scans": [{**scan, "choice": count.second["id"]}]})
     assert rejected.status_code == 409, rejected.content
     assert rejected.json()["code"] == "scan_unavailable" and "candidates" not in rejected.json()
-    assert api.get(path).json() == before and api.get(f"{path}/history").json()["items"] == []
+    assert api.get(path).json() == before and api.get(f"{path}/observations").json()["items"] == []
 
 
 def test_a_checked_out_reservation_does_not_break_a_shared_label_tie(count: Count) -> None:
@@ -224,7 +224,7 @@ def test_a_checked_out_reservation_does_not_break_a_shared_label_tie(count: Coun
         count.first["id"],
         count.second["id"],
     }
-    assert api.get(path).json() == opened and api.get(f"{path}/history").json()["items"] == []
+    assert api.get(path).json() == opened and api.get(f"{path}/observations").json()["items"] == []
 
 
 def test_a_choice_from_another_slot_cannot_override_its_matching_occupant(count: Count) -> None:
@@ -246,7 +246,7 @@ def test_a_choice_from_another_slot_cannot_override_its_matching_occupant(count:
     assert wrong.status_code == 409, wrong.content
     assert wrong.json()["code"] == "scan_unavailable" and "candidates" not in wrong.json()
     assert wrong.json()["detail"] == UNAVAILABLE
-    assert api.get(path).json() == before and api.get(f"{path}/history").json()["items"] == []
+    assert api.get(path).json() == before and api.get(f"{path}/observations").json()["items"] == []
     assert contents(api, count.box) == inventory
     assert AuditEvent.objects.count() == audits and Event.objects.count() == movements
 
@@ -305,7 +305,8 @@ def test_a_partial_count_needs_positive_identity_away_from_a_matching_readable_s
         assert refused.json()["code"] == "scan_unavailable" and "candidates" not in refused.json()
         assert refused.json()["detail"] == UNAVAILABLE
     assert (
-        counter.get(path).json() == opened and counter.get(f"{path}/history").json()["items"] == []
+        counter.get(path).json() == opened
+        and counter.get(f"{path}/observations").json()["items"] == []
     )
     assert contents(owner, count.box) == inventory
     assert AuditEvent.objects.count() == audits and Event.objects.count() == movements

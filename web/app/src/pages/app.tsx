@@ -5,10 +5,11 @@
  * What expressions make is shown as text, never as HTML.
  */
 
+import { HRID } from "@ikisci/component";
 import { unwrap, type Problem, type Schemas } from "@ikisci/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { problemOf } from "../api";
 import {
@@ -25,13 +26,7 @@ import {
   type Rendered,
 } from "../apps";
 import { usePlaceEntities } from "../component-entities";
-import {
-  componentsQuery,
-  HRID,
-  tabFor,
-  type PlaceSearch,
-  type PluginComponent,
-} from "../components";
+import { componentsQuery, tabFor, type PlaceSearch, type PluginComponent } from "../components";
 import {
   searchEntities,
   ENTITIES,
@@ -42,8 +37,10 @@ import {
   type EntityType,
 } from "../entities";
 import { Loading, ProblemAlert, RelativeTime } from "../ui";
-import { ViewerBody } from "./entity-viewer";
 import { PluginPlace } from "./plugin-place";
+
+// A viewer is most of what a panel weighs, and a dashboard may have none: it loads when drawn.
+const ViewerBody = lazy(async () => ({ default: (await import("./viewer-body")).ViewerBody }));
 
 /** What an app's panels need of it: its spec, the project its grids search, and an ID
  * to keep their searches apart. A saved app or a draft of one. */
@@ -487,7 +484,9 @@ function ViewerPanel({
           {entity.title}
         </Link>
       </p>
-      <ViewerBody key={entity.id} source={entity} type={type} viewer={viewer} />
+      <Suspense fallback={<Loading label={`Loading the ${viewer.label.toLowerCase()} viewer…`} />}>
+        <ViewerBody key={entity.id} source={entity} type={type} viewer={viewer} />
+      </Suspense>
     </>
   );
 }

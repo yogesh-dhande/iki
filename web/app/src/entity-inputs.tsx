@@ -11,7 +11,7 @@ import "@ikisci/science/quantity-input";
 import "@ikisci/science/sequence-input";
 import type { QuantityInputData } from "@ikisci/science/quantity-input";
 import type { SequenceInputData } from "@ikisci/science/sequence-input";
-import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import {
   createElement,
   useEffect,
@@ -20,18 +20,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type ReactNode,
-  type RefObject,
 } from "react";
-import {
-  DismissButton,
-  useComboBox,
-  useListBox,
-  useOption,
-  type AriaListBoxOptions,
-} from "react-aria";
-import { Item, useComboBoxState, type ComboBoxState, type Key, type Node } from "react-stately";
 
 import {
   formatSize,
@@ -72,6 +62,7 @@ import {
 import { useMedia } from "./media";
 import { nameableQuery } from "./people";
 import { registriesQuery } from "./registries";
+import { SearchPicker } from "./search-picker";
 import { progressLabel, upload, uploadError, type Progress } from "./uploads";
 import { Button } from "./ui";
 
@@ -475,85 +466,19 @@ function pickedLabel(picked: Picked): string {
 }
 
 /** "a protein", "a protein or a DNA sequence", "a protein, a conjugate or a compound". */
-function orList(words: string[]): string {
+export function orList(words: string[]): string {
   return new Intl.ListFormat("en", { type: "disjunction" }).format(words);
-}
-
-/**
- * A picker's options: the chosen one first, where it stays as answers come, then those
- * found. Each answer's rows come after it, so none moves under someone choosing.
- */
-function withChosen(found: Picked[], chosen: Picked | null): Picked[] {
-  return chosen ? [chosen, ...found.filter((f) => f.id !== chosen.id)] : found;
-}
-
-/**
- * Escape in a picker's box, as in WAI-ARIA's combo box pattern and GitHub's and Slack's
- * pickers: with the list open, it closes the list and keeps what's typed; with it closed,
- * it puts back what's chosen (its label), or clears the box if nothing is, as leaving the
- * box does. Either way the key goes no further, so a dialog the picker is in stays open;
- * once there's nothing to undo, it does, and closes the dialog. React Aria's own Escape
- * would put the chosen value back at once, and with nothing chosen, close a list that
- * opened again straight away for the text still in the box.
- */
-function withEscape(
-  state: ComboBoxState<Picked>,
-  shown: string,
-  onKeyDown: ((event: KeyboardEvent<HTMLInputElement>) => void) | undefined,
-) {
-  return (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape" && (state.isOpen || state.inputValue !== shown)) {
-      event.preventDefault();
-      event.stopPropagation();
-      // Closed as it is: what's typed stays, and typing more opens it again.
-      if (state.isOpen) state.toggle();
-      // Committed: `onChange` gets what's chosen, or nothing, and the box shows it.
-      else state.revert();
-      return;
-    }
-    onKeyDown?.(event);
-  };
-}
-
-/**
- * What a picker's list says under its options: that it's searching, until the answer for
- * the text in the box comes (it never shows another text's answer meanwhile), that the
- * search failed, or that nothing matches. A status, kept in place while the list is open,
- * so screen readers hear it change politely and focus stays in the box.
- */
-function PickerMessage({
-  found,
-  shown,
-  none,
-}: {
-  found: { data: unknown; isError: boolean };
-  shown: number;
-  none: string;
-}) {
-  const message =
-    found.data === undefined
-      ? found.isError
-        ? "Couldn’t search. Try again in a moment."
-        : "Searching…"
-      : shown === 0
-        ? none
-        : "";
-  return (
-    <p className={message ? "listbox-empty" : "visually-hidden"} role="status">
-      {message}
-    </p>
-  );
 }
 
 /** An entity as a reference picker lists it. One function, so options aren't rebuilt for
  * the same answer. */
 function refOption(item: Picked) {
   return (
-    <Item key={item.id} textValue={pickedLabel(item)}>
+    <>
       <span>{item.title !== item.hrid ? item.title : item.hrid}</span>
       {item.title !== item.hrid ? <span className="muted"> {item.hrid}</span> : null}
       {item.project ? <span className="muted"> · {item.project}</span> : null}
-    </Item>
+    </>
   );
 }
 
@@ -571,14 +496,6 @@ function pickable(found: readonly Entity[]): Picked[] {
   }));
 }
 
-/**
- * A reference: a combo box that searches as people type, from React Aria's hooks, which
- * handle its keyboard, focus and screen reader announcements. It lists only the answer for
- * the text in the box: until that comes it says it's searching. A search can't be worked
- * out in the browser as people's can (see narrowNameable), and showing another text's
- * answer meanwhile would let the answer land between pressing and releasing, so a click
- * meant for one record chose another, or nothing.
- */
 /** A reference: to a lab list's option, a dropdown of the list (ADR 0270); to a record, a
  * search. */
 function RefInput(props: InputProps) {
@@ -592,6 +509,7 @@ function RefInput(props: InputProps) {
   return <OptionsAcross {...props} list={list} />;
 }
 
+/** A reference to a record: a search of its types' records (SearchPicker). */
 function RecordRefInput({
   field,
   types,
@@ -602,101 +520,73 @@ function RecordRefInput({
   disabled,
   itemLabel,
 }: InputProps) {
-  const picked = draft as Picked | null;
-  // Typed text belongs to the value it was typed over: when the value changes from outside
-  // (a row removed above, someone else's change merged in), the new value's label shows.
-  const [typing, setTyping] = useState({
-    text: picked ? pickedLabel(picked) : "",
-    over: picked?.id,
-  });
-  const text = typing.over === picked?.id ? typing.text : picked ? pickedLabel(picked) : "";
-  // What was typed, not the chosen entity's label.
-  const typed = picked && text === pickedLabel(picked) ? "" : text;
-  // Asked for as typed, not deferred, so no render lists the answer for older text.
-  const found = useQuery(pickerQuery(field.to, typed));
-  const target =
-    !field.to.length || field.to.includes("iki/core.Entity")
-      ? "any entity"
-      : orList(field.to.map((t) => inSentenceLabel(typeLabel(types, t))));
-  const items = useMemo(() => withChosen(pickable(found.data ?? []), picked), [found.data, picked]);
-  const help = helpText(field, note) ?? `Type an ID or a name to find ${target}.`;
   const label = itemLabel ?? field.label;
-
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listBoxRef = useRef<HTMLUListElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const props = {
-    label,
-    description: help,
-    errorMessage: error,
-    isInvalid: Boolean(error),
-    isRequired: field.required,
-    isDisabled: disabled ?? false,
-    validationBehavior: "aria" as const,
-    items,
-    children: refOption,
-    inputValue: text,
-    onInputChange: (value: string) => {
-      setTyping({ text: value, over: value === "" ? undefined : picked?.id });
-      if (value === "") onChange(null);
-    },
-    value: picked?.id ?? null,
-    // On choosing, and on committing (Escape with the list closed, or leaving the box):
-    // the box shows what's chosen, or nothing, never text that chose nothing.
-    onChange: (key: Key | null) => {
-      const chosen = items.find((i) => i.id === key) ?? null;
-      onChange(chosen);
-      setTyping(
-        chosen ? { text: pickedLabel(chosen), over: chosen.id } : { text: "", over: undefined },
-      );
-    },
-    menuTrigger: "focus" as const,
-    allowsEmptyCollection: true,
-  };
-  const state = useComboBoxState(props);
-  const { inputProps, listBoxProps, labelProps, descriptionProps, errorMessageProps } = useComboBox(
-    { ...props, inputRef, listBoxRef, popoverRef },
-    state,
-  );
   return (
-    <div className={error ? "field field-invalid" : "field"}>
-      <label {...labelProps} className={itemLabel !== undefined ? "visually-hidden" : undefined}>
-        {label}
-        {field.required || itemLabel !== undefined ? null : (
-          <span className="optional"> (optional)</span>
-        )}
-      </label>
-      {error ? (
-        <p {...errorMessageProps} className="field-error">
-          {error}
-        </p>
-      ) : null}
-      <div className="combobox">
-        {/* Named by its <label for>, not aria-labelledby too: in Firefox, working out a name
-            through aria-labelledby (as axe does) and then changing the form crashed the page. */}
-        <input
-          {...inputProps}
-          onKeyDown={withEscape(state, picked ? pickedLabel(picked) : "", inputProps.onKeyDown)}
-          aria-labelledby={undefined}
-          ref={inputRef}
-          spellCheck={false}
-        />
-        {state.isOpen ? (
-          <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
-            <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-            <PickerMessage
-              found={found}
-              shown={state.collection.size}
-              none={typed ? `Nothing matches “${typed}”.` : "None yet."}
-            />
-          </Popover>
-        ) : null}
-      </div>
-      <p {...descriptionProps} className="field-help">
-        {help}
-      </p>
-    </div>
+    <RecordPicker
+      label={label}
+      to={field.to}
+      types={types}
+      value={draft as Picked | null}
+      onChange={onChange}
+      error={error}
+      help={helpText(field, note)}
+      required={field.required}
+      disabled={disabled}
+      hiddenLabel={itemLabel !== undefined}
+    />
   );
+}
+
+/** A record search: a reference's, or a record chosen outside a form (what a draw went
+ * into, say). */
+export function RecordPicker({
+  label,
+  to = [],
+  types,
+  value,
+  onChange,
+  error,
+  help,
+  required,
+  disabled,
+  hiddenLabel,
+}: {
+  label: string;
+  /** The types it finds records of: any entity's, with none. */
+  to?: readonly string[];
+  types: EntityType[];
+  value: Picked | null;
+  onChange: (picked: Picked | null) => void;
+  error?: string | undefined;
+  help?: string | undefined;
+  required?: boolean | undefined;
+  disabled?: boolean | undefined;
+  hiddenLabel?: boolean | undefined;
+}) {
+  const target =
+    !to.length || to.includes("iki/core.Entity")
+      ? "any entity"
+      : orList(to.map((t) => inSentenceLabel(typeLabel(types, t))));
+  return (
+    <SearchPicker
+      label={label}
+      help={help ?? `Type an ID or a name to find ${target}.`}
+      error={error}
+      required={required}
+      disabled={disabled}
+      hiddenLabel={hiddenLabel}
+      value={value}
+      onChange={onChange}
+      find={{ query: (typed) => ({ ...pickerQuery(to, typed), select: pickable }) }}
+      textOf={pickedLabel}
+      render={refOption}
+      emptyText={nothingMatches}
+    />
+  );
+}
+
+function nothingMatches(typed: string): string {
+  return typed ? `Nothing matches “${typed}”.` : "None yet.";
 }
 
 // --- Lab lists' options (ADR 0270) --------------------------------------------------
@@ -704,6 +594,8 @@ function RecordRefInput({
 /** An option as a dropdown offers it. `group`: its registry's name, where the dropdown
  * offers several registries' options. */
 interface Choice extends Picked {
+  /** As a long list's search matches it (`matching`), by its label or code. */
+  label: string;
   code: string;
   group?: string;
 }
@@ -714,6 +606,7 @@ function choiceOf(option: ListOption, group?: string): Choice {
     id: option.id,
     hrid: option.hrid,
     title: option.label,
+    label: option.label,
     code: option.code,
     ...(option.description ? { note: option.description } : {}),
     ...(retired ? { retired } : {}),
@@ -763,19 +656,32 @@ function OptionsAcross(props: InputProps & { list: EntityType }) {
     queries: (registries.data ?? []).map((r) =>
       optionsQuery(props.list.name, { registry: r.id }, every),
     ),
+    combine: combineOptions,
   });
   const several = (registries.data?.length ?? 0) > 1;
-  const choices = found.flatMap((q, index) =>
-    (q.data ?? [])
-      .filter((o) => every || isActive(o))
-      .map((o) => choiceOf(o, several ? registries.data?.[index]?.name : undefined)),
+  const offered = useMemo(
+    () => ({
+      choices: found.data.flatMap((data, index) =>
+        (data ?? [])
+          .filter((o) => every || isActive(o))
+          .map((o) => choiceOf(o, several ? registries.data?.[index]?.name : undefined)),
+      ),
+      loading: registries.isPending || found.pending,
+      failed: registries.isError || found.failed,
+    }),
+    [found, every, several, registries.data, registries.isPending, registries.isError],
   );
-  const offered = {
-    choices,
-    loading: registries.isPending || found.some((q) => q.isPending),
-    failed: registries.isError || found.some((q) => q.isError),
-  };
   return <OptionChoice {...props} offered={offered} />;
+}
+
+/** The registries' answers, as one: the same object while none of them changes (as
+ * useQueries keeps a `combine`'s result), so what's built from it isn't built again. */
+function combineOptions(answers: UseQueryResult<ListOption[]>[]) {
+  return {
+    data: answers.map((a) => a.data),
+    pending: answers.some((a) => a.isPending),
+    failed: answers.some((a) => a.isError),
+  };
 }
 
 /**
@@ -787,20 +693,31 @@ function OptionsAcross(props: InputProps & { list: EntityType }) {
 function OptionChoice(props: InputProps & { list: EntityType; offered: Offered }) {
   const { list, draft, offered } = props;
   const picked = draft as Picked | null;
-  const current = picked ? offered.choices.find((c) => names(c, picked)) : undefined;
+  const everyOption = props.everyOption ?? false;
+  const current = useMemo(
+    () => (picked ? offered.choices.find((c) => names(c, picked)) : undefined),
+    [picked, offered.choices],
+  );
   // What it names that isn't offered: an option retired since, or, before the options
   // come, what the record says it is.
-  const held: Choice | undefined =
-    picked && !current
-      ? {
-          ...picked,
-          code: picked.code ?? "",
-          ...(picked.retired || offered.loading || offered.failed || props.everyOption
-            ? {}
-            : { retired: "archived" as const }),
-        }
-      : undefined;
-  const choices = held ? [held, ...offered.choices] : offered.choices;
+  const held = useMemo(
+    (): Choice | undefined =>
+      picked && !current
+        ? {
+            ...picked,
+            label: picked.title,
+            code: picked.code ?? "",
+            ...(picked.retired || offered.loading || offered.failed || everyOption
+              ? {}
+              : { retired: "archived" as const }),
+          }
+        : undefined,
+    [picked, current, offered.loading, offered.failed, everyOption],
+  );
+  const choices = useMemo(
+    () => (held ? [held, ...offered.choices] : offered.choices),
+    [held, offered.choices],
+  );
   const none = !offered.loading && !offered.failed && offered.choices.length === 0;
   const status = offered.loading
     ? "Loading its options…"
@@ -893,20 +810,20 @@ function OptionSelect({
 
 /** An option as a long list's search lists it: its label, its registry where there are
  * several, and its description, muted. One function, as refOption is. */
-function choiceOption(item: Picked) {
-  const choice = item as Choice;
+function choiceOption(item: Choice) {
   return (
-    <Item key={item.id} textValue={choiceText(item)}>
+    <>
       <span>{choiceText(item)}</span>
-      {choice.group ? <span className="muted"> · {choice.group}</span> : null}
+      {item.group ? <span className="muted"> · {item.group}</span> : null}
       {item.note ? <span className="listbox-note">{item.note}</span> : null}
-    </Item>
+    </>
   );
 }
 
 /** A long list's options (ADR 0270): a combo box that narrows them as people type, by
  * label or code, in the list's order. As a reference's search (RecordRefInput), with its
- * keyboard, Escape and list placement, but every option is here already. */
+ * keyboard, Escape and list placement, but every option is here already. It shows the
+ * first matches (SHOWN_MATCHES), and how many there are, for a list of thousands. */
 function OptionSearch({
   field,
   list,
@@ -919,23 +836,6 @@ function OptionSearch({
   disabled,
   itemLabel,
 }: ChoiceProps) {
-  const [typing, setTyping] = useState({
-    text: chosen ? choiceText(chosen) : "",
-    over: chosen?.id,
-  });
-  const text = typing.over === chosen?.id ? typing.text : chosen ? choiceText(chosen) : "";
-  const typed = chosen && text === choiceText(chosen) ? "" : text;
-  const items = useMemo(
-    () =>
-      withChosen(
-        matching(
-          choices.map((c) => ({ ...c, label: c.title })),
-          typed,
-        ),
-        chosen,
-      ),
-    [choices, typed, chosen],
-  ) as Choice[];
   const help = [
     helpText(field, note) ??
       `Type to find one of the ${inSentence(list.label_plural)}, by name or code.`,
@@ -943,197 +843,28 @@ function OptionSearch({
   ]
     .filter(Boolean)
     .join(" ");
-  const label = itemLabel ?? field.label;
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listBoxRef = useRef<HTMLUListElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const props = {
-    label,
-    description: help,
-    errorMessage: error,
-    isInvalid: Boolean(error),
-    isRequired: field.required,
-    isDisabled: disabled ?? false,
-    validationBehavior: "aria" as const,
-    items,
-    children: choiceOption,
-    inputValue: text,
-    onInputChange: (value: string) => {
-      setTyping({ text: value, over: value === "" ? undefined : chosen?.id });
-      if (value === "") onChange(null);
-    },
-    value: chosen?.id ?? null,
-    onChange: (key: Key | null) => {
-      const found = items.find((i) => i.id === key) ?? null;
-      onChange(chosenDraft(found));
-      setTyping(
-        found ? { text: choiceText(found), over: found.id } : { text: "", over: undefined },
-      );
-    },
-    menuTrigger: "focus" as const,
-    allowsEmptyCollection: true,
-  };
-  const state = useComboBoxState(props);
-  const { inputProps, listBoxProps, labelProps, descriptionProps, errorMessageProps } = useComboBox(
-    { ...props, inputRef, listBoxRef, popoverRef },
-    state,
-  );
   return (
-    <div className={error ? "field field-invalid" : "field"}>
-      <label {...labelProps} className={itemLabel !== undefined ? "visually-hidden" : undefined}>
-        {label}
-        {field.required || itemLabel !== undefined ? null : (
-          <span className="optional"> (optional)</span>
-        )}
-      </label>
-      {error ? (
-        <p {...errorMessageProps} className="field-error">
-          {error}
-        </p>
-      ) : null}
-      <div className="combobox">
-        {/* Named by its <label for>, as references' are (see RecordRefInput). */}
-        <input
-          {...inputProps}
-          onKeyDown={withEscape(state, chosen ? choiceText(chosen) : "", inputProps.onKeyDown)}
-          aria-labelledby={undefined}
-          ref={inputRef}
-          spellCheck={false}
-          autoComplete="off"
-        />
-        {state.isOpen ? (
-          <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
-            <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-            <p className={items.length ? "visually-hidden" : "listbox-empty"} role="status">
-              {items.length ? "" : typed ? `No option matches “${typed}”.` : "No options yet."}
-            </p>
-          </Popover>
-        ) : null}
-      </div>
-      <p {...descriptionProps} className="field-help">
-        {help}
-      </p>
-    </div>
+    <SearchPicker
+      label={itemLabel ?? field.label}
+      help={help}
+      error={error}
+      required={field.required}
+      disabled={disabled}
+      hiddenLabel={itemLabel !== undefined}
+      value={chosen}
+      onChange={(choice) => {
+        onChange(chosenDraft(choice));
+      }}
+      find={{ options: choices, match: matching }}
+      textOf={choiceText}
+      render={choiceOption}
+      emptyText={noOptionMatches}
+    />
   );
 }
 
-/** The most of a picker's list that shows before it scrolls: the stylesheet's 18rem. */
-const LIST_HEIGHT_REM = 18;
-/** Room a list keeps from the edge of what's visible, and the least it's given. */
-const LIST_MARGIN = 12;
-const LIST_MIN_HEIGHT = 120;
-
-/** Where a field's list has room: below it unless there's more above. Measured against
- * the window and any scrolling box the field is in (a dialog's body), once, when it opens. */
-function listRoom(field: HTMLElement): { above: boolean; maxHeight: number } {
-  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  const tallest = LIST_HEIGHT_REM * rem;
-  const box = field.getBoundingClientRect();
-  let top = 0;
-  let bottom = window.visualViewport?.height ?? window.innerHeight;
-  for (let up = field.parentElement; up; up = up.parentElement) {
-    const { overflowY } = getComputedStyle(up);
-    if (overflowY === "visible") continue;
-    const clip = up.getBoundingClientRect();
-    top = Math.max(top, clip.top);
-    bottom = Math.min(bottom, clip.bottom);
-  }
-  const below = bottom - box.bottom - LIST_MARGIN;
-  const aboveRoom = box.top - top - LIST_MARGIN;
-  const above = below < tallest && aboveRoom > below;
-  return {
-    above,
-    maxHeight: Math.max(LIST_MIN_HEIGHT, Math.min(tallest, above ? aboveRoom : below)),
-  };
-}
-
-/**
- * A picker's list, in the field just after its box (as in WAI-ARIA's combo box pattern), so
- * it moves with the field as the page or a dialog scrolls, and scrolling never closes it.
- * React Aria's popover, portalled to the page, closed whenever the page scrolled; the box
- * kept the typed text, so it opened again at once with new rows, and a press that came as
- * the page scrolled (a trackpad still coasting, or the browser bringing the row into view)
- * landed on a row that was gone and chose nothing. Its side is chosen once, when it opens,
- * so rows never jump while someone points at one. A press in it that isn't on an option
- * (its scroll bar, its message) keeps focus in the box.
- */
-function Popover({
-  state,
-  triggerRef,
-  popoverRef,
-  children,
-}: {
-  state: ComboBoxState<Picked>;
-  triggerRef: RefObject<HTMLInputElement | null>;
-  popoverRef: RefObject<HTMLDivElement | null>;
-  children: ReactNode;
-}) {
-  const [room, setRoom] = useState<{ above: boolean; maxHeight: number }>();
-  useLayoutEffect(() => {
-    if (triggerRef.current) setRoom(listRoom(triggerRef.current));
-    // Not a control itself: a press anywhere in it but an option (whose own press keeps
-    // focus) mustn't take focus from the box, which would close the list.
-    const list = popoverRef.current;
-    const keepFocus = (event: MouseEvent) => {
-      event.preventDefault();
-    };
-    list?.addEventListener("mousedown", keepFocus);
-    return () => list?.removeEventListener("mousedown", keepFocus);
-  }, [triggerRef, popoverRef]);
-  return (
-    <div
-      ref={popoverRef}
-      className="popover"
-      data-placement={room?.above ? "top" : "bottom"}
-      style={room ? { maxHeight: room.maxHeight } : undefined}
-    >
-      <DismissButton
-        onDismiss={() => {
-          state.close();
-        }}
-      />
-      {children}
-      <DismissButton
-        onDismiss={() => {
-          state.close();
-        }}
-      />
-    </div>
-  );
-}
-
-function ListBox({
-  state,
-  listBoxRef,
-  ...props
-}: AriaListBoxOptions<Picked> & {
-  state: ComboBoxState<Picked>;
-  listBoxRef: RefObject<HTMLUListElement | null>;
-}) {
-  const { listBoxProps } = useListBox(props, state, listBoxRef);
-  return (
-    <ul {...listBoxProps} ref={listBoxRef} className="listbox">
-      {[...state.collection].map((item) => (
-        <Option key={item.key} item={item} state={state} />
-      ))}
-    </ul>
-  );
-}
-
-function Option({ item, state }: { item: Node<Picked>; state: ComboBoxState<Picked> }) {
-  const ref = useRef<HTMLLIElement>(null);
-  const { optionProps, isFocused, isSelected } = useOption({ key: item.key }, state, ref);
-  return (
-    <li
-      {...optionProps}
-      ref={ref}
-      className="listbox-item"
-      data-focused={isFocused || undefined}
-      data-selected={isSelected || undefined}
-    >
-      {item.rendered}
-    </li>
-  );
+function noOptionMatches(typed: string): string {
+  return typed ? `No option matches “${typed}”.` : "No options yet.";
 }
 
 /** A person, as a picker shows them: `hrid` holds their email address. */
@@ -1146,11 +877,19 @@ function personText(picked: Picked): string {
 /** A person as a picker lists them (see refOption). */
 function personOption(item: Picked) {
   return (
-    <Item key={item.id} textValue={personText(item)}>
+    <>
       <span>{item.title}</span>
       {item.hrid && item.hrid !== item.title ? <span className="muted"> {item.hrid}</span> : null}
-    </Item>
+    </>
   );
+}
+
+/** Someone found, as a picker offers them. */
+function personPicked(found: {
+  items: readonly { id: string; email: string; name: string }[];
+}): Picked[] {
+  // The first page of who matches: the suggestions are a few, for the text typed.
+  return found.items.map((p) => ({ id: p.id, hrid: p.email, title: p.name }));
 }
 
 export interface PersonPickerProps {
@@ -1187,101 +926,35 @@ export function PersonPicker({
   disabled = false,
   hiddenLabel = false,
 }: PersonPickerProps) {
-  const [typing, setTyping] = useState({
-    text: value ? personText(value) : "",
-    over: value?.id,
-  });
-  const text = typing.over === value?.id ? typing.text : value ? personText(value) : "";
-  const typed = value && text === personText(value) ? "" : text;
-  // Asked for as typed, not deferred: the suggestions are only ever those for the text in
-  // the box (see nameableQuery), so they don't change as someone moves to choose one.
-  const found = useQuery(nameableQuery(projectId, role, typed));
-  const items = useMemo(
-    () =>
-      withChosen(
-        (found.data?.items ?? []).map((p) => ({ id: p.id, hrid: p.email, title: p.name })),
-        value,
-      ),
-    [found.data, value],
-  );
-  const shownHelp =
-    help ??
-    (roleLabel
-      ? `Type a name or email address: someone with the ${roleLabel} role in this project.`
-      : "Type a name or email address: someone in this project.");
-
-  const inputRef = useRef<HTMLInputElement>(null);
-  const listBoxRef = useRef<HTMLUListElement>(null);
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const props = {
-    label,
-    description: shownHelp,
-    errorMessage: error,
-    isInvalid: Boolean(error),
-    isRequired: required,
-    isDisabled: disabled,
-    validationBehavior: "aria" as const,
-    items,
-    children: personOption,
-    inputValue: text,
-    onInputChange: (next: string) => {
-      setTyping({ text: next, over: next === "" ? undefined : value?.id });
-      if (next === "") onChange(null);
-    },
-    value: value?.id ?? null,
-    // As a reference's (see RefInput): the box shows who's chosen, or nothing.
-    onChange: (key: Key | null) => {
-      const chosen = items.find((i) => i.id === key) ?? null;
-      onChange(chosen);
-      setTyping(
-        chosen ? { text: personText(chosen), over: chosen.id } : { text: "", over: undefined },
-      );
-    },
-    menuTrigger: "focus" as const,
-    allowsEmptyCollection: true,
-  };
-  const state = useComboBoxState(props);
-  const { inputProps, listBoxProps, labelProps, descriptionProps, errorMessageProps } = useComboBox(
-    { ...props, inputRef, listBoxRef, popoverRef },
-    state,
-  );
   return (
-    <div className={error ? "field field-invalid" : "field"}>
-      <label {...labelProps} className={hiddenLabel ? "visually-hidden" : undefined}>
-        {label}
-        {required || hiddenLabel ? null : <span className="optional"> (optional)</span>}
-      </label>
-      {error ? (
-        <p {...errorMessageProps} className="field-error">
-          {error}
-        </p>
-      ) : null}
-      <div className="combobox">
-        {/* Named by its <label for>, as references' are (see RefInput). */}
-        <input
-          {...inputProps}
-          onKeyDown={withEscape(state, value ? personText(value) : "", inputProps.onKeyDown)}
-          aria-labelledby={undefined}
-          ref={inputRef}
-          spellCheck={false}
-          autoComplete="off"
-        />
-        {state.isOpen ? (
-          <Popover state={state} triggerRef={inputRef} popoverRef={popoverRef}>
-            <ListBox {...listBoxProps} listBoxRef={listBoxRef} state={state} />
-            <PickerMessage
-              found={found}
-              shown={state.collection.size}
-              none={typed ? `Nobody here matches “${typed}”.` : "Nobody can be named here yet."}
-            />
-          </Popover>
-        ) : null}
-      </div>
-      <p {...descriptionProps} className="field-help">
-        {shownHelp}
-      </p>
-    </div>
+    <SearchPicker
+      label={label}
+      help={
+        help ??
+        (roleLabel
+          ? `Type a name or email address: someone with the ${roleLabel} role in this project.`
+          : "Type a name or email address: someone in this project.")
+      }
+      error={error}
+      required={required}
+      disabled={disabled}
+      hiddenLabel={hiddenLabel}
+      value={value}
+      onChange={onChange}
+      // The suggestions are only ever those for the text in the box (see nameableQuery),
+      // so they don't change as someone moves to choose one.
+      find={{
+        query: (typed) => ({ ...nameableQuery(projectId, role, typed), select: personPicked }),
+      }}
+      textOf={personText}
+      render={personOption}
+      emptyText={nobodyMatches}
+    />
   );
+}
+
+function nobodyMatches(typed: string): string {
+  return typed ? `Nobody here matches “${typed}”.` : "Nobody can be named here yet.";
 }
 
 function PersonInput({
@@ -1311,12 +984,10 @@ function PersonInput({
   );
 }
 
-function inSentenceLabel(label: string): string {
+/** A type's label in a sentence, with its article: "a protein", "an RNA". */
+export function inSentenceLabel(label: string): string {
   const article = /^[aeiou]/i.test(label) ? "an" : "a";
-  const second = label.charAt(1);
-  const lowered =
-    second !== second.toLowerCase() ? label : label.charAt(0).toLowerCase() + label.slice(1);
-  return `${article} ${lowered}`;
+  return `${article} ${inSentence(label)}`;
 }
 
 /** A file: one uploaded from this computer, or one already in the project. In a list,
@@ -1724,52 +1395,5 @@ function ListInput(props: InputProps) {
         />
       ) : null}
     </fieldset>
-  );
-}
-
-/**
- * A record chosen outside a form, as a reference field's: what a draw went into, say. It's
- * the reference input, given a field of its own to search `to`'s types.
- */
-export function RecordPicker({
-  name,
-  label,
-  to = [],
-  types,
-  value,
-  onChange,
-  error,
-  help,
-}: {
-  name: string;
-  label: string;
-  to?: string[];
-  types: EntityType[];
-  value: Picked | null;
-  onChange: (picked: Picked | null) => void;
-  error?: string | undefined;
-  help?: string | undefined;
-}) {
-  const field = {
-    name,
-    label,
-    type: "ref",
-    to,
-    required: false,
-    description: null,
-  } as unknown as FieldDef;
-  return (
-    <RefInput
-      field={field}
-      type={{ values_schema: {} }}
-      types={types}
-      draft={value}
-      onChange={(d) => {
-        onChange(d as Picked | null);
-      }}
-      error={error}
-      note={help}
-      projectId=""
-    />
   );
 }

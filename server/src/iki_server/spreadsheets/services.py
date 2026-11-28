@@ -35,7 +35,7 @@ import time
 import uuid
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -73,6 +73,7 @@ from iki_server.spreadsheets.models import (
     SpreadsheetImport,
 )
 from iki_server.spreadsheets.workbooks import (
+    SAMPLE_COLUMNS,
     Unreadable,
     Workbook,
     from_json,
@@ -242,6 +243,9 @@ def read(import_id: str) -> str:
         with _workbook(found.file) as book:
             sheets = book.describe()
             found.kind, found.encoding, found.separator = book.kind, book.encoding, book.separator
+            chosen = next((s for s in sheets if not s.hidden and s.rows), None) or sheets[0]
+            header_row = _header_of(chosen.sample)
+            headers = book.row_text(chosen.name, header_row)
     except (Unreadable, Problem) as error:
         _fail(found, str(error))
         return "unreadable"
@@ -261,9 +265,8 @@ def read(import_id: str) -> str:
             }
             for s in sheets
         ]
-        chosen = next((s for s in sheets if not s.hidden and s.rows), None) or sheets[0]
         locked.sheet = chosen.name
-        locked.header_row = _header_of(chosen.sample)
+        locked.header_row, locked.headers = header_row, headers
         locked.first_row = locked.header_row + 1
         locked.last_row = None
         locked.columns = [c.as_json() for c in _suggested(locked)]
@@ -304,8 +307,41 @@ def sheet_of(imported: SpreadsheetImport) -> dict[str, Any]:
 
 
 def headers_of(imported: SpreadsheetImport) -> list[str]:
-    sheet = sheet_of(imported)
-    return mapping.headers_of(sheet.get("sample", []), imported.header_row, sheet.get("columns", 0))
+    """Its columns' headers, one a column of its sheet, as its header row says them."""
+    row = imported.headers if imported.header_row else []
+    return mapping.headers_of(row, int(sheet_of(imported).get("columns") or 0))
+
+
+def _header_text(imported: SpreadsheetImport, sheet_name: str, header_row: int) -> list[str]:
+    """A sheet's row's text, every column of it, to be its header row: from its sample if
+    the sample holds all of it, else read from the workbook. Raises :class:`Refused` if
+    the workbook can't be read now."""
+    if header_row < 1:
+        return []
+    sheet: dict[str, Any] = next((s for s in imported.sheets if s["name"] == sheet_name), {})
+    sample: list[list[str]] = sheet.get("sample", [])
+    if header_row <= len(sample) and int(sheet.get("columns") or 0) <= SAMPLE_COLUMNS:
+        return list(sample[header_row - 1])
+    try:
+        with _workbook(imported.file) as opened:
+            return opened.row_text(sheet_name, header_row)
+    except Unreadable as error:
+        raise Refused(f"Iki couldn't read its row {header_row}: {error}") from None
+
+
+def _chosen_header(imported: SpreadsheetImport, choice: Choice) -> tuple[str, int]:
+    """The sheet and header row ``choice`` would leave it with, as :func:`change` finds
+    them: a header row given, else another sheet's first row with anything in it."""
+    sheet_name = imported.sheet
+    header_row = imported.header_row
+    names = [s["name"] for s in imported.sheets]
+    if choice.sheet is not None and choice.sheet != imported.sheet and choice.sheet in names:
+        sheet_name = choice.sheet
+        found = next(s for s in imported.sheets if s["name"] == sheet_name)
+        header_row = _header_of(found.get("sample", []))
+    if choice.header_row is not None:
+        header_row = choice.header_row
+    return sheet_name, header_row
 
 
 @dataclass(frozen=True)
@@ -339,6 +375,13 @@ def change(
     :class:`Invalid` with what's wrong, by where, or :class:`Refused`. Nothing is
     changed unless all of it is."""
     _may_write(user, imported.project, imported.type)
+    # A header row the sample doesn't hold all of is read from the workbook, before its
+    # lock is taken: reading far into a large sheet takes a while.
+    wanted = _chosen_header(imported, choice)
+    height = next((int(s.get("rows") or 0) for s in imported.sheets if s["name"] == wanted[0]), 0)
+    read: tuple[tuple[str, int], list[str]] | None = None
+    if wanted != (imported.sheet, imported.header_row) and 0 <= wanted[1] <= max(height, 1):
+        read = (wanted, _header_text(imported, *wanted))
     with transaction.atomic():
         imported = _locked(imported, expected_revision)
         if imported.state not in (
@@ -368,6 +411,13 @@ def change(
             elif choice.header_row != imported.header_row:
                 imported.header_row = choice.header_row
                 remap = True
+        if remap and not errors:
+            chosen = (imported.sheet, imported.header_row)
+            imported.headers = (
+                read[1]
+                if read is not None and read[0] == chosen
+                else _header_text(imported, *chosen)
+            )
         if choice.first_row is not None:
             imported.first_row = choice.first_row
         elif remap:
@@ -743,15 +793,8 @@ def expire() -> int:
     """Discards imports nobody committed and nobody has touched for a fortnight, so their
     rows go, and clears committed imports' rows a fortnight on. Maintenance runs it.
     Returns how many it discarded."""
-    stale = SpreadsheetImport.objects.filter(
-        state__in=[
-            ImportState.READING,
-            ImportState.MAPPING,
-            ImportState.PREVIEWED,
-            ImportState.FAILED,
-        ],
-        updated_at__lt=timezone.now() - ABANDONED_AFTER,
-    ).values_list("pk", flat=True)[:500]
+    cutoff = timezone.now() - ABANDONED_AFTER
+    stale = list(_abandoned(cutoff).values_list("pk", flat=True)[:500])
     # A committed import's rows say what each became, and where its run failed, if it
     # did: kept a fortnight after it was committed.
     done = SpreadsheetImport.objects.filter(
@@ -766,15 +809,28 @@ def expire() -> int:
             tasks.clear_rows.enqueue(str(kept.pk), kept.round)
             SpreadsheetImport.objects.filter(pk=kept.pk).update(rows_cleared=True)
     count = 0
-    for pk in list(stale):
+    for pk in stale:
         with transaction.atomic():
-            found = (
-                SpreadsheetImport.objects.select_for_update(skip_locked=True).filter(pk=pk).first()
-            )
+            # Abandoned still, under its lock: another session may have changed, previewed
+            # or committed it since it was listed, and then it's theirs, not maintenance's.
+            found = _abandoned(cutoff).select_for_update(skip_locked=True).filter(pk=pk).first()
             if found is not None:
                 _discarded(found)
                 count += 1
     return count
+
+
+def _abandoned(cutoff: datetime) -> QuerySet[SpreadsheetImport]:
+    """Imports nobody committed, and nobody has touched since ``cutoff``."""
+    return SpreadsheetImport.objects.filter(
+        state__in=[
+            ImportState.READING,
+            ImportState.MAPPING,
+            ImportState.PREVIEWED,
+            ImportState.FAILED,
+        ],
+        updated_at__lt=cutoff,
+    )
 
 
 def _advance(import_id: uuid.UUID, round_: int) -> bool:
@@ -1032,7 +1088,7 @@ class Resolver:
     def find(self, f: Field, texts: set[str]) -> dict[str, str | uuid.UUID]:
         """What each text names: a record's ID, or why it names none."""
         target = f.items if f.type == "list" and f.items is not None else f
-        if len(target.to) == 1 and lists.is_list(target.to[0]):
+        if len(target.to) == 1 and registry.is_lab_list(target.to[0]):
             return self._options(target.to[0], texts)
         types = referable(target)
         out: dict[str, str | uuid.UUID] = {}
@@ -1068,20 +1124,35 @@ class Resolver:
         return out
 
     def _options(self, type_name: str, texts: set[str]) -> dict[str, str | uuid.UUID]:
-        """A lab list's options (ADR 0270), by code, by label in any case, by HRID or by
-        ID, in the project's registry. An archived one is found, and refused when it's saved
-        unless the record names it already."""
+        """A lab list's options (ADR 0270), in the project's registry: by its code, as
+        exports give it; by its code or its label in any case; by HRID or by ID. A text
+        that names more than one in another case names none, and says which it could be.
+        An archived one is found, and refused when it's saved unless the record names it
+        already."""
         every = lists.options(self.project.registry_id, type_name, archived=True)
         by_code = {o.code: o.entry.pk for o in every}
-        by_label = {o.label.casefold(): o.entry.pk for o in every}
+        # What each name, in any case, could be: the option, and whether by code or label.
+        by_name: dict[str, dict[uuid.UUID, tuple[str, str]]] = {}
+        for o in every:
+            by_name.setdefault(o.label.casefold(), {}).setdefault(o.entry.pk, (o.code, "label"))
+            by_name.setdefault(o.code.casefold(), {}).setdefault(o.entry.pk, (o.code, "code"))
         by_hrid = {o.entry.hrid: o.entry.pk for o in every}
         by_id = {str(o.entry.pk): o.entry.pk for o in every}
         label = registry.types()[type_name].label_plural
         out: dict[str, str | uuid.UUID] = {}
         for text in texts:
+            named = by_name.get(text.casefold(), {})
+            if text not in by_code and len(named) > 1:
+                said = [f"`{code}` by its {how}" for code, how in sorted(named.values())]
+                which = ", ".join(said[:-1]) + " and " + said[-1]
+                out[text] = (
+                    f"names more than one option of {label}: {which}. Give the one you mean "
+                    "by its code, exactly."
+                )
+                continue
             found = (
                 by_code.get(text)
-                or by_label.get(text.casefold())
+                or next(iter(named), None)
                 or by_hrid.get(text.upper())
                 or by_id.get(text.lower())
             )

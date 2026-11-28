@@ -21,6 +21,7 @@ from iki_server.api.pagination import PageParams, page_sorted
 from iki_server.api.problems import Problem
 from iki_server.api.schemas import Page, ProjectRef
 from iki_server.components import places
+from iki_server.components import views as component_views
 from iki_server.components.installed import components
 from iki_server.entities import search
 from iki_server.entities.values import ids_in, shape
@@ -117,7 +118,10 @@ def _out(component: Component) -> dict[str, Any]:
         "selects": component.selects or None,
         "runs": list(component.runs),
         "sha256": component.sha256,
-        "frame": reverse("component_frame", args=[component.qualified_name, component.sha256]),
+        "frame": reverse(
+            "component_frame",
+            args=[component.qualified_name, component.sha256, component_views.BRIDGE_DIGEST],
+        ),
     }
 
 
@@ -154,11 +158,13 @@ class RefineIn(Schema):
     where: Condition | None = Field(
         None,
         description="Conditions on the fields it reads (and `hrid`), added to the place's "
-        "with `all`. At most 20, nested at most 4 deep.",
+        f"with `all`. At most {places.MAX_CONDITIONS}, nested at most {places.MAX_DEPTH} deep.",
     )
     sort: SortIn | None = Field(None, description="One of the fields it reads, or `hrid`.")
     q: str | None = Field(
-        None, max_length=200, description="Text in HRIDs and titles, if the place has none."
+        None,
+        max_length=places.MAX_QUERY_LENGTH,
+        description="Text in HRIDs and titles, if the place has none.",
     )
 
 

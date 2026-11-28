@@ -77,7 +77,7 @@ def row(receipt: JsonObject, line_id: str) -> JsonObject:
 
 
 def timeline(api: Api, path: str, **query: Any) -> list[JsonObject]:
-    response = api.get(path + "/history", **query)
+    response = api.get(path + "/observations", **query)
     assert response.status_code == 200, response.content
     events: list[JsonObject] = response.json()["items"]
     return list(reversed(events))
@@ -94,7 +94,7 @@ def test_two_receivers_correct_a_check_and_keep_the_original_observation(
     original = row(matched, line)
     assert scan["found"] == "matched" and original["outcome"] == "matched"
     assert original["checked_by"]["id"] == str(lab.users["tech"].pk) and original["checked_at"]
-    scan_history = read(first, path + "/history")
+    scan_history = read(first, path + "/observations")
     again = change(second, "POST", path + "/scan", code="RC000")
     assert again["found"] == "again" and again["line"] == line
     assert again["receipt"] == matched
@@ -110,7 +110,7 @@ def test_two_receivers_correct_a_check_and_keep_the_original_observation(
         note="Cracked cap",
     )
     assert read(first, path) == matched
-    assert read(second, path + "/history") == scan_history
+    assert read(second, path + "/observations") == scan_history
     observer = lab.users["tech"]
     observer.email = "renamed-tech@example.com"
     observer.save(update_fields=["email"])
@@ -304,7 +304,7 @@ def test_handoff_corrections_and_cancellation_are_attributed_to_the_receiver(
     assert cancelled["cancel_reason"] == "Request withdrawn" and cancelled["completed_at"]
     assert cancelled["revision"] == corrected["revision"] + 1
     assert read(second, path) == cancelled
-    final_history = read(second, path + "/history")
+    final_history = read(second, path + "/observations")
     change(
         second,
         "PATCH",
@@ -317,7 +317,7 @@ def test_handoff_corrections_and_cancellation_are_attributed_to_the_receiver(
     change(second, "PATCH", path, cancelled, status=422, note="Sample unpacked", reason="Unpacked")
     change(second, "POST", path + "/cancel", cancelled, status=422, reason="Retry")
     assert read(first, path) == cancelled
-    assert read(first, path + "/history") == final_history
+    assert read(first, path + "/observations") == final_history
 
     events = timeline(second, path)
     assert [e["kind"] for e in events] == ["outcome", "handoff", "handoff", "handoff", "status"]
@@ -346,7 +346,7 @@ def test_failed_completion_rolls_back_missing_observations_and_custody(
     before = change(first, "PATCH", path, scan["receipt"], handed_over_by="Courier waybill 501")
     movements = f"/entities/{row(before, scan['line'])['entity']}/location/events"
     movements_before = read(second, movements)
-    history_before = read(first, path + "/history")
+    history_before = read(first, path + "/observations")
     change(
         second,
         "POST",
@@ -358,7 +358,7 @@ def test_failed_completion_rolls_back_missing_observations_and_custody(
     )
     assert read(second, path) == before
     assert read(second, movements) == movements_before
-    assert read(second, path + "/history") == history_before
+    assert read(second, path + "/observations") == history_before
     final = change(
         second,
         "POST",
@@ -371,11 +371,11 @@ def test_failed_completion_rolls_back_missing_observations_and_custody(
     assert final["revision"] == before["revision"] + 1
     assert final["received_by"]["id"] == str(lab.users["core_qa"].pk)
     assert [item["kind"] for item in read(second, movements)["items"]] == ["received"]
-    final_history = read(second, path + "/history")
+    final_history = read(second, path + "/observations")
     change(first, "POST", path + "/scan", status=422, code="RC001")
     change(first, "POST", path + "/cancel", final, status=422, reason="Retry")
     assert read(first, path) == final
-    assert read(first, path + "/history") == final_history
+    assert read(first, path + "/observations") == final_history
 
     final_events = [e for e in final_history["items"] if e["revision"] == final["revision"]]
     assert {e["kind"] for e in final_events} == {"outcome", "status"} and len(final_events) == 2
@@ -429,7 +429,7 @@ def test_corrections_follow_the_line_even_when_another_line_changes(receiving: R
     cleared = change(first, "PATCH", line_path, original, outcome=None, reason="Wrong tube")
     assert cleared["revision"] == other["revision"] + 1
     assert row(cleared, scan["line"])["revision"] == original["revision"] + 1
-    history = read(first, path + "/history")
+    history = read(first, path + "/observations")
     audits = AuditEvent.objects.filter(
         action="storage.observation_recorded", target_id=cleared["id"]
     )
@@ -444,7 +444,7 @@ def test_corrections_follow_the_line_even_when_another_line_changes(receiving: R
         reason="Second inventory",
     )
     assert read(second, path) == cleared
-    assert read(second, path + "/history") == history
+    assert read(second, path + "/observations") == history
     assert audits.count() == audit_count
 
 
@@ -526,7 +526,7 @@ def test_an_audit_write_failure_rolls_back_the_observation_and_its_revisions(
 ) -> None:
     first, second, path = receiving
     before = read(first, path)
-    history_before = read(second, path + "/history")
+    history_before = read(second, path + "/observations")
     refused_audits: list[str] = []
 
     def fail_audit(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
@@ -539,7 +539,7 @@ def test_an_audit_write_failure_rolls_back_the_observation_and_its_revisions(
         failed = first.post(path + "/scan", {"code": "RC000"})
     assert failed.status_code == 500 and len(refused_audits) == 1
     assert read(second, path) == before
-    assert read(first, path + "/history") == history_before
+    assert read(first, path + "/observations") == history_before
     retry = change(second, "POST", path + "/scan", code="RC000")
     assert retry["found"] == "matched"
     assert retry["receipt"]["revision"] == before["revision"] + 1

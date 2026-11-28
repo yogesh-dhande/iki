@@ -17,6 +17,7 @@ from uuid import uuid4
 import pytest
 from django.core.exceptions import PermissionDenied
 from django.db import connection, transaction
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from first_party_dependencies import PLUGINS, build_order
 from org_world import World, build_world
@@ -174,7 +175,7 @@ def exercise() -> None:
     base = f"/projects/{world.project.pk}/stock"
 
     def summary(physical: int, stored: int, available: int, outstanding: int) -> None:
-        page = api.get(base)
+        page = api.get(base + "/items")
         assert page.status_code == 200, page.content
         (row,) = page.json()["items"]
         assert row["id"] == str(item.pk)
@@ -189,7 +190,7 @@ def exercise() -> None:
         assert sum(line["outstanding_packs"] for line in pending.json()["items"]) == outstanding
         assert all(line["item_id"] == str(item.pk) for line in pending.json()["items"])
         assert row["low"] == (available <= 100)
-        filtered = api.get(base, low_only="true").json()["items"]
+        filtered = api.get(base + "/items", low_only="true").json()["items"]
         assert [i["id"] for i in filtered] == ([str(item.pk)] if available <= 100 else [])
 
     summary(0, 0, 0, 0)
@@ -198,7 +199,7 @@ def exercise() -> None:
     assert Notification.objects.filter(
         recipient=world.users["runner"], entity=item, project=world.project, kind="stock.low"
     ).exists()
-    assert api_as(world, "outsider").get(base).status_code in (403, 404)
+    assert api_as(world, "outsider").get(base + "/items").status_code in (403, 404)
     commit(
         prepare(
             world,
@@ -305,10 +306,10 @@ def exercise() -> None:
     signed(world, "admin", str(second.pk), "released", field="disposition")
     summary(1100, 1100, 1100, 0)
     assert stock_alerts.send_alerts() == 0
-    detail = api.get(base + f"/{item.pk}/lots")
+    detail = api.get(base + f"/items/{item.pk}/lots")
     assert detail.status_code == 200, detail.content
     assert {r["container_id"] for r in detail.json()["items"]} == {str(east.pk), str(west.pk)}
-    assert api_as(world, "outsider").get(base + f"/{item.pk}/lots").status_code in (403, 404)
+    assert api_as(world, "outsider").get(base + f"/items/{item.pk}/lots").status_code in (403, 404)
 
     # Changing custody affects availability immediately. Checking an item out keeps its slot.
     checked = api_as(world).post(
@@ -357,7 +358,7 @@ def exercise() -> None:
     with pytest.raises(amounts.Wrong, match="expiry"):
         amounts.draw(editor, expired, amounts.Given(Decimal(1), "1"))
     assert Amount.objects.get(entity=expired).value == 500
-    by_id = {row["id"]: row for row in api.get(base + f"/{item.pk}/lots").json()["items"]}
+    by_id = {row["id"]: row for row in api.get(base + f"/items/{item.pk}/lots").json()["items"]}
     assert by_id[str(second.pk)]["checked_out"]
     assert by_id[str(expired.pk)]["expired"] and by_id[str(expired.pk)]["held"]
     assert by_id[str(expired.pk)]["expires_on"] == today.isoformat()
@@ -385,7 +386,7 @@ def exercise() -> None:
             },
         ).entity.pk
     )
-    (row,) = [i for i in api.get(base).json()["items"] if i["id"] == str(film.pk)]
+    (row,) = [i for i in api.get(base + "/items").json()["items"] if i["id"] == str(film.pk)]
     assert (row["threshold"], row["low"]) == (None, False)
     # The tubes are low again after the draws above; the film is never low.
     assert stock_alerts.send_alerts() == 1
@@ -445,6 +446,71 @@ def exercise() -> None:
             {"item": str(film.pk), "lot_number": "No receipt"},
             amount={"value": 100, "unit": "1"},
         )
+
+
+def test_an_hourly_pass_over_a_large_catalogue_takes_as_many_queries_as_a_small_one(
+    tmp_path: Path, database: str
+) -> None:
+    build = tmp_path / "build"
+    built = iki("plugin", "build", *build_order(PLUGIN), "--output", build, cwd=PLUGINS)
+    assert built.returncode == 0, built.stdout + built.stderr
+    migrate(build, database)
+    sync(build, database)
+    exercised = django(
+        build,
+        database,
+        "-c",
+        "import django; django.setup(); from test_reagent_stock import catalogue; catalogue()",
+    )
+    assert exercised.returncode == 0, exercised.stdout + exercised.stderr
+
+
+def catalogue() -> None:
+    """The hourly pass with the items' real stock summaries: items with nothing in stock,
+    whether the lab reorders them by level or not, cost no queries of their own once their
+    stock manager has been told."""
+    world = build_world()
+    LabRoleGrant.objects.create(
+        membership=world.project.memberships.get(user=world.users["runner"]),
+        role=PREFIX + "stock_manager",
+    )
+    editor = world.users["editor"]
+
+    def stocked(numbers: range, threshold: float | None) -> None:
+        # Synthetic catalogue entries for a lab's buffers and plastics; none has stock yet.
+        for n in numbers:
+            services.create(
+                editor,
+                PREFIX + "StockItem",
+                world.project,
+                {
+                    "name": f"Synthetic PBS pH 7.4, 500 mL, item {n}",
+                    "supplier": "Synthetic supplier",
+                    "catalogue_number": f"SYN-PBS-{n:03}",
+                    "stock_unit": "1",
+                    "pack_size": 1,
+                    **({"low_stock_at": threshold} if threshold is not None else {}),
+                },
+            )
+
+    def checked() -> tuple[int, int]:
+        with CaptureQueriesContext(connection) as queries:
+            sent = stock_alerts.send_alerts()
+        return sent, len(queries)
+
+    stocked(range(2), None)
+    stocked(range(2, 4), 2)
+    assert stock_alerts.send_alerts() == 2
+    sent, few = checked()
+    assert sent == 0
+    stocked(range(4, 40), None)
+    stocked(range(40, 80), 2)
+    assert stock_alerts.send_alerts() == 40
+    again = checked()
+    assert again == (0, few), (again, few)
+    assert (
+        Notification.objects.filter(recipient=world.users["runner"], kind="stock.low").count() == 42
+    )
 
 
 def test_a_critical_reagents_lots_are_only_released_by_lot_qa(

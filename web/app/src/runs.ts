@@ -9,7 +9,7 @@ import { infiniteQueryOptions, queryOptions, useQueryClient } from "@tanstack/re
 import { useEffect, useRef } from "react";
 
 import { everyPage, iki, isSignedOut, markSignedOut } from "./api";
-import { searchEntities } from "./entities";
+import { searchEntities, type FieldDef } from "./entities";
 import { HIDDEN_GRACE_MS, REFUSED_RETRY_MS } from "./events";
 
 export type Run = Schemas["RunOut"];
@@ -17,6 +17,7 @@ export type RunStatus = Run["status"];
 export type Attempt = Schemas["RunAttemptOut"];
 export type AttemptState = Attempt["state"];
 export type Action = Schemas["ActionOut"];
+export type ActionInput = Action["inputs"][number];
 export type Batch = Schemas["BatchOut"];
 export type Workflow = Schemas["WorkflowOut"];
 export type WorkflowRun = Schemas["WorkflowRunOut"];
@@ -26,6 +27,16 @@ export type ProjectTrigger = Schemas["ProjectTriggerOut"];
 export type Firing = Schemas["FiringOut"];
 
 export const RUNS = ["runs"] as const;
+
+/** How a run, a batch or a consent was asked for, after who asked: "in the web app". */
+export const VIA: Record<string, string> = {
+  web: "in the web app",
+  api: "through the API",
+  mcp: "by an AI assistant (MCP)",
+  cli: "from the command line",
+  trigger: "by a trigger",
+  system: "by Iki",
+};
 
 export const STATUS: Record<RunStatus, string> = {
   awaiting_approval: "Awaiting approval",
@@ -340,6 +351,48 @@ export const STEP_STATE: Record<StepState, string> = {
   skipped: "Skipped",
   declined: "Declined",
 };
+
+export const WORKFLOW_STATUS: Record<WorkflowStatus, string> = {
+  running: "Running",
+  succeeded: "Succeeded",
+  failed: "Failed",
+  cancelled: "Cancelled",
+};
+
+/** An action's input as a field the entity form's inputs know: a reference, or a list of
+ * them. */
+export function inputField(input: ActionInput): FieldDef {
+  return {
+    role: null,
+    role_label: null,
+    assignment: false,
+    assignment_field: null,
+    assignment_states: [],
+    name: input.name,
+    label: input.label,
+    description: input.description,
+    type: input.cardinality === "many" ? "list" : "ref",
+    items: input.cardinality === "many" ? "ref" : null,
+    to: [input.type],
+    plugin: "",
+    required: !input.optional,
+    immutable: false,
+    computed: false,
+    unique: false,
+    detached: false,
+    link: null,
+    unit: null,
+    unit_symbol: null,
+    display_unit: null,
+    display_unit_symbol: null,
+    display_scale: null,
+    display_offset: null,
+    input_units: [],
+    values: [],
+    initial: null,
+    states: [],
+  };
+}
 
 /** A batch's runs, in the order it launched them, a page at a time. */
 export function batchRunsQuery(ref: string, status?: RunStatus) {

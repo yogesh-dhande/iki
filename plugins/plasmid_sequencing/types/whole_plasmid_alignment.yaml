@@ -210,7 +210,17 @@ fields:
         type: object
         additionalProperties: false
         required:
-          [hgvs, kind, start, end, reference, observed, length_change, homopolymer, features]
+          - hgvs
+          - kind
+          - start
+          - end
+          - reference
+          - observed
+          - reference_length
+          - observed_length
+          - length_change
+          - homopolymer
+          - features
         properties:
           hgvs: { type: string, minLength: 3, maxLength: 1000 }
           kind:
@@ -218,8 +228,17 @@ fields:
             description: As its HGVS name says.
           start: { type: integer, minimum: 1 }
           end: { type: integer, minimum: 1 }
-          reference: { type: string, maxLength: 200 }
-          observed: { type: string, maxLength: 200 }
+          reference:
+            type: string
+            maxLength: 200
+            description: The reference's allele, its first 200 bases; differences.tsv has it whole.
+          observed:
+            type: string
+            maxLength: 200
+            description: The consensus's allele, its first 200 bases; differences.tsv has it whole.
+          reference_length:
+            { type: integer, minimum: 0, description: The reference allele's bases. }
+          observed_length: { type: integer, minimum: 0, description: The consensus allele's bases. }
           length_change: { type: integer }
           homopolymer: { type: integer, minimum: 1 }
           features: { type: array, maxItems: 20, items: { type: string, maxLength: 300 } }

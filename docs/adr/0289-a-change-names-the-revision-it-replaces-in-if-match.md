@@ -53,11 +53,13 @@ and a line's `line_revision` are now each one's `revision`. An amount, whose
 `If-Match`, on the thing it addresses.** That is every `PATCH`, `PUT` and
 `DELETE` of something with a revision, and every action that changes one:
 setting a state, taking, submitting, signing, reviewing a hold, freezing a
-collection, moving a record to a superseding entry, superseding an entry,
+collection, moving a record to a superseding entry, superseding an entry (by
+another, or as another type of its identity, ADR 0165),
 archiving, restoring or superseding a list option, recounting an amount,
 changing, previewing, committing or discarding a spreadsheet import, saving
 or deleting a saved mapping, describing, completing or cancelling a receipt
-(and previewing its put-away), correcting, removing or restoring a receipt
+(and previewing its put-away, or asking which of its lines a box can take),
+correcting, removing or restoring a receipt
 line, and resolving, completing or cancelling a count.
 
 - No `If-Match`, `If-Match: *`, a list of ETags or a weak one answers **428**

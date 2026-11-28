@@ -159,7 +159,7 @@ def test_another_projects_files_never_appear(world: World, other: Project) -> No
         assert count["total"] == (
             0 if query.get("q") == "secret" else 1 - bool(query.get("acquired_from"))
         )
-    formats = viewer.get("/files/formats").json()
+    formats = viewer.every("/files/formats")
     assert formats == [
         {"id": "iki/core.abif", "label": "ABI trace", "media_type": "application/x-abi", "count": 1}
     ]
@@ -169,7 +169,7 @@ def test_another_projects_files_never_appear(world: World, other: Project) -> No
         assert viewer.get(f"/files/{secret.pk}{path}").status_code == 404
     # Search everything doesn't find it either.
     found = viewer.get("/search", q="kinase", kind="files").json()["groups"][0]
-    assert [i["title"] for i in found["items"]] == ["kinase-a1.ab1"]
+    assert [i["title"] for i in found["results"]] == ["kinase-a1.ab1"]
     assert found["total"] == 1
 
 
@@ -219,7 +219,7 @@ def test_files_are_found_by_what_they_state_as_by_their_name(world: World) -> No
     # Where a value is stated isn't what the file states.
     assert every(viewer, q="$CYT") == []
     assert viewer.get("/files/count", q="fortessa").json()["total"] == 2
-    formats = viewer.get("/files/formats", q="canto").json()
+    formats = viewer.every("/files/formats", q="canto")
     assert [(f["media_type"], f["count"]) for f in formats] == [("application/vnd.isac.fcs", 1)]
     (row,) = viewer.get("/files", q="r658222").json()["items"]
     assert row["facts"] == {
@@ -243,7 +243,7 @@ def test_files_are_found_by_format_and_by_a_family_of_formats(world: World) -> N
     assert sorted(every(viewer, format="image/*")) == ["b.tif", "c.png"]
     assert every(viewer, format="chemical/*") == ["ligand.mol2"]
     assert sorted(every(viewer, format=["application/x-abi", "image/png"])) == ["a.ab1", "c.png"]
-    formats = viewer.get("/files/formats", project=str(world.project.pk), q=".").json()
+    formats = viewer.every("/files/formats", project=str(world.project.pk), q=".")
     assert {f["media_type"]: f["count"] for f in formats} == {
         "application/x-abi": 1,
         "application/vnd.isac.fcs": 1,
@@ -271,7 +271,7 @@ def test_plugin_format_from_upload_to_structure_field_and_filter(world: World, s
 
     fmt = "acme/protein.model-pdb"
     api = api_as(world)
-    declarations = {f["id"]: f for f in api.get("/formats").json()}
+    declarations = {f["id"]: f for f in api.every("/formats")}
     model = declarations[fmt]
     assert model["viewer"] == "structure-pdb"
     assert model["canonical"] == "chemical/x-acme-model"
@@ -294,13 +294,13 @@ def test_plugin_format_from_upload_to_structure_field_and_filter(world: World, s
     legacy = add(world.project, "older.model.pdb", "chemical/x-acme-coordinates")
     assert create(api, world.project, {"structure": str(legacy.pk)}, STRUCTURE).status_code == 201
     add(world.project, "notes.unspecified", "application/x-unregistered")
-    facets = api.get("/files/formats", accepts=[fmt]).json()
+    facets = api.every("/files/formats", accepts=[fmt])
     assert facets == [
         {"id": fmt, "label": "Model coordinates", "media_type": model["canonical"], "count": 2}
     ]
     for choice in (fmt, *model["media_types"]):
         assert sorted(every(api, format=choice)) == ["older.model.pdb", "result.bin"]
-    assert api.get("/files/formats", q="notes").json() == [
+    assert api.every("/files/formats", q="notes") == [
         {
             "id": None,
             "label": "application/x-unregistered",
@@ -404,7 +404,7 @@ def test_a_samples_files_are_those_it_holds_and_those_a_run_read_with_it(
     ActionRun.objects.filter(pk=ran.json()["id"]).update(project=other)
     assert every(viewer, sample=str(alone.pk)) == []
     assert viewer.get("/files/count", sample=str(alone.pk)).json()["total"] == 0
-    assert viewer.get("/files/formats", sample=str(alone.pk)).json() == []
+    assert viewer.every("/files/formats", sample=str(alone.pk)) == []
     assert every(viewer, sample=held.hrid) == ["coa-lot-12.pdf"]
     unknown = viewer.get("/files", sample="SMP-999999")
     assert problem(unknown, 422, "validation_failed")["errors"][0]["parameter"] == "sample"

@@ -20,9 +20,16 @@ import { Link, useNavigate, useParams, useSearch } from "@tanstack/react-router"
 import { useState, type SubmitEvent } from "react";
 
 import { iki, isStale, problemOf, projectsQuery, useApiMutation, useOpenedRevision } from "../api";
-import { ENTITIES, typeLabel, typesQuery, type EntityType } from "../entities";
-import { FieldInput } from "../entity-inputs";
-import { encode, isBlank, same, toDraft, type Draft } from "../entity-values";
+import {
+  ENTITIES,
+  inSentence,
+  typeLabel,
+  typesQuery,
+  type EntityType,
+  type FieldDef,
+} from "../entities";
+import { FieldInput, inSentenceLabel, orList } from "../entity-inputs";
+import { encode, initialDraft, isBlank, same, toDraft, type Draft } from "../entity-values";
 import { required, useForm } from "../forms";
 import { optionsQuery } from "../lab-lists";
 import { usePageTitle } from "../layout";
@@ -42,13 +49,14 @@ import {
   Loading,
   PageHeader,
   ProblemAlert,
+  RadioField,
   SelectField,
   TextField,
   Time,
   useMessages,
 } from "../ui";
-import { registryNote, Value } from "./entity";
-import { EntryRevisionRow } from "./entity-audit";
+import { registryNote, Value } from "./entity-value";
+import { EntryRevisionRow } from "./revision-changes";
 
 // --- A registry's entries ------------------------------------------------------------------
 
@@ -284,7 +292,7 @@ function RegistryEntryPage({ entry, type }: { entry: Entry; type: EntityType | u
       </section>
       <Records entry={entry} />
       <AddToProject entry={entry} />
-      {entry.can.curate ? <Supersede entry={entry} /> : null}
+      {entry.can.curate ? <Supersede entry={entry} types={types} /> : null}
       <EntryHistory entry={entry} type={type} />
     </>
   );
@@ -559,25 +567,73 @@ function Curate({ entry, type, types }: { entry: Entry; type: EntityType; types:
   );
 }
 
-/** A registrar replaces a mistaken entry with another, for good. */
-function Supersede({ entry }: { entry: Entry }) {
+type Replacing = "entry" | "type";
+
+/** The fields a registrar gives a new entry of an entry's identity as another type (ADR
+ * 0165), as its registry says: those the entry's values don't fill as they are, such as
+ * its parts' roles, which the new type names otherwise, and its own facts. */
+function registeredAs(target: EntityType | undefined, names: readonly string[]): FieldDef[] {
+  return names.flatMap((n) => target?.fields.find((f) => f.name === n) ?? []);
+}
+
+/** A registrar replaces a mistaken entry with another, for good: one registered already,
+ * or a new entry of its identity as another type under it (ADR 0165), such as a protein
+ * complex's chains as the antibody they are, which it hands its identity to. */
+function Supersede({ entry, types }: { entry: Entry; types: EntityType[] }) {
+  const others = entry.can.supersede_as ?? [];
+  const mine = types.find((t) => t.name === entry.type);
+  const [replacing, setReplacing] = useState<Replacing>("entry");
   const [replacement, setReplacement] = useState("");
+  const fieldsOf = (name: string) =>
+    registeredAs(
+      types.find((t) => t.name === name),
+      others.find((o) => o.type === name)?.fields ?? [],
+    );
+  const startFor = (name: string) => {
+    const target = types.find((t) => t.name === name);
+    return Object.fromEntries(
+      fieldsOf(name).map((f) => [
+        f.name,
+        entry.values[f.name] !== undefined && entry.values[f.name] !== null
+          ? toDraft(f, entry.values[f.name], entry)
+          : target
+            ? initialDraft(f, target)
+            : null,
+      ]),
+    );
+  };
+  const first = others[0]?.type ?? "";
+  const [as, setAs] = useState(() => ({ type: first, drafts: startFor(first) }));
   const [reason, setReason] = useState("");
   const [confirming, setConfirming] = useState(false);
   const { say } = useMessages();
   const client = useQueryClient();
+  const target = types.find((t) => t.name === as.type);
+  const fields = fieldsOf(as.type);
+  const kind = target ? inSentence(target.label) : as.type;
+  const byType = replacing === "type";
+  const named = byType ? `a new ${kind}` : replacement.trim().toUpperCase();
   const supersede = useApiMutation(
-    async (header: { "If-Match": string }) =>
+    async ({
+      header,
+      values,
+    }: {
+      header: { "If-Match": string };
+      values: Record<string, unknown> | null;
+    }) =>
       unwrap(
         await iki.POST("/api/v1/entries/{ref}/supersede", {
           params: { path: { ref: entry.id }, header },
-          body: { replacement: replacement.trim().toUpperCase(), reason: reason.trim() },
+          body: values
+            ? { type: as.type, values, reason: reason.trim() }
+            : { replacement: replacement.trim().toUpperCase(), reason: reason.trim() },
         }),
       ),
     [ENTITIES],
   );
   // The entry as the registrar confirmed it: one changed meanwhile is refused (412).
   const opened = useOpenedRevision(entry.revision, { open: confirming, error: supersede.error });
+  const [values, setValues] = useState<Record<string, unknown> | null>(null);
   const form = useForm(confirming ? null : supersede.error, supersede.isPending);
   return (
     <section className="card" aria-labelledby="supersede-title">
@@ -594,29 +650,102 @@ function Supersede({ entry }: { entry: Entry }) {
         {...form.props}
         onSubmit={(event: SubmitEvent<HTMLFormElement>) => {
           event.preventDefault();
-          if (
-            !form.validate({
-              replacement:
-                required(replacement, "Enter the ID of the entry that replaces it.") ||
-                (replacement.trim().toUpperCase() === entry.hrid &&
-                  "It can’t replace itself: enter another entry’s ID."),
-              reason: required(reason, "Say why: every project with it is told."),
-            })
-          ) {
-            return;
+          const checks: Record<string, string | false> = {
+            reason: required(reason, "Say why: every project with it is told."),
+          };
+          const given: Record<string, unknown> = {};
+          if (byType) {
+            for (const f of fields) {
+              const draft = as.drafts[f.name] ?? null;
+              if (f.registry !== "identity" && isBlank(f, draft)) continue;
+              const encoded = encode(f, draft, target ?? { values_schema: {} });
+              if (encoded.ok) given[f.name] = encoded.value;
+              else checks[`values/${f.name}`] = encoded.error;
+            }
+          } else {
+            checks["replacement"] =
+              required(replacement, "Enter the ID of the entry that replaces it.") ||
+              (replacement.trim().toUpperCase() === entry.hrid &&
+                "It can’t replace itself: enter another entry’s ID.");
           }
+          if (!form.validate(checks)) return;
           supersede.reset();
+          setValues(byType ? given : null);
           setConfirming(true);
         }}
       >
-        <TextField
-          label="Replaced by"
-          value={replacement}
-          onChange={setReplacement}
-          error={form.errors["replacement"]}
-          maxLength={32}
-          help={`The ID of a current entry of the same type in the ${entry.registry.name} registry.`}
-        />
+        {others.length ? (
+          <RadioField<Replacing>
+            label="Replace it with"
+            value={replacing}
+            onChange={setReplacing}
+            options={[
+              { value: "entry", label: "An entry registered already" },
+              {
+                value: "type",
+                label: `Its identity, registered as another type`,
+                description: `the same ${identityOf(mine)}, as ${orList(
+                  others.map((o) => inSentenceLabel(typeLabel(types, o.type))),
+                )}`,
+              },
+            ]}
+          />
+        ) : null}
+        {byType ? (
+          <>
+            <SelectField
+              label="Register it as"
+              value={as.type}
+              onChange={(name) => {
+                setAs({ type: name, drafts: startFor(name) });
+              }}
+              options={others.map((o) => ({ value: o.type, label: typeLabel(types, o.type) }))}
+              help={`A new entry, with the next ${target?.hrid_prefix ?? ""} ID. It has ${
+                entry.hrid
+              }’s values for what the two types share, and these. Its identity stays the same.`}
+            />
+            {target
+              ? fields.map((f) => (
+                  <FieldInput
+                    key={`${as.type}:${f.name}`}
+                    field={f}
+                    type={target}
+                    types={types}
+                    draft={as.drafts[f.name] ?? null}
+                    onChange={(draft) => {
+                      setAs((current) => ({
+                        ...current,
+                        drafts: { ...current.drafts, [f.name]: draft },
+                      }));
+                    }}
+                    error={form.errors[`values/${f.name}`]}
+                    errors={form.errors}
+                    path={`values/${f.name}`}
+                    note={
+                      f.registry === "identity"
+                        ? `${entry.hrid}’s identity, which stays the same: only what ${inSentenceLabel(
+                            target.label,
+                          )} names otherwise, such as its parts’ roles, can change.`
+                        : undefined
+                    }
+                    projectId=""
+                    registryId={entry.registry.id}
+                  />
+                ))
+              : null}
+          </>
+        ) : (
+          <TextField
+            label="Replaced by"
+            value={replacement}
+            onChange={setReplacement}
+            error={form.errors["replacement"]}
+            maxLength={32}
+            help={`The ID of a current entry in the ${entry.registry.name} registry, of its type${
+              others.length ? " or another type of its identity" : ""
+            }.`}
+          />
+        )}
         <TextField
           label="Reason"
           value={reason}
@@ -632,7 +761,7 @@ function Supersede({ entry }: { entry: Entry }) {
       </form>
       <ConfirmDialog
         isOpen={confirming}
-        title={`Supersede ${entry.hrid} with ${replacement.trim().toUpperCase()}?`}
+        title={`Supersede ${entry.hrid} with ${named}?`}
         confirmLabel={`Supersede ${entry.hrid}`}
         busy={supersede.isPending}
         problem={supersede.error ? problemOf(supersede.error) : undefined}
@@ -640,27 +769,46 @@ function Supersede({ entry }: { entry: Entry }) {
           setConfirming(false);
         }}
         onConfirm={() => {
-          supersede.mutate(opened.ifMatch, {
-            onSuccess: (saved) => {
-              client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
-              setConfirming(false);
-              say(`Superseded ${saved.hrid}. Every project with it has been told.`);
+          supersede.mutate(
+            { header: opened.ifMatch, values },
+            {
+              onSuccess: (saved) => {
+                client.setQueryData(entryQuery(saved.hrid).queryKey, saved);
+                setConfirming(false);
+                say(
+                  values && saved.superseded
+                    ? `Superseded ${saved.hrid} with ${saved.superseded.by.hrid}, a new ${kind}. Every project with it has been told.`
+                    : `Superseded ${saved.hrid}. Every project with it has been told.`,
+                );
+              },
             },
-          });
+          );
         }}
       >
         <p>
-          <strong>This can’t be undone.</strong> {entry.hrid} will be marked as replaced by{" "}
-          {replacement.trim().toUpperCase()}, for good, and no one will be able to register it
-          again.
+          <strong>This can’t be undone.</strong> {entry.hrid} will be marked as replaced by {named},
+          for good, and no one will be able to register it again.
+          {values ? ` Registering its identity will find the new ${kind} from then on.` : null}
         </p>
         <p>
-          Each project that has it is told, and its Editors move their records to{" "}
-          {replacement.trim().toUpperCase()} themselves.
+          Each project that has it is told, and its Editors move their records to {named}{" "}
+          themselves.
+          {values
+            ? ` A record can’t change its type, so each move makes the project’s record of the new ${kind}, with what the two types’ records share, and archives the old one.`
+            : null}
         </p>
       </ConfirmDialog>
     </section>
   );
+}
+
+/** What an entry's identity is, in a sentence: its type's identity fields, as the type
+ * labels them ("parts"). */
+function identityOf(mine: EntityType | undefined): string {
+  const names = (mine?.identity ?? []).map(
+    (n) => mine?.fields.find((f) => f.name === n)?.label.toLowerCase() ?? n,
+  );
+  return names.length ? names.join(" and ") : "identity";
 }
 
 // --- A lab list's option ---------------------------------------------------------------
@@ -673,8 +821,10 @@ function Supersede({ entry }: { entry: Entry }) {
  * it to its replacement here, as the notification about it says.
  */
 function OptionPage({ entry, type }: { entry: Entry; type: EntityType }) {
-  const label = typeof entry.values["label"] === "string" ? entry.values["label"] : entry.hrid;
-  const code = typeof entry.values["code"] === "string" ? entry.values["code"] : "";
+  // An option is shown by its label and named by its code: its HRID is only its page's
+  // address, from the sequence every list's options share (ADR 0295).
+  const code = typeof entry.values["code"] === "string" ? entry.values["code"] : entry.hrid;
+  const label = typeof entry.values["label"] === "string" ? entry.values["label"] : code;
   const fields = type.fields.filter((f) => f.name !== "position");
   // What's become of it, as its list says: archived, or superseded by which option.
   const option = useQuery(
@@ -708,7 +858,7 @@ function OptionPage({ entry, type }: { entry: Entry; type: EntityType }) {
             >
               {type.label_plural}
             </Link>{" "}
-            · {entry.registry.name} registry · {entry.hrid}
+            · {entry.registry.name} registry · <code>{code}</code>
           </>
         }
         title={label}

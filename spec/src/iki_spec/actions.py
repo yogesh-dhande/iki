@@ -100,6 +100,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
     return Action(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("_", " ").capitalize(),
         description=body.get("description"),
         inputs={
@@ -127,6 +128,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
                 cardinality=c.get("cardinality", "one"),
                 derived_from=tuple(c.get("derived_from", ())),
                 match_on=c.get("match_on"),
+                on_match=c.get("on_match", "update"),
                 receive_into=c.get("receive_into"),
             )
             for c in effects.get("creates", ())
@@ -180,6 +182,7 @@ def read_environment(plugin: str, body: dict[str, Any], document: Document) -> E
     return Environment(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("-", " ").capitalize(),
         description=body.get("description"),
         tiers=tuple(body["tiers"]),
@@ -695,7 +698,7 @@ class _Rules:
         ref = f.items if f.type == "list" and f.items is not None else f
         for target in ref.to:
             listed = self.s.types.get(target)
-            if listed is None or not listed.is_list:
+            if listed is None or not listed.is_lab_list:
                 continue
             changeable = sorted(
                 n
@@ -841,6 +844,15 @@ class _Rules:
                 self.receipt(action, creates, target, source, (*path, "receive_into"))
             if creates.match_on is not None and target is not None:
                 self.match_on(creates.match_on, target, source, (*path, "match_on"))
+            if creates.on_match != "update" and creates.match_on is None:
+                self.add(
+                    "on-match-without-match-on",
+                    "`on_match` says what a create that matches an entity does, and this one "
+                    "matches on no field.",
+                    source,
+                    (*path, "on_match"),
+                    hint="Give `match_on`, a unique field, or drop `on_match`.",
+                )
         seen: dict[str, int] = {}
         for index, updates in enumerate(action.updates):
             path = ("effects", "updates", index)
@@ -922,6 +934,15 @@ class _Rules:
                     where,
                     hint="Read it as an input instead, or trigger the action on "
                     "`entity.state_changed`.",
+                )
+            elif f.cel is not None:
+                self.add(
+                    "updates-cel-computed",
+                    f"`{name}` is worked out from its record's own values at every save "
+                    "(ADR 0297): no one sets it, not even a run.",
+                    source,
+                    where,
+                    hint="Update the fields it's worked out from instead.",
                 )
             elif f.immutable:
                 self.add(

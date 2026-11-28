@@ -35,8 +35,8 @@ def test_observation_history_uses_current_access_even_after_a_line_disappears(
     other = build_world(prefix="other-")
     workflow = parent(world, collection)
     elsewhere = parent(other, collection)
-    path = f"/{collection}/{workflow.pk}/history"
-    other_path = f"/{collection}/{elsewhere.pk}/history"
+    path = f"/{collection}/{workflow.pk}/observations"
+    other_path = f"/{collection}/{elsewhere.pk}/observations"
     editor, viewer = (Api(world.browser(who)) for who in ("editor", "viewer"))
     private = Project.objects.create(team=world.team, name="Private samples")
     ProjectMembership.objects.create(

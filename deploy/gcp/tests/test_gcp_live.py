@@ -1776,11 +1776,13 @@ def test_a_vm_tier_run_reads_the_volume_from_its_image_on_a_machine_of_its_own(
         1800,
     )
     assert run["status"] == "succeeded", run
-    (attempt,) = admin.api("GET", f"/runs/{run_id}/attempts").json()
+    (attempt,) = admin.api("GET", f"/runs/{run_id}/attempts").json()["items"]
     assert attempt["template"] == VM_TEMPLATE, attempt
     read = attempt["volumes"][VM_VOLUME]
     assert (read["hrid"], read["data_version"]) == (build["hrid"], build["data_version"]), read
-    artifacts = {a["path"]: a for a in admin.api("GET", f"/runs/{run_id}/artifacts").json()}
+    artifacts = {
+        a["path"]: a for a in admin.api("GET", f"/runs/{run_id}/artifacts").json()["items"]
+    }
     assert sorted(artifacts) == ["mount.txt", "reference.txt"], artifacts
 
     def content(path: str) -> str:

@@ -298,24 +298,24 @@ def test_two_admins_changing_what_it_takes_are_each_audited(lab: Lab) -> None:
 def test_a_project_lists_the_services_it_may_send_to(lab: Lab) -> None:
     path = f"/projects/{lab.world.project.pk}/services"
     viewer = lab.api("viewer")
-    assert viewer.get(path).json() == []
+    assert viewer.every(path) == []
     takes(lab)
-    listed = viewer.get(path).json()
+    listed = viewer.every(path)
     assert [(s["project"]["name"], s["description"]) for s in listed] == [
         ("Protein Core", "Assays")
     ]
     assert listed[0]["types"] == [{"name": ASK, "label": "Assay request"}]
-    assert viewer.get(path, type=ASK).json() == listed
-    assert viewer.get(path, type=SAMPLE).json() == []
-    assert viewer.get(path, type="acme/protein.Nope").json() == []
+    assert viewer.every(path, type=ASK) == listed
+    assert viewer.every(path, type=SAMPLE) == []
+    assert viewer.every(path, type="acme/protein.Nope") == []
     # Named projects alone, once it doesn't take from the whole registry.
     takes(lab, from_registry=False)
-    assert viewer.get(path).json() == []
+    assert viewer.every(path) == []
     # And never from another registry: requests stay within one (ADR 0115).
     takes(lab)
     other = Registry.objects.create(name="Partners")
     Project.objects.filter(pk=lab.core.pk).update(registry=other)
-    assert viewer.get(path).json() == []
+    assert viewer.every(path) == []
 
 
 # --- Sending ------------------------------------------------------------------------------------
@@ -391,29 +391,27 @@ def test_sending_a_request_shares_it_and_its_samples_with_the_service(lab: Lab) 
 def test_a_project_lists_the_services_it_has_sent_to_by_name_alone(lab: Lab) -> None:
     path = f"/projects/{lab.world.project.pk}/sent-to"
     viewer = lab.api("viewer")
-    assert viewer.get(path).json() == []
+    assert viewer.every(path) == []
     sent(lab)
     expected = [{"id": str(lab.core.pk), "name": "Protein Core", "slug": lab.core.slug}]
-    assert viewer.get(path).json() == expected
+    assert viewer.every(path) == expected
     # Once it's sent there, it stays listed, though the core takes no more of them.
     takes(lab, types=[])
-    assert viewer.get(path).json() == expected
-    assert viewer.get(f"/projects/{lab.world.project.pk}/services").json() == []
+    assert viewer.every(path) == expected
+    assert viewer.every(f"/projects/{lab.world.project.pk}/services") == []
     # Nothing else of the core's shows its asker, nor the other way round.
     problem(viewer.get(f"/projects/{lab.core.pk}"), 404, "not_found")
     problem(viewer.get(f"/projects/{lab.core.pk}/sent-to"), 404, "not_found")
-    assert lab.api("core_viewer").get(f"/projects/{lab.core.pk}/sent-to").json() == []
+    assert lab.api("core_viewer").every(f"/projects/{lab.core.pk}/sent-to") == []
 
 
 def test_a_service_lists_who_has_sent_it_requests_by_name_alone(lab: Lab) -> None:
     path = f"/projects/{lab.core.pk}/sent-from"
     tech = lab.api("tech")
-    assert tech.get(path).json() == []
+    assert tech.every(path) == []
     made = sent(lab)
     asking = lab.world.project
-    assert tech.get(path).json() == [
-        {"id": str(asking.pk), "name": asking.name, "slug": asking.slug}
-    ]
+    assert tech.every(path) == [{"id": str(asking.pk), "name": asking.name, "slug": asking.slug}]
     # Its queue is searched by who asked, though its people can't see that project.
     problem(tech.get(f"/projects/{asking.pk}"), 404, "not_found")
     found = tech.post(
@@ -422,7 +420,7 @@ def test_a_service_lists_who_has_sent_it_requests_by_name_alone(lab: Lab) -> Non
     )
     assert [e["hrid"] for e in found.json()["items"]] == [made["hrid"]]
     problem(tech.get(f"/projects/{asking.pk}/sent-from"), 404, "not_found")
-    assert lab.api("viewer").get(f"/projects/{asking.pk}/sent-from").json() == []
+    assert lab.api("viewer").every(f"/projects/{asking.pk}/sent-from") == []
 
 
 def test_a_project_that_doesnt_take_it_looks_like_none_at_all(lab: Lab) -> None:
@@ -577,7 +575,7 @@ def test_the_service_assigns_its_own_people(lab: Lab) -> None:
     assert refused["errors"][0]["pointer"] == "#/values/technician"
     assert change(lab, "tech", ref, {"technician": tech}).status_code == 200
     state(lab, "tech", ref, "status", "accepted")
-    work = lab.api("tech").get("/me/work").json()["items"]
+    work = lab.api("tech").get("/me/work-items").json()["items"]
     assert [w["entity"]["hrid"] for w in work] == [made["hrid"]]
 
 
@@ -595,14 +593,14 @@ def test_withdrawn_requests_leave_work_and_cannot_be_taken(lab: Lab) -> None:
         assert accepted.status_code == 200, accepted.content
     changed = change(lab, "tech", assigned["id"], {"technician": str(lab.users["tech"].pk)})
     assert changed.status_code == 200, changed.content
-    assert work_ids("/me/work") == [assigned["id"]]
-    assert work_ids("/me/work/open") == [available["id"]]
+    assert work_ids("/me/work-items") == [assigned["id"]]
+    assert work_ids("/me/open-work-items") == [available["id"]]
 
     for ref in (assigned["id"], available["id"]):
         stopped = state(lab, "editor", ref, "standing", "withdrawn", "No longer needed")
         assert stopped.status_code == 200, stopped.content
-    assert work_ids("/me/work") == []
-    assert work_ids("/me/work/open") == []
+    assert work_ids("/me/work-items") == []
+    assert work_ids("/me/open-work-items") == []
 
     ref = available["id"]
     observed = technician.get(f"/entities/{ref}")
@@ -625,14 +623,14 @@ def test_withdrawn_requests_leave_work_and_cannot_be_taken(lab: Lab) -> None:
 
     reopened = state(lab, "editor", ref, "standing", "open")
     assert reopened.status_code == 200, reopened.content
-    assert work_ids("/me/work/open") == [ref]
+    assert work_ids("/me/open-work-items") == [ref]
     took = technician.post(
         f"/entities/{ref}/take",
         {"field": "technician"},
         headers={"If-Match": reopened["ETag"]},
     )
     assert took.status_code == 200, took.content
-    assert work_ids("/me/work") == [ref]
+    assert work_ids("/me/work-items") == [ref]
 
 
 def raw(statement: str, params: list[Any], *sides: str) -> None:

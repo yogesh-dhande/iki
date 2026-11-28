@@ -94,9 +94,9 @@ from django.db.models.lookups import Exact, GreaterThanOrEqual, IRegex
 
 from iki_server.entities import access, registry
 from iki_server.entities.models import Entity, ProjectLink
-from iki_server.entities.values import FOREIGN_KEYS, Shape, is_list_table, shape, subtypes
+from iki_server.entities.values import FOREIGN_KEYS, Shape, shape, subtypes
 from iki_spec import conditions, identity, motifs, naming, titles, units
-from iki_spec.model import Field
+from iki_spec.model import Field, stored_in_list_table
 from iki_spec.notifications import now_of
 
 #: Bounds on one search, so none is too costly to plan or run.
@@ -971,7 +971,7 @@ def column(form: Shape | None, name: str) -> Column | None:
         prefix = f"{naming.entry_related_name(part.plugin)}__" if part.extension else ""
     else:
         prefix = f"{naming.extension_related_name(part.plugin)}__" if part.extension else ""
-    if is_list_table(f):
+    if stored_in_list_table(f):
         return Column(name, f.type, prefix + name, f, items=part.list_model(name), entry=entry)
     if f.type in FOREIGN_KEYS:
         return Column(name, f.type, f"{prefix}{name}_id", f, entry=entry)

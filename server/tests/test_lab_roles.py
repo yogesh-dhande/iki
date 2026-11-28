@@ -48,7 +48,7 @@ def held(world: World, principal: str) -> frozenset[str]:
 
 
 def test_lists_the_lab_roles_plugins_declare(world: World) -> None:
-    listed = api_as(world, "viewer").get("/lab-roles").json()
+    listed = api_as(world, "viewer").every("/lab-roles")
     for role in listed:  # the rules and guards tests' own type (ADRs 0127, 0128)
         role["uses"] = [u for u in role["uses"] if u["owner"] != "acme/protein.Batch"]
     assert [r["name"] for r in listed] == [ANALYST, QA, REVIEWER]
@@ -123,7 +123,7 @@ def test_two_plugins_roles_of_one_label_are_told_apart(
             installed["acme/protein"], name=plugin, title=title, roles={role.qualified_name: role}
         )
     monkeypatch.setattr(registry, "plugins", lambda: installed)
-    labels = {r["name"]: r["label"] for r in api_as(world, "viewer").get("/lab-roles").json()}
+    labels = {r["name"]: r["label"] for r in api_as(world, "viewer").every("/lab-roles")}
     assert labels["acme/lots.qa"] == "QA (Lots)"
     assert labels["acme/lims.qa"] == "QA (Example LIMS)"
     # The test plugin's QA is called QA as well, so it says whose it is too, by its name

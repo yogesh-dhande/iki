@@ -138,8 +138,10 @@ they list none.
   from the alignment, as the dna plugin's `consensus` does for DNA (the same
   script, which reads that README's rule). Where no residue reaches the
   threshold, D and N together are B, E and Q are Z, I and L are J, and any
-  other set is X; without ambiguity codes, X. A protein already in Iki is
-  found ([ADR 0173](../../docs/adr/0173-dna-is-aligned-as-proteins-are-and-a-consensus-is-a-sequence.md)).
+  other set is X; without ambiguity codes, X. A read's X that `align_reads`
+  narrows in its header (`possible=42:KN`, an AAN codon) counts as what it
+  could be: half a K and half an N, not a twentieth of every residue. A protein
+  already in Iki is found ([ADR 0173](../../docs/adr/0173-dna-is-aligned-as-proteins-are-and-a-consensus-is-a-sequence.md)).
 - **`align_reads`**: aligns sequencing reads to a protein, such as Sanger
   reads of an expression construct to the protein it should make, into a
   `iki/core.Alignment` the alignment viewer shows, the protein its reference. It
@@ -186,12 +188,14 @@ either, such as NNN, says nothing: it covers nothing, and the run lists
 where. UGA is selenocysteine where the protein has U, and UAG pyrrolysine
 where it has O; any other stop there (`p.(U42*)`) is a stop.
 
-Properties are Biopython's ProtParam, which follows ExPASy's:
+Properties follow ExPASy's ProtParam, and all but the molecular weight are
+Biopython's:
 
 - **Length**: its amino acids; a stop (`*`) is none.
-- **Molecular weight**: average isotopic masses of the residues, plus one
-  water, from Biopython's table (`IUPACData.protein_weights`). It gives
-  haemoglobin α 15,257.36 Da, where ExPASy's own table gives 15,257.55: 12 ppm.
+- **Molecular weight**: its residues' formulas, plus one water, weighed by
+  CIAAW's standard atomic weights 2024, the table every Iki plugin weighs by
+  ([ADR 0272](../../docs/adr/0272-one-table-of-atomic-weights-weighs-every-molecule.md)). It gives haemoglobin α 15,257.59 Da, where ExPASy gives 15,257.55
+  and Biopython's ProtParam, by IUPAC's atomic weights of 2005, 15,257.36.
 - **Isoelectric point**: the pH at which Bjellqvist's charge model (his pK
   values, with the terminal residues' own) gives no net charge, found by
   bisection to 0.0001. Biopython's own search keeps between pH 4.05 and 12,

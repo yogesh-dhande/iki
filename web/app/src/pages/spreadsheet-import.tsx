@@ -86,7 +86,7 @@ import {
 } from "../ui";
 import { templateUrl } from "../sheet";
 import { progressLabel, upload, uploadError, type Progress } from "../uploads";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 /** The types a sheet's rows can become: those whose records can be made. */
 export function importableTypes(types: readonly EntityType[]): EntityType[] {

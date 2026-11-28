@@ -3,51 +3,49 @@
 # How a polymer lot's Mn and Mw were measured: one lab list (ADR 0270) for both, as most
 # methods give both; each option says which averages it gives, which a lot's rules hold.
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: MolarMassMethod
 label: Molar mass method
 schema_version: 1
 description: >-
   How a polymer lot's number-average (Mn) or weight-average (Mw) molecular weight is
   measured (IUPAC, 2009), and which of them the method gives.
-hrid: { prefix: MMM }
-list:
-  options:
-    - code: sec_conventional
-      label: SEC, conventional calibration
-      description: SEC (GPC) against a calibration of standards, which it's relative to.
-      averages: [mn, mw]
-    - code: sec_universal
-      label: SEC, universal calibration
-      description: SEC with a viscometer, by universal calibration.
-      averages: [mn, mw]
-    - code: sec_mals
-      label: SEC-MALS
-      description: SEC with multi-angle light scattering, which needs no standards.
-      averages: [mn, mw]
-    - code: maldi_tof
-      label: MALDI-TOF MS
-      averages: [mn, mw]
-    - code: nmr_end_group
-      label: NMR end-group analysis
-      description: Its end groups' signals against its repeat units', which count chains.
-      averages: [mn]
-    - code: membrane_osmometry
-      label: Membrane osmometry
-      description: Osmotic pressure across a membrane, which counts molecules.
-      averages: [mn]
-    - code: vapor_pressure_osmometry
-      label: Vapour pressure osmometry
-      description: Vapour pressure lowering, which counts molecules, for lower molar masses.
-      averages: [mn]
-    - code: static_light_scattering
-      label: Static light scattering
-      description: Light scattering of the whole sample (batch mode), which weighs molecules.
-      averages: [mw]
-    - code: sedimentation_equilibrium
-      label: Sedimentation equilibrium
-      description: Analytical ultracentrifugation to equilibrium, which weighs molecules.
-      averages: [mw]
+options:
+  - code: sec_conventional
+    label: SEC, conventional calibration
+    description: SEC (GPC) against a calibration of standards, which it's relative to.
+    averages: [mn, mw]
+  - code: sec_universal
+    label: SEC, universal calibration
+    description: SEC with a viscometer, by universal calibration.
+    averages: [mn, mw]
+  - code: sec_mals
+    label: SEC-MALS
+    description: SEC with multi-angle light scattering, which needs no standards.
+    averages: [mn, mw]
+  - code: maldi_tof
+    label: MALDI-TOF MS
+    averages: [mn, mw]
+  - code: nmr_end_group
+    label: NMR end-group analysis
+    description: Its end groups' signals against its repeat units', which count chains.
+    averages: [mn]
+  - code: membrane_osmometry
+    label: Membrane osmometry
+    description: Osmotic pressure across a membrane, which counts molecules.
+    averages: [mn]
+  - code: vapor_pressure_osmometry
+    label: Vapour pressure osmometry
+    description: Vapour pressure lowering, which counts molecules, for lower molar masses.
+    averages: [mn]
+  - code: static_light_scattering
+    label: Static light scattering
+    description: Light scattering of the whole sample (batch mode), which weighs molecules.
+    averages: [mw]
+  - code: sedimentation_equilibrium
+    label: Sedimentation equilibrium
+    description: Analytical ultracentrifugation to equilibrium, which weighs molecules.
+    averages: [mw]
 fields:
   averages:
     type: list

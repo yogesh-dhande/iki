@@ -4,6 +4,11 @@
 // passes on what the element tells the page, through the one port the page hands it. The
 // page checks every message itself: the bridge shares the frame with the component's
 // code, so it's a convenience, not a guard.
+//
+// It speaks @ikisci/component's frame protocol (ADR 0286), whose version is PROTOCOL: it
+// connects only to a page that speaks it, and forwards exactly that package's EVENTS, as
+// a test of the package holds it to.
+const PROTOCOL = 1;
 const config = JSON.parse(document.getElementById("iki-component").textContent);
 let port = null;
 let element = null;
@@ -56,23 +61,30 @@ function received(event) {
   if (element && PROPERTIES.includes(type)) element[type] = event.data[type];
 }
 
+// What the element may ask for, by its event's name, and how each is passed on.
+const FORWARDED = {
+  "iki-select": selected,
+  "iki-more": () => send({ type: "more" }),
+  "iki-refine": refined,
+  "iki-open": opened,
+  "iki-run": ran,
+};
+
 async function start() {
   await customElements.whenDefined(config.element);
   element = document.createElement(config.element);
-  element.addEventListener("iki-select", selected);
-  element.addEventListener("iki-more", () => send({ type: "more" }));
-  element.addEventListener("iki-refine", refined);
-  element.addEventListener("iki-open", opened);
-  element.addEventListener("iki-run", ran);
+  for (const [name, forward] of Object.entries(FORWARDED)) element.addEventListener(name, forward);
   document.body.append(element);
   const size = () => send({ type: "resize", height: document.documentElement.scrollHeight });
   new ResizeObserver(size).observe(document.body);
-  send({ type: "ready" });
+  send({ type: "ready", protocol: PROTOCOL });
 }
 
 function connected(event) {
   if (event.source !== window.parent || event.data?.type !== "iki-connect") return;
-  if (event.ports.length !== 1) return;
+  // A page that speaks another version of the protocol gets no answer: it says the
+  // component didn't start, rather than misreading what it sends.
+  if (event.data.protocol !== PROTOCOL || event.ports.length !== 1) return;
   window.removeEventListener("message", connected);
   port = event.ports[0];
   port.onmessage = received;

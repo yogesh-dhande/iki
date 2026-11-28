@@ -4,8 +4,14 @@
   "title": "Iki plugin (iki/v1)",
   "description": "A plugin's `plugin.yaml`: its name, what it depends on, and the settings it takes.",
   "type": "object",
-  "required": ["apiVersion", "kind", "name", "version"],
+  "required": ["apiVersion", "kind", "name", "version", "iki"],
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
   "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
     "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
     "kind": { "description": "What the manifest declares: `Plugin`.", "const": "Plugin" },
     "name": {
@@ -35,7 +41,7 @@
       "pattern": "^https://[^\\s]+$"
     },
     "iki": {
-      "description": "The Iki releases the plugin works with, as comparisons with release numbers separated by commas, such as `>=0.1,<0.3`. A deployment on any other release refuses it. Leaving it out says nothing either way.",
+      "description": "The Iki releases the plugin works with, as comparisons with release numbers separated by commas, such as `>=0.1,<0.3`. Required. A deployment on any other release refuses it, and a manifest key added after the earliest release it admits is an error (ADR 0293).",
       "type": "string",
       "maxLength": 200,
       "pattern": "^\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\.[0-9]+){0,2}(\\s*,\\s*(==|!=|>=|<=|>|<)\\s*[0-9]+(\\.[0-9]+){0,2})*\\s*$"

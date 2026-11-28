@@ -57,7 +57,7 @@ def patch(api: Api, ref: str, body: dict[str, Any], etag: str | None) -> Any:
 
 def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     api = api_as(world, "viewer")
-    names = [t["name"] for t in api.get("/entity-types").json()]
+    names = [t["name"] for t in api.every("/entity-types")]
     assert names == sorted(names)
     assert {"acme/dna.Sequence", "acme/dna.DNASequence", "acme/protein.Protein"} <= set(names)
     assert "iki/core.Entity" not in names
@@ -65,6 +65,7 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert dna["extends"] == "acme/dna.Sequence"
     assert dna["identity"] == ["bases"]
     assert dna["hrid_prefix"] == "DNA"
+    assert dna["annotations"] == {"gxp_classification": "GAMP 5 category 4"}
     fields = {f["name"]: f for f in dna["fields"]}
     # Inherited from iki/core.Sequence, by way of acme/dna.Sequence.
     assert fields["name"]["plugin"] == "iki/core"
@@ -79,6 +80,7 @@ def test_types_come_with_a_schema_of_their_values(world: World) -> None:
     assert schema["properties"]["length"]["readOnly"] is True
     assert schema["properties"]["bases"]["x-iki-immutable"] is True
     sequence = api.get("/entity-types/acme/dna.Sequence").json()
+    assert sequence["annotations"] == {}
     assert sequence["abstract"] and "acme/protein.Protein" in sequence["subtypes"]
     problem(api.get("/entity-types/acme/dna.Nothing"), 404, "not_found")
 
@@ -163,7 +165,7 @@ def test_registering_again_gives_each_project_its_record(world: World, other: Pr
     assert same.status_code == 200 and same.json()["reused"]
     assert same.json()["id"] == theirs["id"] and same.json()["values"].get("name") is None
     # Each record is in its own project alone.
-    projects = api.get(f"/entities/{first['id']}/projects").json()
+    projects = api.every(f"/entities/{first['id']}/projects")
     assert [(p["project"]["name"], p["owner"]) for p in projects] == [("Kinase Atlas", True)]
 
 
@@ -276,7 +278,7 @@ def test_an_owner_project_you_cant_see_is_null(world: World, other: Project) -> 
         "sign": [],
         "take": [],
     }
-    projects = api_as(world, "outsider").get(f"/entities/{made['id']}/projects").json()
+    projects = api_as(world, "outsider").every(f"/entities/{made['id']}/projects")
     assert [p["project"]["name"] for p in projects] == ["Enzymes"]
 
 
@@ -380,7 +382,7 @@ def test_a_projects_changes_are_its_records_newest_first_and_no_one_elses(
     assert editor.put(f"/entities/{shared['id']}/projects/{world.project.pk}").status_code == 201
 
     url = f"/projects/{world.project.pk}/changes"
-    changes = api_as(world, "viewer").get(url).json()
+    changes = api_as(world, "viewer").every(url)
     assert [(c["entity"]["hrid"], c["number"], c["kind"]) for c in changes] == [
         (shared["hrid"], 1, "created"),
         (own["hrid"], 2, "edited"),
@@ -393,16 +395,21 @@ def test_a_projects_changes_are_its_records_newest_first_and_no_one_elses(
     assert latest_edit["user"]["email"] == "editor@example.com"
     assert elsewhere["hrid"] not in {c["entity"]["hrid"] for c in changes}
 
-    limited = api_as(world, "viewer").get(f"{url}?limit=1")
-    assert [c["entity"]["hrid"] for c in limited.json()] == [shared["hrid"]]
-    problem(editor.get(f"{url}?limit=51"), 422, "validation_failed")
+    limited = api_as(world, "viewer").get(url, limit=1).json()
+    assert [c["entity"]["hrid"] for c in limited["items"]] == [shared["hrid"]]
+    rest = api_as(world, "viewer").every(url, cursor=limited["next_cursor"])
+    assert [(c["entity"]["hrid"], c["number"]) for c in rest] == [
+        (own["hrid"], 2),
+        (own["hrid"], 1),
+    ]
+    problem(editor.get(url, limit=101), 422, "validation_failed")
 
     # The outsider is in Enzymes, not Kinase Atlas: it isn't there for them.
     problem(api_as(world, "outsider").get(url), 404, "not_found")
     # An Org Admin sees the project exists, not what changed in it.
     problem(api_as(world, "org_admin").get(url), 403, "forbidden")
     # Enzymes' changes are Enzymes' records': the shared one, and its own.
-    theirs = api_as(world, "outsider").get(f"/projects/{other.pk}/changes").json()
+    theirs = api_as(world, "outsider").every(f"/projects/{other.pk}/changes")
     assert {c["entity"]["hrid"] for c in theirs} == {elsewhere["hrid"], shared["hrid"]}
 
 

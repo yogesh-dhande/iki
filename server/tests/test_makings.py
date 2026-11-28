@@ -51,8 +51,8 @@ def ran(
 
 def made(world: World, run: dict[str, Any], principal: str = "viewer") -> list[dict[str, Any]]:
     (effect,) = api_as(world).get(f"/runs/{run['id']}").json()["effects"]
-    body: list[dict[str, Any]] = (
-        api_as(world, principal).get(f"/entities/{effect['hrid']}/making").json()
+    body: list[dict[str, Any]] = api_as(world, principal).every(
+        f"/entities/{effect['hrid']}/makings"
     )
     return body
 
@@ -138,7 +138,7 @@ def test_an_import_keeps_what_its_record_says_made_it_as_its_sources_word(
         "url": "https://alphafold.ebi.ac.uk/entry/P69905",
     }
     hrid = api_as(world).get(f"/runs/{run['id']}").json()["effects"][0]["hrid"]
-    (origin,) = api_as(world).get(f"/entities/{hrid}/origins").json()
+    (origin,) = api_as(world).every(f"/entities/{hrid}/origins")
     assert origin["made"] == {**said, "method": ""}
 
 
@@ -180,7 +180,7 @@ def test_a_reader_who_cant_see_the_run_still_sees_how_it_was_made(world: World) 
     )
     ProjectLink.objects.create(entity=entity, project=elsewhere)
 
-    (row,) = api_as(world, "team_member").get(f"/entities/{entity.hrid}/making").json()
+    (row,) = api_as(world, "team_member").every(f"/entities/{entity.hrid}/makings")
 
     assert (row["software"], row["run"]) == ("ImmuneBuilder", None)
 

@@ -51,7 +51,9 @@ export function problem(
   /** More members, as RFC 9457 extensions. */
   extensions: Record<string, unknown> = {},
 ): Response {
-  const title = status === 409 ? "Conflict" : "Error";
+  const title =
+    { 409: "Conflict", 412: "Precondition Failed", 428: "Precondition Required" }[status] ??
+    "Error";
   return respond(status, {
     type: "about:blank",
     title,

@@ -33,7 +33,7 @@ def save(api: Api, world: World, name: str = "Human", **kw: Any) -> Any:
 def names(api: Api, world: World) -> list[str]:
     found = api.get("/saved-searches", project=str(world.project.pk))
     assert found.status_code == 200, found.content
-    return [s["name"] for s in found.json()]
+    return [s["name"] for s in found.json()["items"]]
 
 
 def test_saving_a_search_and_running_it(world: World) -> None:
@@ -173,22 +173,23 @@ def test_only_your_own_are_the_sidebars_saved_views(world: World) -> None:
     )
     mine = viewer.get("/saved-searches", mine=True)
     assert mine.status_code == 200, mine.content
-    assert [(s["name"], s["project"]) for s in mine.json()] == [
+    assert [(s["name"], s["project"]) for s in mine.json()["items"]] == [
         ("Another", str(other.pk)),
         ("Everywhere", None),
         ("Human", str(world.project.pk)),
     ]
-    assert [s["name"] for s in viewer.get("/saved-searches", mine=True, limit=1).json()] == [
-        "Another"
-    ]
+    first = viewer.get("/saved-searches", mine=True, limit=1).json()
+    assert [s["name"] for s in first["items"]] == ["Another"]
+    rest = viewer.every("/saved-searches", mine=True, cursor=first["next_cursor"])
+    assert [s["name"] for s in rest] == ["Everywhere", "Human"]
     in_the_project = viewer.get("/saved-searches", project=str(world.project.pk), mine=True)
-    assert [s["name"] for s in in_the_project.json()] == ["Human"]
+    assert [s["name"] for s in in_the_project.json()["items"]] == ["Human"]
     membership.delete()
-    assert [s["name"] for s in viewer.get("/saved-searches", mine=True).json()] == [
+    assert [s["name"] for s in viewer.every("/saved-searches", mine=True)] == [
         "Everywhere",
         "Human",
     ]
-    assert api_as(world, "outsider").get("/saved-searches", mine=True).json() == []
+    assert api_as(world, "outsider").every("/saved-searches", mine=True) == []
 
 
 def test_a_search_of_every_project_is_its_owners_alone(world: World) -> None:
@@ -224,14 +225,14 @@ def test_a_search_of_every_project_is_its_owners_alone(world: World) -> None:
     # Listed without a project, beside the project searches the viewer sees.
     shared = save(editor, world, "Shared", shared=True).json()
     save(editor, world, "Editor's own")
-    everywhere = viewer.get("/saved-searches").json()
+    everywhere = viewer.every("/saved-searches")
     assert [(s["name"], s["project"]) for s in everywhere] == [
         ("Human", None),
         ("Shared", shared["project"]),
     ]
     # Not in a project's list, and nobody else's.
     assert names(viewer, world) == ["Shared"]
-    assert [s["name"] for s in editor.get("/saved-searches").json()] == ["Editor's own", "Shared"]
+    assert [s["name"] for s in editor.every("/saved-searches")] == ["Editor's own", "Shared"]
     problem(editor.get(f"/saved-searches/{saved['id']}"), 404, "not_found")
     problem(editor.delete(f"/saved-searches/{saved['id']}"), 404, "not_found")
 
@@ -259,6 +260,6 @@ def test_a_search_of_every_project_is_its_owners_alone(world: World) -> None:
 def test_searches_in_projects_no_longer_read_arent_listed(world: World) -> None:
     viewer = api_as(world, "viewer")
     save(viewer, world, "Mine")
-    assert [s["name"] for s in viewer.get("/saved-searches").json()] == ["Mine"]
+    assert [s["name"] for s in viewer.every("/saved-searches")] == ["Mine"]
     world.project.memberships.filter(user=world.users["viewer"]).delete()
-    assert viewer.get("/saved-searches").json() == []
+    assert viewer.every("/saved-searches") == []

@@ -1,0 +1,236 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ikisci.org/schemas/review-procedure/v1",
+  "title": "Iki review procedure (iki/v1)",
+  "description": "A review procedure, declared once (ADR 0301): its role slots, its states, and the flows a project can choose among them. Types say what they need of a procedure, and a project chooses any that fits. A published version never changes: a different procedure is a new version.",
+  "type": "object",
+  "required": ["apiVersion", "kind", "name", "version", "label", "slots", "states", "flows"],
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  },
+  "properties": {
+    "annotations": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations" },
+    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "kind": {
+      "description": "What the manifest declares: `ReviewProcedure`.",
+      "const": "ReviewProcedure"
+    },
+    "name": {
+      "description": "The procedure's name in snake_case. Elsewhere it is `plugin.name@version`, such as `iki/core.result_review@1`.",
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+    },
+    "version": {
+      "description": "Its version, a whole number from 1. Records pin it, so a published version's states, flows and slots never change: change them in a new version.",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 999
+    },
+    "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "slots": {
+      "description": "The parts people play in it, such as `analyst`, `reviewer` and `qa`. A starter binds each to a lab role, by default the shared `iki/lab_roles` role of its name (ADR 0304).",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 10,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" },
+      "additionalProperties": { "$ref": "#/$defs/slot" }
+    },
+    "states": {
+      "description": "Its states, by name, in the order they're shown. Each flow routes through some of them.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 20,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "#/$defs/state" }
+    },
+    "flows": {
+      "description": "The ways through it a project can choose, by name, such as `research` and `regulated_qc`.",
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 10,
+      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+      "additionalProperties": { "$ref": "#/$defs/flow" }
+    }
+  },
+  "$defs": {
+    "slot": {
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" }
+      }
+    },
+    "state": {
+      "type": "object",
+      "required": ["label"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+        "by": {
+          "description": "The slots whose holders may set it: one, or a list. Without it, no one sets it: records only start in it.",
+          "oneOf": [
+            { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" },
+            {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 10,
+              "uniqueItems": true,
+              "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/roleName" }
+            }
+          ]
+        },
+        "locks": {
+          "description": "A record in it is locked: its other values can't change until it leaves.",
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "Whether whoever sets it says why: `required` or `optional`.",
+          "enum": ["required", "optional"]
+        },
+        "on_edit": {
+          "description": "For an unsigned locking state, the state a correction returns the record to (ADR 0179).",
+          "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+        },
+        "signature": {
+          "description": "The electronic signature setting it needs (21 CFR Part 11, ADR 0126). A signed state declares `maker` or `independent_of`.",
+          "type": "object",
+          "required": ["meaning"],
+          "additionalProperties": false,
+          "properties": {
+            "meaning": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/signature/properties/meaning"
+            },
+            "label": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/signature/properties/label"
+            },
+            "statement": {
+              "$ref": "https://ikisci.org/schemas/field/v1#/$defs/signature/properties/statement"
+            }
+          }
+        },
+        "maker": { "$ref": "#/$defs/maker" },
+        "independent_of": { "$ref": "#/$defs/independentOf" }
+      }
+    },
+    "maker": {
+      "description": "The signer must be the work's maker: `true` for whoever created the record or edited it since it last entered its flow's first state, or `{person: field}` for the person a field names.",
+      "oneOf": [
+        { "const": true },
+        {
+          "type": "object",
+          "required": ["person"],
+          "additionalProperties": false,
+          "properties": {
+            "person": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          }
+        }
+      ]
+    },
+    "independentOf": {
+      "description": "Whom the signer must not be (ADR 0301): `creator`; `editors`, who edited it since it last entered its flow's first state (`{editors: {fields: [...]}}` for those who changed some fields, `{editors: {in: [...]}}` on a state field without a procedure); `{signers: [states]}`, who last signed into them; and, in a type, `{people: [fields]}`, whom its person fields name. Each mapping may add `when`, a CEL condition for it to apply.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "oneOf": [
+          { "enum": ["creator", "editors"] },
+          {
+            "type": "object",
+            "minProperties": 1,
+            "maxProperties": 2,
+            "additionalProperties": false,
+            "properties": {
+              "creator": { "const": true },
+              "editors": {
+                "oneOf": [
+                  { "const": true },
+                  {
+                    "type": "object",
+                    "minProperties": 1,
+                    "additionalProperties": false,
+                    "properties": {
+                      "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 20,
+                        "uniqueItems": true,
+                        "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+                      },
+                      "in": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 10,
+                        "uniqueItems": true,
+                        "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+                      }
+                    }
+                  }
+                ]
+              },
+              "signers": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+              },
+              "people": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 10,
+                "uniqueItems": true,
+                "items": {
+                  "description": "A person field, a list of people, or one a reference away: `investigator`, `test.observed_by`.",
+                  "type": "string",
+                  "pattern": "^[a-z][a-z0-9]*(_[a-z0-9]+)*(\\.[a-z][a-z0-9]*(_[a-z0-9]+)*)?$"
+                }
+              },
+              "when": { "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/expression" }
+            }
+          }
+        ]
+      }
+    },
+    "flow": {
+      "type": "object",
+      "required": ["label", "summary", "route"],
+      "additionalProperties": false,
+      "properties": {
+        "label": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/label" },
+        "summary": {
+          "description": "What it asks of people, in a sentence or two, shown where a project chooses it.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "route": {
+          "description": "Its states in order. Records start in the first, where the work is recorded and edited; each later one is set from the one before it. The last is its final state.",
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 10,
+          "uniqueItems": true,
+          "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+        },
+        "moves": {
+          "description": "The other moves it allows: into a state, from the states listed. A return for correction, a return to testing, a cancellation.",
+          "type": "object",
+          "maxProperties": 10,
+          "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
+          "additionalProperties": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 10,
+            "uniqueItems": true,
+            "items": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" }
+          }
+        }
+      }
+    }
+  }
+}

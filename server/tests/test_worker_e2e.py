@@ -316,7 +316,7 @@ def test_a_command_gets_its_secrets_in_its_environment_and_never_shows_them(
     assert SECRET not in said
     body = api_as(world).get(f"/runs/{run['id']}").json()
     assert body["error"]["message"] == "It was *** (exit status 3)"
-    (attempt,) = api_as(world).get(f"/runs/{run['id']}/attempts").json()
+    (attempt,) = api_as(world).every(f"/runs/{run['id']}/attempts")
     assert attempt["secrets"] == [SECRET_NAME]
 
 
@@ -461,7 +461,7 @@ def test_an_interrupted_checkpointable_run_resumes_from_what_it_saved(
     # It's deleted once the run ends; its record stays.
     eventually(lambda: RunCheckpoint.objects.get(pk=saved.pk).deleted_at is not None)
     assert not storage.exists(storage.checkpoint_key(saved.upload_id))
-    attempts = editor.get(f"/runs/{run['id']}/attempts").json()
+    attempts = editor.every(f"/runs/{run['id']}/attempts")
     assert [a["checkpoint"] and a["checkpoint"]["attempt"] for a in attempts] == [1, None]
     assert attempts[1]["resumed_from"] == {
         "attempt": 1,
@@ -612,7 +612,7 @@ def test_a_run_keeps_the_files_its_action_keeps_whether_it_succeeds_or_not(
     assert exit_code == 0, said
     body = editor.get(f"/runs/{run.json()['id']}").json()
     assert body["status"] == status, log_of(run.json())
-    kept = editor.get(f"/runs/{body['hrid']}/artifacts").json()
+    kept = editor.every(f"/runs/{body['hrid']}/artifacts")
     assert [(k["path"], k["state"], k["media_type"]) for k in kept] == [
         ("alignment.fasta", "kept", "chemical/seq-na-fasta"),
         ("alignment.txt", "kept", "text/plain"),
@@ -625,12 +625,28 @@ def test_a_run_keeps_the_files_its_action_keeps_whether_it_succeeds_or_not(
 def test_a_command_gives_many_creates_in_a_file_and_they_are_imported(
     world: World, start: Callable[..., Running], tmp_path: Path
 ) -> None:
-    from test_run_imports import IMPORT, stored
+    from test_run_imports import IMPORT
+
+    from iki_server.files import services as files
 
     plugins = tmp_path / "plugins"
     shutil.copytree(PLUGINS / "protein", plugins / "protein")
     (plugins / "protein" / "scripts" / "imports.py").write_text(MANY, encoding="utf-8")
-    file_id = stored(world)
+    upload = files.start(
+        world.users["editor"],
+        world.project,
+        name="kinases.fasta",
+        media_type="chemical/seq-aa-fasta",
+        size=0,
+        sha256=files.EMPTY_SHA256,
+    )
+
+    def scanned() -> Any:
+        upload.refresh_from_db()
+        return upload.file_id
+
+    # The task runner beside the server scans it; running tasks here as well would race it.
+    file_id = str(eventually(scanned))
     made = launch(api_as(world, "editor"), world.project, {}, IMPORT, params={"file": file_id})
     assert made.status_code == 201, made.content
     run = made.json()

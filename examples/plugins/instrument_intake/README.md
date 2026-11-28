@@ -141,7 +141,7 @@ takes longer than `scan_timeout`, the uploader notes which upload it was
 waiting for. On its next run it waits for that upload again and doesn't send
 the file a second time. If the scanner holds a file, the uploader logs the
 finding, makes no record and exits with 1. A Quarantine Admin reviews the
-finding through `GET /api/v1/quarantine` (see Iki's server README, "Reviewing
+finding through `GET /api/v1/quarantine-decisions` (see Iki's server README, "Reviewing
 held files"). If they release a false positive, the uploader's next run makes
 the record, and the trigger imports the file. A held file never reaches a
 worker, and a run's worker gets the file only after it's been scanned.

@@ -83,6 +83,13 @@ SHARED_SCHEMAS: dict[str, dict[str, Any]] = {
         "required": ["key", "entity", "hrid", "revision"],
         "properties": {"key": _TEXT, "entity": _ID, "hrid": _TEXT, "revision": _NUMBER},
     },
+    "StalePlace": {
+        "type": "object",
+        "description": "A place a sheet's new row was checked into, taken since the check: "
+        "its row, and the container and position.",
+        "required": ["key", "container", "hrid", "position"],
+        "properties": {"key": _TEXT, "container": _ID, "hrid": _TEXT, "position": _TEXT},
+    },
 }
 
 CODES: dict[str, Code] = {
@@ -135,6 +142,11 @@ CODES: dict[str, Code] = {
                 "type": "array",
                 "description": "A sheet's rows whose records changed.",
                 "items": _ref("StaleRow"),
+            },
+            "places": {
+                "type": "array",
+                "description": "The places a sheet's new rows go that were taken since the check.",
+                "items": _ref("StalePlace"),
             },
         },
     ),
@@ -221,6 +233,7 @@ CODES: dict[str, Code] = {
     "report_not_issued": Code(404, "The report hasn't been issued, so it isn't exported."),
     "writer_refused": Code(422, "The plugin's writer refused the record: `detail` says why."),
     "writer_failed": Code(422, "The plugin's writer failed: tell whoever looks after it."),
+    "too_many_exports": Code(429, "Too many exports are waiting: export more once one is ready."),
     "sandbox_unavailable": Code(503, "The export sandbox is busy or away: try again shortly."),
     "helm_unavailable": Code(503, "HELM can't be read right now: try again shortly."),
     # --- Runs ------------------------------------------------------------------------------

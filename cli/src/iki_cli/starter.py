@@ -5,11 +5,12 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import IO, TYPE_CHECKING
+from typing import IO, TYPE_CHECKING, Any
 from urllib.parse import quote
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from iki import Client
     from iki.schema import StarterOut, StarterSetupOut
 
 
@@ -82,11 +83,12 @@ def run(args: argparse.Namespace) -> int:
     from iki import ApiError, Client, IkiError
 
     operation = args.starter_command
+    result: Any
     try:
         with Client(args.url) as client:
             if operation == "list":
                 params = {"project": str(args.project)} if args.project else {}
-                result = client.request("GET", "/starters", params=params)
+                result = _every(client, "/starters", params)
             else:
                 # Starter IDs occupy one URL path segment.
                 if not args.starter or args.starter in (".", "..") or "/" in args.starter:
@@ -124,6 +126,18 @@ def run(args: argparse.Namespace) -> int:
     else:
         _print_application(result, preview=operation == "preview")
     return 0
+
+
+def _every(client: Client, path: str, params: dict[str, str]) -> list[StarterOut]:
+    """Every item of a list the API pages (ADR 0291), following its cursors."""
+    items: list[StarterOut] = []
+    cursor: str | None = None
+    while True:
+        page = client.request("GET", path, params={**params, "limit": 100, "cursor": cursor})
+        items += page["items"]
+        cursor = page["next_cursor"]
+        if not cursor:
+            return items
 
 
 def _print_starters(starters: list[StarterOut]) -> None:

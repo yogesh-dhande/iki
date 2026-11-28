@@ -87,7 +87,7 @@ def test_review_and_release_only_the_affected_source() -> None:
     assert viewer.get("/files").json()["items"][0]["scan"] == scan
     assert reviewer.get(path).status_code == 404
     assert reviewer.get("/me").json()["can"]["manage_quarantine"]
-    first = reviewer.get("/quarantine", limit=1).json()
+    first = reviewer.get("/quarantine-decisions", limit=1).json()
     (held,) = first["items"]
     assert {k: v for k, v in held.items() if k != "files"} == {
         "id": scan["decision_id"],
@@ -107,11 +107,11 @@ def test_review_and_release_only_the_affected_source() -> None:
     assert copy["kind"] == "file" and copy["file"] is None
     assert (copy["name"], copy["project"]["name"]) == ("lab.txt", "Kinase Atlas")
     assert copy["created_by"]["email"] == "editor@example.com"
-    next_page = reviewer.get("/quarantine", cursor=first["next_cursor"]).json()
+    next_page = reviewer.get("/quarantine-decisions", cursor=first["next_cursor"]).json()
     assert len(next_page["items"]) == 1 and next_page["next_cursor"] is None
     assert next_page["items"][0]["files"] == [] and next_page["items"][0]["file_count"] == 0
     assert first["items"][0]["id"] != next_page["items"][0]["id"]
-    release = f"/quarantine/{scan['decision_id']}/release"
+    release = f"/quarantine-decisions/{scan['decision_id']}/release"
     reason = "Compared the file with the instrument's signed original."
     problem(viewer.post(release, {"reason": reason}), 403, "forbidden")
     problem(reviewer.post(release, {"reason": "  "}), 422, "validation_failed")
@@ -121,9 +121,9 @@ def test_review_and_release_only_the_affected_source() -> None:
     assert (released["releasable"], released["release"]["reason"]) == (False, reason)
     assert released["release"]["by"]["email"] == "quarantine_admin@example.com"
     assert viewer.get(path).json()["scan"] == {**scan, "usable": True, "released": True}
-    assert reviewer.get("/quarantine").json() == next_page
-    assert reviewer.get("/quarantine", status="released").json()["items"] == [released]
-    assert reviewer.get(f"/quarantine/{scan['decision_id']}").json() == released
+    assert reviewer.get("/quarantine-decisions").json() == next_page
+    assert reviewer.get("/quarantine-decisions", released=True).json()["items"] == [released]
+    assert reviewer.get(f"/quarantine-decisions/{scan['decision_id']}").json() == released
     assert reviewer.get(path).status_code == 404
     problem(reviewer.post(release, {"reason": reason}), 409, "conflict")
     event = AuditEvent.objects.get(action="file.quarantine_released")
@@ -147,11 +147,11 @@ def test_a_held_source_lists_each_file_that_shares_it() -> None:
     ]
     decision = _infected(blob).decision_id
 
-    (listed,) = api.get("/quarantine").json()["items"]
+    (listed,) = api.get("/quarantine-decisions").json()["items"]
     assert listed["file_count"] == 4
     assert [c["name"] for c in listed["files"]] == names[:3]
     assert [c["file"] for c in listed["files"]] == [str(made[0].pk), str(made[1].pk), None]
-    every = api.get(f"/quarantine/{decision}").json()
+    every = api.get(f"/quarantine-decisions/{decision}").json()
     assert [c["name"] for c in every["files"]] == names
     assert [c["project"]["name"] for c in every["files"]] == ["Kinase Atlas"] * 2 + [
         "Antibody Panel"
@@ -178,7 +178,7 @@ def test_the_list_filters_by_what_was_found_by_name_and_by_hash() -> None:
     )
 
     def found(**query: Any) -> list[str]:
-        response = api.get("/quarantine", **query)
+        response = api.get("/quarantine-decisions", **query)
         assert response.status_code == 200, response.content
         return [item["files"][0]["name"] for item in response.json()["items"]]
 
@@ -193,8 +193,8 @@ def test_the_list_filters_by_what_was_found_by_name_and_by_hash() -> None:
     assert found(q="plate-07") == ["EnVision_plate-07.xlsm"]
     assert found(q=_sha256(11)[:12].upper()) == ["eicar-test.com"]
     assert found(q="ENVISION", state="not_scanned") == []
-    assert found(status="released") == []
-    problem(api.get("/quarantine", status="clean"), 422, "validation_failed")
+    assert found(released=True) == []
+    problem(api.get("/quarantine-decisions", released="clean"), 422, "validation_failed")
 
 
 def test_an_incomplete_inspection_is_held_but_never_released() -> None:
@@ -204,13 +204,15 @@ def test_an_incomplete_inspection_is_held_but_never_released() -> None:
     blob = _blob(20, size=412_000_000_000)
     _file(blob, "NovaSeq_221103_A01234.tar", world.project)
     held = scan_state.record_result(blob, state="not_scanned", scanner="ClamAV", reason="too_large")
-    entry = api.get(f"/quarantine/{held.decision_id}").json()
+    entry = api.get(f"/quarantine-decisions/{held.decision_id}").json()
     assert (entry["state"], entry["reason"], entry["releasable"]) == (
         "not_scanned",
         "too_large",
         False,
     )
-    refused = api.post(f"/quarantine/{held.decision_id}/release", {"reason": "It's ours."})
+    refused = api.post(
+        f"/quarantine-decisions/{held.decision_id}/release", {"reason": "It's ours."}
+    )
     problem(refused, 409, "conflict")
     assert not AuditEvent.objects.filter(action="file.quarantine_released").exists()
 
@@ -222,8 +224,10 @@ def test_an_incomplete_inspection_is_held_but_never_released() -> None:
         _blob(22), state="not_scanned", scanner="ClamAV", reason="too_large", allow_unscanned=True
     )
     for decision in (clean, allowed):
-        problem(api.get(f"/quarantine/{decision.decision_id}"), 404, "not_found")
-    assert [i["id"] for i in api.get("/quarantine").json()["items"]] == [str(held.decision_id)]
+        problem(api.get(f"/quarantine-decisions/{decision.decision_id}"), 404, "not_found")
+    assert [i["id"] for i in api.get("/quarantine-decisions").json()["items"]] == [
+        str(held.decision_id)
+    ]
 
 
 def test_a_runs_held_artifact_names_its_run(world: World) -> None:
@@ -246,7 +250,7 @@ def test_a_runs_held_artifact_names_its_run(world: World) -> None:
     )
     decision = _infected(upload, "Win.Trojan.Generic-9876543-0").decision_id
     api = Api(world.browser("quarantine_admin"))
-    entry = api.get(f"/quarantine/{decision}").json()
+    entry = api.get(f"/quarantine-decisions/{decision}").json()
     (copy,) = entry["files"]
     assert (copy["kind"], copy["file"], copy["run"]) == ("artifact", None, run["hrid"])
     assert (copy["name"], copy["created_by"]["email"]) == (
@@ -259,4 +263,6 @@ def test_a_runs_held_artifact_names_its_run(world: World) -> None:
 def test_a_quarantine_admins_token_needs_the_admin_scope() -> None:
     world = build_world()
     _, tokens = signed_in_token(world, "quarantine_admin", scope="read")
-    problem(bearer(tokens["access_token"], "GET", "/quarantine"), 403, "insufficient_scope")
+    problem(
+        bearer(tokens["access_token"], "GET", "/quarantine-decisions"), 403, "insufficient_scope"
+    )

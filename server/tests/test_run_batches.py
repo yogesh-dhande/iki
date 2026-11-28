@@ -2,12 +2,14 @@
 into one job (ADR 0055)."""
 
 import asyncio
+import threading
 import uuid
 from typing import Any
 
 import pytest
 from api_client import problem
 from asgiref.sync import sync_to_async
+from django.db import connection
 from django.db.models.functions import Now
 from django.test import AsyncClient
 from org_world import World, build_world
@@ -17,10 +19,11 @@ from test_runs import COMPUTE, protein
 from test_workers import WorkerClient, expire, keep_connection, worker, world
 
 from iki_server.audit.models import AuditEvent
+from iki_server.entities import access
 from iki_server.entities.models import ProjectLink
 from iki_server.realtime.hub import hub
 from iki_server.runs import queue
-from iki_server.runs.models import ActionRun, Job, JobLog, JobState, RunOutput, RunQuota
+from iki_server.runs.models import ActionRun, Job, JobLog, JobState, RunOutput, RunQuota, Worker
 from iki_spec import schemas
 
 pytestmark = pytest.mark.django_db
@@ -213,12 +216,12 @@ def test_a_packed_runs_attempt_follows_its_job(world: World) -> None:
     pod.report(job, "logs", offset=0, text="abl1: 12345.6\n")
     viewer = api_as(world, "viewer")
     last = launched["runs"][-1]
-    (attempt,) = viewer.get(f"/runs/{last['hrid']}/attempts").json()
+    (attempt,) = viewer.every(f"/runs/{last['hrid']}/attempts")
     assert (attempt["state"], attempt["worker"]) == ("running", "pod-9")
     assert (attempt["progress"], attempt["progress_message"]) == (0.5, "Weighing")
     assert attempt["log_size"] == 14
     assert attempt["pack"] == {"runs": 3, "reported_as": launched["runs"][0]["hrid"]}
-    (held,) = viewer.get(f"/runs/{launched['runs'][0]['hrid']}/attempts").json()
+    (held,) = viewer.every(f"/runs/{launched['runs'][0]['hrid']}/attempts")
     assert held["pack"] == {"runs": 3, "reported_as": launched["runs"][0]["hrid"]}
     log = viewer.get(f"/runs/{last['hrid']}/attempts/1/log").json()
     assert (log["text"], log["size"], log["ended"]) == ("abl1: 12345.6\n", 14, False)
@@ -356,6 +359,9 @@ def test_a_retried_pack_contains_the_runs_whose_inputs_are_still_readable(world:
     assert record["entity"] not in response.content.decode()
     assert record["hrid"] not in response.content.decode()
     assert statuses(launched) == ["running", "rejected", "running"]
+    # It ended as it would have queued: never packed, nor held by the worker.
+    ended = Job.objects.get(run_id=withdrawn["id"], attempt=2)
+    assert (ended.packed_into_id, ended.worker_id, ended.started_at) == (None, None, None)
 
 
 def test_a_failed_pack_fails_each_run(world: World) -> None:
@@ -505,3 +511,239 @@ def test_a_new_entity_can_refer_only_to_its_own_runs_new_entities(world: World) 
     parts = packs.split(document, runs)
     assert not isinstance(parts, packs.Unsplittable)
     assert [len(p.get("creates", [])) for p in parts] == [2, 0]
+
+
+# --- Leasing a pack ----------------------------------------------------------------------------
+
+RELAX = "acme/protein.relax_structure"
+
+
+def _sequence(n: int) -> str:
+    """A distinct name for the `n`th protein, which `protein` makes a valid sequence of."""
+    letters = "ACDEFGHIKLMNPQRSTVWY"
+    return "".join(letters[n // 20**i % 20] for i in range(4))
+
+
+def relax_pack(world: World, size: int) -> list[ActionRun]:
+    """A batch of `size` runs of relax_structure, packed `batchable: 100`: each reads a
+    structure, its file and its two chains, each a record of a registry entry."""
+    from test_run_inclusions import structure
+
+    editor = api_as(world, "editor")
+    first = 2 * Job.objects.count() + 2 * len(NAMES)
+    made = [
+        structure(
+            world,
+            protein(editor, world.project, _sequence(first + 2 * n)),
+            protein(editor, world.project, _sequence(first + 2 * n + 1)),
+        )
+        for n in range(size)
+    ]
+    launched = editor.post(
+        f"/actions/{RELAX}/runs/batch",
+        {
+            "project": str(world.project.pk),
+            "each": "structure",
+            "entities": [s["id"] for s in made],
+        },
+    )
+    assert launched.status_code == 201, launched.content
+    runs = list(ActionRun.objects.filter(batch__hrid=launched.json()["batch"]["hrid"]))
+    for run in runs:
+        run.spec = {**run.spec, "batchable": 100}
+        run.save(update_fields=["spec"])
+    return runs
+
+
+def leased_counting(world: World, size: int) -> tuple[int, int]:
+    """Leases a pack of `size`: how many queries the lease makes, and how many of them in
+    the transaction holding its tier's quota lock, from the lock on."""
+    relax_pack(world, size)
+    pod = Worker.objects.get(name="pod-1")
+    made: list[tuple[str, int]] = []
+
+    def counted(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
+        # As deep as the atomic blocks are: a block's own savepoint is released a level up.
+        made.append((sql, len(connection.savepoint_ids)))
+        return execute(sql, params, many, context)
+
+    with connection.execute_wrapper(counted):
+        leased = queue.lease(pod)
+    assert leased is not None
+    assert len(leased[1]["inputs"]["structure"]) == size
+    (locked,) = [i for i, (sql, _) in enumerate(made) if "pg_advisory_xact_lock" in sql]
+    depth = made[locked][1]
+    held = next(i for i in range(locked, len(made)) if made[i][1] < depth) - locked
+    return len(made), held
+
+
+def test_a_pack_is_leased_in_as_many_queries_however_many_runs_it_holds(
+    world: World, s3: Any
+) -> None:
+    """A lease reads what its pack's runs read at once (ADR 0055), and holds its tier's
+    quota lock only to count and claim (ADR 0045), however many runs it packs."""
+    RunQuota.objects.create(project=world.project, max_running=4, created_by=world.users["admin"])
+    worker(world)
+    leased_counting(world, 1)
+    few, few_held = leased_counting(world, 2)
+    many, many_held = leased_counting(world, 6)
+    assert (many, many_held) == (few, few_held)
+    # The lock, the quota's count, the budgets', the shortlist, and claiming the job and
+    # its pack.
+    assert few_held <= 10, few_held
+
+
+def lock_held(key: str, *, hashed: str = "hashtextextended(%s, 0)") -> bool:
+    """Whether another transaction holds the advisory lock on `key`, hashed as the code
+    that takes it hashes it: asked from a connection of its own."""
+    found: list[bool] = []
+
+    def ask() -> None:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(f"SELECT pg_try_advisory_lock({hashed})", [key])
+                row = cursor.fetchone()
+                taken = bool(row and row[0])
+                if taken:
+                    cursor.execute(f"SELECT pg_advisory_unlock({hashed})", [key])
+                found.append(not taken)
+        finally:
+            connection.close()
+
+    asking = threading.Thread(target=ask)
+    asking.start()
+    asking.join()
+    return found[0]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_lease_reads_its_pack_after_counting_and_claiming(
+    world: World, s3: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Other leases on the tier don't wait while a lease reads what its pack reads: its
+    claim, counted against the quota, has committed."""
+    RunQuota.objects.create(project=world.project, max_running=1, created_by=world.users["admin"])
+    runs = relax_pack(world, 3)
+    worker(world)
+    held: list[bool] = []
+    readable = access.project_reference_ids
+
+    def reading(project: Any, ids: Any) -> Any:
+        # Checking that the project reads what its runs read, as the manifests are made.
+        held.append(lock_held("iki_quota_running:backend"))
+        return readable(project, ids)
+
+    monkeypatch.setattr(access, "project_reference_ids", reading)
+
+    leased = queue.lease(Worker.objects.get(name="pod-1"))
+
+    assert leased is not None
+    assert held and not any(held)
+    assert {row["run"] for row in leased[1]["pack"]} == {str(r.pk) for r in runs}
+    assert Job.objects.filter(state=JobState.LEASED, packed_into__isnull=True).count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_a_pack_is_claimed_whole_while_its_lease_reads_its_runs(
+    world: World, s3: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Another lease, meanwhile, neither takes part of the pack nor is kept from what's
+    queued behind it."""
+    RunQuota.objects.create(project=world.project, max_running=4, created_by=world.users["admin"])
+    # More than a lease weighs of a project's jobs at once, then a pack behind it.
+    first = relax_pack(world, queue.EACH + 2)
+    then = relax_pack(world, 2)
+    worker(world)
+    worker(world, name="pod-2")
+    meanwhile: list[tuple[str, int] | None] = []
+    started: list[bool] = []
+    readable = access.project_reference_ids
+
+    def other() -> None:
+        try:
+            got = queue.lease(Worker.objects.get(name="pod-2"))
+            meanwhile.append(None if got is None else (got[1]["run"]["id"], len(got[1]["pack"])))
+        finally:
+            connection.close()
+
+    def reading(project: Any, ids: Any) -> Any:
+        # Only the first lease, while it reads: the other's own reading goes on.
+        if not started:
+            started.append(True)
+            leasing = threading.Thread(target=other)
+            leasing.start()
+            leasing.join()
+        return readable(project, ids)
+
+    monkeypatch.setattr(access, "project_reference_ids", reading)
+
+    leased = queue.lease(Worker.objects.get(name="pod-1"))
+
+    assert leased is not None
+    assert {row["run"] for row in leased[1]["pack"]} == {str(r.pk) for r in first}
+    (other_leased,) = meanwhile
+    assert other_leased is not None
+    run, size = other_leased
+    assert (run in {str(r.pk) for r in then}, size) == (True, 2)
+
+
+def _as_queued(job: Job) -> tuple[Any, ...]:
+    return (job.worker_id, job.lease_token, job.lease_expires_at, job.started_at, job.template)
+
+
+def test_a_claimed_job_that_cant_start_ends_as_it_would_have_queued(world: World, s3: Any) -> None:
+    """Its claim is undone: it ends with no worker and no lease, frees its quota's slot at
+    once, and the runs it would have packed are leased next."""
+    RunQuota.objects.create(project=world.project, max_running=1, created_by=world.users["admin"])
+    runs = relax_pack(world, 3)
+    first = Job.objects.filter(run__in=runs).order_by("queued_at", "id").first()
+    assert first is not None
+    # Its structure left the project since it was launched.
+    structure = first.run.inputs.get().entity_id
+    ProjectLink.objects.filter(entity_id=structure, project=world.project).delete()
+    pod = worker(world)
+
+    assert pod.lease().status_code == 204
+
+    ended = Job.objects.get(pk=first.pk)
+    assert (ended.state, ended.error) == (
+        JobState.FAILED,
+        {
+            "code": "not_allowed",
+            "message": "The run needs every pinned input, reference and file in its project.",
+        },
+    )
+    assert _as_queued(ended) == (None, None, None, None, "")
+    # Nor were the others packed into it.
+    others = Job.objects.filter(run__in=runs).exclude(pk=first.pk)
+    assert {(j.state, j.packed_into_id, *_as_queued(j)) for j in others} == {
+        (JobState.QUEUED, None, None, None, None, None, "")
+    }
+    leased = pod.lease()
+    assert leased.status_code == 200, leased.content
+    assert len(leased.json()["pack"]) == 2
+
+
+def test_a_lease_that_breaks_after_its_claim_leaves_the_job_waiting(
+    world: World, s3: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runs = relax_pack(world, 2)
+    worker(world)
+    pod = Worker.objects.get(name="pod-1")
+
+    def broken(*_: Any, **__: Any) -> Any:
+        raise RuntimeError("The secrets store is down.")
+
+    with monkeypatch.context() as patched:
+        patched.setattr(queue, "payload", broken)
+        with pytest.raises(RuntimeError):
+            queue.lease(pod)
+
+    jobs = Job.objects.filter(run__in=runs)
+    assert {(j.state, j.packed_into_id, *_as_queued(j)) for j in jobs} == {
+        (JobState.QUEUED, None, None, None, None, None, "")
+    }
+    assert set(statuses({"runs": [{"id": r.pk} for r in runs]})) == {"queued"}
+    leased = queue.lease(pod)
+    assert leased is not None
+    assert len(leased[1]["pack"]) == 2

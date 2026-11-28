@@ -60,6 +60,9 @@ spec:
             - "8091"
             - --concurrency
             - {{ $s.concurrency | quote }}
+            # No export runs longer than the longest the server gives one.
+            - --max-deadline
+            - {{ max $s.limits.inlineSeconds $s.limits.backgroundSeconds | quote }}
           # No env and no envFrom: nothing from the chart's environment, which
           # names the database, the keys and the cloud.
           ports:

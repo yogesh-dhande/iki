@@ -43,6 +43,9 @@ TYPE_PATTERN = r"^[a-z][a-z0-9]*(_[a-z0-9]+)*/[a-z][a-z0-9]*(_[a-z0-9]+)*\.[A-Z]
 UNIQUE_CONSTRAINT = "iki_unique_value_once"
 #: The one a second entry in a registry with a unique fact's value breaks (ADR 0115).
 UNIQUE_IN_REGISTRY = "iki_unique_value_once_in_registry"
+#: The unique indexes a second option of a lab list in a registry with a label in another
+#: case breaks start with this (ADR 0270), one for each list.
+LIST_LABEL_INDEX = "iki_list_label__"
 #: The constraints two of a project's records break whose ranges a rule says mustn't
 #: overlap (ADR 0127): of dates and datetimes, and of numbers.
 RANGE_CONSTRAINT = "iki_range_value_apart"
@@ -93,7 +96,9 @@ class Entity(models.Model):
     )
     created_at = models.DateTimeField(db_default=Now())
     archived_at = models.DateTimeField(null=True, blank=True)
-    #: A registry entry's SHA-256 of its type's identity fields, by which it's found.
+    #: A registry entry's SHA-256 of its type's identity fields, by which it's found. An
+    #: entry superseded by one of the same identity as another type (ADR 0165) has handed
+    #: it to its replacement, which registering that identity finds now.
     identity_hash = models.CharField(max_length=64, null=True, blank=True)
     #: The latest revision's number. Edits name it, so two people's edits can't cross.
     revision = models.PositiveIntegerField(default=0)
@@ -149,10 +154,15 @@ class Entity(models.Model):
             # project, and no registry or identity of its own.
             models.CheckConstraint(
                 condition=(
-                    # An entry's identity is gone only once its plugin's purged.
+                    # An entry's identity is gone only once its plugin's purged, or once it
+                    # was superseded by an entry of its identity as another type (ADR 0165).
                     (
                         Q(registry__isnull=False, owner_project__isnull=True, entry__isnull=True)
-                        & (Q(identity_hash__isnull=False) | Q(purged_at__isnull=False))
+                        & (
+                            Q(identity_hash__isnull=False)
+                            | Q(purged_at__isnull=False)
+                            | Q(superseded_by__isnull=False)
+                        )
                     )
                     | Q(
                         registry__isnull=True,
@@ -530,7 +540,9 @@ class Revision(models.Model):
     state_to = models.CharField(max_length=50, blank=True, default="", db_default="")
     #: For a state set by signing for it (ADR 0126): the signatures that set it, in order.
     signatures = ArrayField(models.UUIDField(), default=list, blank=True, db_default=[])
-    #: For a record that moved (ADR 0115): the superseded entry it held before.
+    #: For a record that moved (ADR 0115): the superseded entry it held before. For a
+    #: registry entry's first, when a registrar registered it in place of an entry of
+    #: another type (ADR 0165): that entry.
     moved_from = models.ForeignKey(
         Entity, null=True, blank=True, on_delete=models.PROTECT, related_name="+"
     )
@@ -781,8 +793,9 @@ class RuleHoldOccurrence(models.Model):
 
 class RuleBreach(models.Model):
     """A record that breaks a rule it was saved before (ADR 0127): one its plugin added
-    or changed later, or one a bundle brought from another deployment. It's reported, not
-    refused, until a save that checks the rule finds it kept."""
+    or changed later, one a bundle brought from another deployment, or one a change to its
+    registry entry's values broke (ADR 0115). It's reported, not refused, until a save that
+    checks the rule finds it kept."""
 
     id = models.BigAutoField(primary_key=True)
     entity = models.ForeignKey(Entity, on_delete=models.CASCADE, related_name="breaches")
@@ -859,9 +872,16 @@ class RecordExport(models.Model):
     #: Every record read to write it, its own and what they refer to: whoever downloads it
     #: must still be able to read them all.
     references = ArrayField(models.UUIDField(), null=True, blank=True)
+    #: The limits of the token it was asked for with (ADR 0152), which writing it keeps
+    #: to in the background as it would while the request waited; None when it was asked
+    #: for in the browser.
+    limits = models.JSONField(null=True, blank=True)
     state = models.CharField(
         max_length=16, choices=RecordExportState.choices, default=RecordExportState.QUEUED
     )
+    #: Written by a background task, which tries again if its runner stops; not while its
+    #: request waits, where nothing would if the request's process stopped partway.
+    background = models.BooleanField(default=False)
     #: Why it failed, said to the person who asked.
     error = models.TextField(blank=True, default="")
     #: How many of its records are written so far.

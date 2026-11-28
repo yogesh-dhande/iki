@@ -11,7 +11,8 @@
  * What the last text found stays on show while the next is found, but ↵ opens only what
  * was found for the text in the box, of the kind chosen: pressed sooner, it waits for that
  * answer and opens its first result, or nothing if it finds nothing. So pasting an HRID
- * and pressing ↵ opens that record, never one the text before it found.
+ * and pressing ↵ opens that record, never one the text before it found. Until then
+ * nothing shown is active, and the arrow keys wait for it too.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -171,7 +172,8 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
     },
     [rows],
   );
-  const activeRow = rows[active];
+  // Only an answer to what's in the box has an option for ↵ to open.
+  const activeRow = fresh ? rows[active] : undefined;
   useEffect(() => {
     if (!activeRow) return;
     document.getElementById(activeRow.id)?.scrollIntoView({ block: "nearest" });
@@ -205,7 +207,7 @@ function Palette({ onOpen, onClose }: { onOpen: (href: string) => void; onClose:
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      if (!rows.length) return;
+      if (!fresh || !rows.length) return;
       const step = event.key === "ArrowDown" ? 1 : -1;
       setActive((active + step + rows.length) % rows.length);
     } else if (event.key === "Enter") {

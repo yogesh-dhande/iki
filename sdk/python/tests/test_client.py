@@ -344,6 +344,44 @@ def test_registrars_curate_entries_on_the_revision_they_read(fake: FakeIki, clie
         "replacement": "CPD-000124",
         "reason": "Wrong salt form",
     }
+    # Its identity registered as another type: the chains of a protein complex that is an
+    # antibody, with the roles an antibody gives them.
+    fake.on("POST", "/api/v1/entries/PCX-000007/supersede", {"hrid": "PCX-000007"})
+    chains = [
+        {"part": "PRT-000041", "copies": 2, "role": "heavy"},
+        {"part": "PRT-000042", "copies": 2, "role": "light"},
+    ]
+    client.entries.supersede(
+        "PCX-000007",
+        type="iki/antibody.Antibody",
+        values={"components": chains},
+        revision=1,
+        reason="An IgG1: heavy and light chains, two of each",
+    )
+    assert fake.sent("POST", "/api/v1/entries/PCX-000007/supersede")[0].headers["If-Match"] == '"1"'
+    assert fake.body("POST", "/api/v1/entries/PCX-000007/supersede") == {
+        "type": "iki/antibody.Antibody",
+        "values": {"components": chains},
+        "reason": "An IgG1: heavy and light chains, two of each",
+    }
+    with pytest.raises(ValueError, match="Give the replacement"):
+        client.entries.supersede("PCX-000007", revision=1, reason="Which?")
+    with pytest.raises(ValueError, match="Give the replacement"):
+        client.entries.supersede(
+            "PCX-000007",
+            replacement="ABY-000001",
+            type="iki/antibody.Antibody",
+            revision=1,
+            reason="Both",
+        )
+    with pytest.raises(ValueError, match="give its type"):
+        client.entries.supersede(
+            "PCX-000007",
+            replacement="ABY-000001",
+            values={"isotype": "IgG1"},
+            revision=1,
+            reason="Values",
+        )
 
 
 def test_a_record_moves_from_the_revision_read(fake: FakeIki, client: Client) -> None:

@@ -475,7 +475,7 @@ def status(world: World, run: dict[str, Any]) -> str:
 
 
 def attempt(world: World, run: dict[str, Any]) -> dict[str, Any]:
-    (found,) = api_as(world).get(f"/runs/{run['id']}/attempts").json()
+    (found,) = api_as(world).every(f"/runs/{run['id']}/attempts")
     return dict(found)
 
 
@@ -507,7 +507,9 @@ def test_a_run_goes_through_slurm_in_its_image_and_its_results_come_back(
 ) -> None:
     # The project's runs are charged to an account of its own on the cluster.
     admin = api_as(world, "compute_admin")
-    put = admin.put(f"/compute/slurm/hpc1/accounts/{world.project.pk}", {"account": "rd-protein"})
+    put = admin.put(
+        f"/compute/slurm-clusters/hpc1/accounts/{world.project.pk}", {"account": "rd-protein"}
+    )
     assert put.status_code == 200, put.content
     run = launch(world, secret=True)
     node = login_node()
@@ -604,7 +606,7 @@ def test_a_login_node_restarting_leaves_its_jobs_running_and_picks_them_up(
     said = node.stop()
     assert "Picked up a job on the cluster again." in said
     # One Slurm job, one attempt.
-    assert len(api_as(world).get(f"/runs/{run['id']}/attempts").json()) == 1
+    assert len(api_as(world).every(f"/runs/{run['id']}/attempts")) == 1
 
 
 def test_a_login_node_restarting_keeps_why_its_job_said_it_failed(
@@ -766,5 +768,5 @@ def test_a_login_node_keeps_its_job_through_a_server_that_cant_answer_as_it_star
     assert "Couldn't renew a job's lease after starting again; trying again." in said
     assert "Picked up a job on the cluster again." in said
     # The same Slurm job and attempt, which ran to the end.
-    assert len(api_as(world).get(f"/runs/{run['id']}/attempts").json()) == 1
+    assert len(api_as(world).every(f"/runs/{run['id']}/attempts")) == 1
     assert attempt(world, run)["slurm"]["state"] == "COMPLETED"

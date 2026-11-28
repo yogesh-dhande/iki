@@ -20,13 +20,14 @@ from django.db.models.functions import Now
 from django.test import Client
 from django.utils import timezone
 from org_world import World, build_world
+from structlog.testing import capture_logs
 from test_api_entities import api_as
 from test_runs import launch, protein
 
 from iki_server.audit.models import AuditEvent
 from iki_server.entities.models import Entity
 from iki_server.org.models import Project, ProjectMembership, ProjectRole
-from iki_server.runs import catalog, queue, workers
+from iki_server.runs import catalog, leases, queue, workers
 from iki_server.runs.models import ActionRun, Job, JobLog, JobState, Worker
 from iki_server.runs.wakeup import waker
 from iki_spec import schemas
@@ -548,7 +549,7 @@ def test_logs_arrive_in_order(world: World, monkeypatch: pytest.MonkeyPatch) -> 
     gap = problem(pod.report(job, "logs", offset=10, text="x"), 409, "log_gap")
     assert gap["errors"] == [{"pointer": "#/offset", "detail": "Send from byte 7."}]
     assert gap["next_offset"] == 7
-    monkeypatch.setattr(queue, "MAX_LOG_BYTES", 10)
+    monkeypatch.setattr(leases, "MAX_LOG_BYTES", 10)
     assert pod.report(job, "logs", offset=7, text="world\n").json() == {"next_offset": 13}
     assert pod.report(job, "logs", offset=13, text="more\x00").json() == {"next_offset": 18}
     texts = list(JobLog.objects.filter(job_id=job["job"]["id"]).values_list("text", flat=True))
@@ -756,6 +757,76 @@ def test_jobs_running_far_past_their_timeout_are_ended(world: World) -> None:
     body = api_as(world).get(f"/runs/{run['id']}").json()
     assert body["status"] == "timed_out"
     assert "300s timeout" in body["error"]["message"]
+
+
+def long_runs(world: World, n: int) -> None:
+    """`n` attempts held at once, each well within its run's ten-day timeout: a busy
+    cluster's long jobs. They're attempts of one run, which recovery doesn't mind."""
+    run = queued(world)
+    ActionRun.objects.filter(pk=run["id"]).update(timeout=10 * 86400)
+    job = Job.objects.get(run_id=run["id"])
+    started = timezone.now() - timedelta(minutes=10)
+    fields = {f.attname: getattr(job, f.attname) for f in Job._meta.concrete_fields}
+    copies = [
+        Job(
+            **{
+                **fields,
+                "id": uuid.uuid4(),
+                "attempt": attempt,
+                "state": JobState.RUNNING,
+                "started_at": started,
+                "lease_token": uuid.uuid4(),
+                "lease_expires_at": timezone.now() + queue.LEASE_TTL,
+            }
+        )
+        for attempt in range(2, n + 2)
+    ]
+    Job.objects.bulk_create(copies)
+
+
+def test_an_overdue_job_is_ended_however_many_long_ones_are_within_their_timeout(
+    world: World,
+) -> None:
+    pod = worker(world)
+    queued(world)
+    overdue = pod.lease().json()["job"]["id"]
+    # More than a pass looks at, each started before it, and none of them due.
+    long_runs(world, 501)
+    Job.objects.filter(pk=overdue).update(started_at=timezone.now() - timedelta(minutes=16))
+    assert queue.recover_expired() == 1
+    assert Job.objects.get(pk=overdue).state == JobState.TIMED_OUT
+    assert Job.objects.filter(state=JobState.RUNNING).count() == 501
+
+
+def test_a_job_recovery_cant_end_doesnt_keep_the_others_from_ending(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pod = worker(world)
+    first, second = queued(world), queued(world)
+    broken, lost = pod.lease().json(), pod.lease().json()
+    expire(broken)
+    expire(lost)
+    # The broken one's lease ran out first, so it's the first a pass ends.
+    Job.objects.filter(pk=broken["job"]["id"]).update(
+        lease_expires_at=timezone.now() - timedelta(minutes=1)
+    )
+    end_pack = queue._end_pack
+
+    def end_or_fail(job: Job, *args: Any) -> ActionRun:
+        if str(job.pk) == broken["job"]["id"]:
+            raise RuntimeError("a bug in ending this one")
+        return end_pack(job, *args)
+
+    monkeypatch.setattr(queue, "_end_pack", end_or_fail)
+    with capture_logs() as logs:
+        assert queue.recover_expired() == 1
+    assert Job.objects.get(pk=lost["job"]["id"]).state == JobState.INTERRUPTED
+    assert ActionRun.objects.get(pk=second["id"]).status == "queued"
+    # The one it couldn't end is as it was, for the next pass; and the log says why.
+    assert Job.objects.get(pk=broken["job"]["id"]).state == JobState.LEASED
+    assert ActionRun.objects.get(pk=first["id"]).status == "running"
+    (failed,) = [e for e in logs if e["event"] == "job_recovery_failed"]
+    assert failed["job"] == broken["job"]["id"] and failed["log_level"] == "error"
 
 
 # --- Waiting for work --------------------------------------------------------------------------

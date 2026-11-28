@@ -757,7 +757,7 @@ def test_a_saved_mapping_maps_the_next_sheet_of_its_kind(world: World) -> None:
     }
     assert second["locale"]["dates"] == "day_first"
     assert AuditEvent.objects.filter(action="spreadsheet_mapping.saved").count() == 1
-    listed = api.get(f"/projects/{world.project.pk}/spreadsheet-mappings?type={SAMPLE}").json()
+    listed = api.every(f"/projects/{world.project.pk}/spreadsheet-mappings", type=SAMPLE)
     assert [m["name"] for m in listed] == ["Plate reader export"]
     kept = f"/spreadsheet-mappings/{listed[0]['id']}"
     assert api_as(world, "viewer").delete(kept, headers=seen(listed[0])).status_code == 403
@@ -861,6 +861,81 @@ def test_a_committed_import_keeps_the_mapping_it_applied(world: World) -> None:
     history = colleague.get(ref).json()
     assert history["mapping"] == pinned["template"]
     assert history["applied_mapping"] == pinned
+
+
+def _plate_reader_export() -> list[list[Any]]:
+    """A plate reader's export: 32 rows about the run, then its table, whose header is on
+    row 33. The table's 64 absorbance reads come before the label and purity columns."""
+    about = [
+        ["Instrument", "SpectraMax iD5"],
+        ["Protocol", "A280 kinetic, 64 reads"],
+        *[[f"Read {n} at", f"{n * 30} s"] for n in range(1, 31)],
+    ]
+    reads = [f"A280 t{n}" for n in range(1, 65)]
+    return [
+        *about,
+        [*reads, "Label", "Purity (%)"],
+        [*[0.41] * 64, "ABL1-KD-001", 98.5],
+        [*[0.38] * 64, "EGFR-KD-001", 95.0],
+    ]
+
+
+def test_a_header_past_the_sample_is_read_through_to_the_committed_run(world: World) -> None:
+    """The header row and its columns are read from the workbook, not from the rows Iki
+    shows as a sample (30 rows, 60 columns): row 33's headings, and columns 65 and 66,
+    map their fields, and the run says them."""
+    imported = started(world, xlsx(("Export", _plate_reader_export())))
+    assert imported["header_row"] == 1
+    chose = change(world, imported, {"header_row": 33})
+    assert chose.status_code == 200, chose.content
+    body = chose.json()
+    assert (body["header_row"], body["first_row"]) == (33, 34)
+    headers = [c["header"] for c in body["columns"]]
+    assert headers[0] == "A280 t1" and headers[63] == "A280 t64"
+    assert headers[64:] == ["Label", "Purity (%)"]
+    assert {h: f for h, f in mapped(body).items() if f} == {
+        "Label": "label",
+        "Purity (%)": "purity",
+    }
+
+    # Saved, the mapping keeps its headings, for the instrument's next export.
+    ref = f"/spreadsheet-imports/{body['id']}"
+    saved = api_as(world).post(f"{ref}/mappings", {"name": "SpectraMax"}, headers=seen(body))
+    assert saved.status_code == 201, saved.content
+    assert saved.json()["columns"] == [
+        {"header": "Label", "field": "label"},
+        {"header": "Purity (%)", "field": "purity"},
+    ]
+    stored_mapping = SavedMapping.objects.get(pk=saved.json()["id"])
+    assert stored_mapping.header_row == 33
+
+    now = api_as(world).get(ref).json()
+    checked = previewed(world, change(world, now, {"locale": {"decimal": "point"}}).json())
+    assert checked["preview"]["counts"]["create"] == 2
+    done = committed(world, checked)
+    assert done["state"] == "imported", done
+    assert [(c["index"], c["header"]) for c in done["applied_mapping"]["columns"]] == [
+        (64, "Label"),
+        (65, "Purity (%)"),
+    ]
+    run = ActionRun.objects.get(pk=done["run"]["id"])
+    assert run.params["header_row"] == 33
+    assert [c["header"] for c in run.params["columns"]] == ["Label", "Purity (%)"]
+    made = records(world)
+    assert list(made) == ["ABL1-KD-001", "EGFR-KD-001"]
+    assert values(made["ABL1-KD-001"])["purity"] == 98.5
+
+
+def test_a_wide_sheets_headers_are_read_past_its_sampled_columns(world: World) -> None:
+    """Iki's first reading takes the header row's every column, not the sample's 60."""
+    reads = [f"A280 t{n}" for n in range(1, 65)]
+    text = csv_text([[*reads, "Label", "Purity (%)"], [*[0.41] * 64, "ABL1-KD-001", 98.5]])
+    imported = started(world, text.encode(), name="export.csv")
+    assert imported["sheets"][0]["columns"] == 66 and len(imported["sample"][0]) == 60
+    assert {h: f for h, f in mapped(imported).items() if f} == {
+        "Label": "label",
+        "Purity (%)": "purity",
+    }
 
 
 # --- Revisions --------------------------------------------------------------------------------
@@ -1035,6 +1110,84 @@ def test_abandoned_imports_are_discarded(world: World) -> None:
     )
     assert sheets.expire() == 1
     assert SpreadsheetImport.objects.get(pk=checked["id"]).state == "discarded"
+
+
+def _meanwhile(monkeypatch: pytest.MonkeyPatch, then: Any) -> None:
+    """Has ``then`` happen in another session just after maintenance finds the imports
+    to discard, and before it takes each one's lock."""
+    from iki_server.spreadsheets import services as sheets
+
+    found = sheets._abandoned
+    calls = {"n": 0}
+
+    def abandoned(cutoff: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] > 1:
+            return found(cutoff)
+        listed = list(found(cutoff).values_list("pk", flat=True))
+        then()
+        # What maintenance read, before the other session's change.
+        return SpreadsheetImport.objects.filter(pk__in=listed)
+
+    monkeypatch.setattr(sheets, "_abandoned", abandoned)
+
+
+def test_an_import_changed_while_maintenance_expires_it_is_kept(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from iki_server.spreadsheets import services as sheets
+
+    proteins(world)
+    imported = started(world, xlsx(("Samples", MANIFEST)))
+    SpreadsheetImport.objects.filter(pk=imported["id"]).update(
+        updated_at=timezone.now() - timedelta(days=15)
+    )
+    refreshed: dict[str, Any] = {}
+
+    def refresh() -> None:
+        answer = change(world, imported, {"locale": {"decimal": "point"}})
+        assert answer.status_code == 200, answer.content
+        refreshed.update(answer.json())
+
+    _meanwhile(monkeypatch, refresh)
+    assert sheets.expire() == 0
+    kept = SpreadsheetImport.objects.get(pk=imported["id"])
+    assert (kept.state, kept.revision) == ("mapping", refreshed["revision"])
+    # It goes on: it previews and imports.
+    assert committed(world, previewed(world, refreshed))["state"] == "imported"
+
+
+def test_an_import_committed_while_maintenance_expires_it_is_imported(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from iki_server.spreadsheets import services as sheets
+
+    proteins(world)
+    checked = previewed(world, started(world, xlsx(("Samples", MANIFEST))))
+    SpreadsheetImport.objects.filter(pk=checked["id"]).update(
+        updated_at=timezone.now() - timedelta(days=15)
+    )
+
+    def accept() -> None:
+        ref = f"/spreadsheet-imports/{checked['id']}/commit"
+        answer = api_as(world).post(ref, {}, headers=seen(checked))
+        assert answer.status_code == 202, answer.content
+
+    _meanwhile(monkeypatch, accept)
+    assert sheets.expire() == 0
+    assert SpreadsheetImport.objects.get(pk=checked["id"]).state == "committing"
+    settle()
+    done = api_as(world).get(f"/spreadsheet-imports/{checked['id']}").json()
+    assert done["state"] == "imported", done
+    assert list(records(world)) == ["ABL1-KD-001", "ABL1-KD-002", "EGFR-KD-001"]
 
 
 def test_a_preview_whose_runner_went_away_goes_on(world: World) -> None:

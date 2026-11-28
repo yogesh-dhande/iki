@@ -193,18 +193,20 @@ def test_an_external_id_finds_its_entity_in_each_project_you_can_read(world: Wor
 
     found = lookup(api, "LIMS-1")
     assert found.status_code == 200, found.content
-    assert [e["hrid"] for e in found.json()] == [mine["hrid"], theirs["hrid"]]
-    assert [e["hrid"] for e in lookup(api, "LIMS-1", project=str(other.pk)).json()] == [
+    assert [e["hrid"] for e in found.json()["items"]] == [mine["hrid"], theirs["hrid"]]
+    assert [e["hrid"] for e in lookup(api, "LIMS-1", project=str(other.pk)).json()["items"]] == [
         theirs["hrid"]
     ]
-    assert lookup(api, "LIMS-2").json() == []
+    assert lookup(api, "LIMS-2").json() == {"items": [], "next_cursor": None}
     # A subtype's lookup by its parent's type finds it too; another type's doesn't.
     assert lookup(api, "LIMS-1", type="acme/dna.Sequence").status_code == 422  # no such field there
 
     # Someone who can read only the first project sees only its entity.
     viewer = world.users["viewer"]
     assert not ProjectMembership.objects.filter(project=other, user=viewer).exists()
-    assert [e["hrid"] for e in lookup(api_as(world, "viewer"), "LIMS-1").json()] == [mine["hrid"]]
+    assert [e["hrid"] for e in lookup(api_as(world, "viewer"), "LIMS-1").json()["items"]] == [
+        mine["hrid"]
+    ]
     problem(lookup(api_as(world, "viewer"), "LIMS-1", project=str(other.pk)), 404, "not_found")
 
 

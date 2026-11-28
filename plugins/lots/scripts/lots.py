@@ -21,7 +21,9 @@ works out what follows from what was measured of a lot, and what it's a lot of:
   has (two of each in an IgG, one in a Fab), which a complex of them says; its
   unconjugated share (DAR 0); and its concentration from its A280 with its own measured
   ε280, which its payload adds to.
-- ``polymer``: a polymer lot's molar-mass dispersity, Mw/Mn (IUPAC, 2009).
+
+A polymer lot's dispersity, Mw/Mn, needs none: its type works it out at every save
+(ADR 0297).
 
 A concentration is worked out from an A260 or an A280 only while the lot's concentration
 method, an option of the lab's list (ADR 0270), says it's that calculation's, or the lot
@@ -52,12 +54,15 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from weights import AVERAGE
+
 #: Double-stranded DNA's concentration for an A260 of 1 over 1 cm, in ng/µL (50 µg/mL).
 DSDNA_PER_A260 = 50.0
 #: A cystine's molar absorbance at 280 nm in water, L/(mol·cm) (Pace et al., 1995).
 CYSTINE = 125
-#: Hydrogen's standard atomic weight, as the complex plugin weighs a disulfide's two.
-HYDROGEN = 1.00794
+#: Hydrogen's atomic weight in the table every Iki plugin weighs by, as the complex plugin
+#: weighs a disulfide's two.
+HYDROGEN = AVERAGE["H"]
 
 
 def number(value: Any) -> float | None:  # noqa: ANN401 - a value's JSON
@@ -486,26 +491,11 @@ def conjugate(lot: Lot) -> None:
     by_a280(lot, None, None, "a conjugate")
 
 
-# --- Polymer lots -----------------------------------------------------------------------------
-
-
-def polymer(lot: Lot) -> None:
-    mn, mw = lot.get("mn"), lot.get("mw")
-    if not mn or mw is None:
-        lot.set("dispersity", None)
-        return
-    # IUPAC, Dispersity in polymer science (2009), doi:10.1351/PAC-REC-08-05-02.
-    dispersity = round(mw / mn, 3)
-    lot.set("dispersity", dispersity)
-    print(f"{lot.hrid}: Đ = Mw/Mn = {_shown(mw)} / {_shown(mn)} = {dispersity:.3f}")
-
-
 COMPUTE: dict[str, Callable[[Lot], None]] = {
     "oligo": oligo,
     "plasmid": plasmid,
     "protein": protein,
     "conjugate": conjugate,
-    "polymer": polymer,
 }
 
 

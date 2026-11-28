@@ -6,6 +6,7 @@ YAML, so every rule `iki plugin validate` enforces holds for them.
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, fields, replace
@@ -21,6 +22,8 @@ __all__ = [
     "FIELD_TYPES",
     "FORMATS",
     "LIST_FIELDS",
+    "LIST_HRID_PREFIX",
+    "LIST_TABLE_ITEMS",
     "NUMERIC_OPERATORS",
     "SIGNATURE_MEANINGS",
     "TIERS",
@@ -30,6 +33,7 @@ __all__ = [
     "Creates",
     "EntityType",
     "Environment",
+    "Exclusion",
     "Extension",
     "Field",
     "FileFormat",
@@ -38,15 +42,23 @@ __all__ = [
     "Input",
     "LabRole",
     "ListSpec",
+    "Maker",
     "Meaning",
     "Metric",
     "Plugin",
     "Related",
     "Resources",
+    "ReviewFlow",
+    "ReviewNeeds",
+    "ReviewProcedure",
+    "ReviewSpec",
+    "ReviewState",
     "Rule",
     "Signature",
+    "Slot",
     "State",
     "StateMove",
+    "TypeGuard",
     "TypeNotification",
     "Updates",
     "Volume",
@@ -57,6 +69,7 @@ __all__ = [
     "person_role",
     "plugin_from_dict",
     "plugin_to_dict",
+    "stored_in_list_table",
     "workflow_from_dict",
 ]
 
@@ -112,7 +125,16 @@ class Field:
     description: str | None = None
     required: bool = False
     immutable: bool = False
+    #: Set by Iki, not by a person: by an action's runs (``computed: true``), or worked out
+    #: at every save from the record's own values by the CEL expression ``cel``
+    #: (``computed: {cel: …}``, ADR 0297).
     computed: bool = False
+    #: A computed field's CEL expression, which the server evaluates at every save (ADR
+    #: 0297); None for a field that's typed or that a run sets.
+    cel: str | None = None
+    #: The record's fields ``cel`` reads, as the validator's type check found them, which
+    #: the server works computed fields out in the order of.
+    cel_reads: tuple[str, ...] = ()
     #: For an editable boolean, clearing a true value requires a reason in the edit.
     reason_on_clear: bool = False
     #: For a type with an identity: ``derived`` or ``fact``, a field of its registry entry
@@ -169,6 +191,9 @@ class Field:
     #: the one new records start in.
     states: dict[str, State] = field(default_factory=dict)
     initial: str | None = None
+    #: A reviewed type's review field (ADR 0301): its records' states, guards and roles are
+    #: their pinned procedure's flow's. ``states`` holds only the ones the type names.
+    procedure: bool = False
     #: A removed state field's: where its records' states go (ADR 0125).
     moved_to: StateMove | None = None
     #: A list's item that's a row (``type: row``, ADR 0137): its fields, in order.
@@ -176,12 +201,27 @@ class Field:
     #: A row's fields that tell two rows apart in its type's identity (ADR 0138); all of
     #: them when empty.
     identity: tuple[str, ...] = ()
+    #: A row's string field holding its stable ID, which the server gives a new row and
+    #: keeps through edits; None for rows without one.
+    row_id: str | None = None
     #: A row's enum field whose value is its role, and what each role takes.
     by: str | None = None
     roles: dict[str, RowRole] = field(default_factory=dict)
     #: A row whose roles are every role it may have: a subtype's (ADR 0164), or those of a
     #: row whose role is a string. A row of an enum's other roles takes any number.
     closed: bool = False
+
+    @property
+    def worked_out(self) -> bool:
+        """Whether Iki works it out from the record's own values, at every save (ADR 0297):
+        no person, agent or run sets it."""
+        return self.cel is not None
+
+    @property
+    def set_by_runs(self) -> bool:
+        """Whether it's computed by an action's runs or by Iki's own code
+        (``computed: true``), not by an expression."""
+        return self.computed and self.cel is None
 
     @property
     def is_rows(self) -> bool:
@@ -205,6 +245,8 @@ class Field:
         role = data.get("role")
         assignment = data.get("assignment", False)
         moved = data.get("moved_to") if data.get("type") == "state" else None
+        computed = data.get("computed")
+        cel = computed.get("cel") if isinstance(computed, dict) else None
         return cls(
             name=name,
             type=data["type"],
@@ -213,6 +255,7 @@ class Field:
             required=bool(data.get("required", False)),
             immutable=bool(data.get("immutable", False)),
             computed=bool(data.get("computed", False)),
+            cel=cel if isinstance(cel, str) else None,
             reason_on_clear=bool(data.get("reason_on_clear", False)),
             registry=data.get("registry"),
             indexed=bool(data.get("indexed", False)),
@@ -274,6 +317,7 @@ class Field:
             identity=tuple(data.get("identity") or ())
             if data.get("type") == "row" and isinstance(data.get("identity"), list)
             else (),
+            row_id=data.get("row_id") if data.get("type") == "row" else None,
             by=data.get("by") if data.get("type") == "row" else None,
             # A role that's a string has only the roles named (ADR 0164).
             closed=data.get("type") == "row"
@@ -288,6 +332,17 @@ class Field:
             if data.get("type") == "row"
             else {},
         )
+
+
+#: The items a list keeps in a table of its own, an item per row: references, files and
+#: people, each with its foreign key; and rows (ADR 0137), a column per row's field. Other
+#: lists are arrays in their owner's row.
+LIST_TABLE_ITEMS = ("ref", "file", "person", "row")
+
+
+def stored_in_list_table(f: Field) -> bool:
+    """Whether a list field is kept in a table of its own (:data:`LIST_TABLE_ITEMS`)."""
+    return f.type == "list" and f.items is not None and f.items.type in LIST_TABLE_ITEMS
 
 
 def names_people(f: Field) -> bool:
@@ -410,6 +465,10 @@ class State:
     holds_amount: bool = False
     #: A correction returns this field to the named state and records the editor's reason.
     on_edit: str | None = None
+    #: Its signer must be the work's maker (ADR 0301), compiled into its ``maker`` guard.
+    maker: Maker | None = None
+    #: Whom its signer must not be (ADR 0301), compiled into its ``independent`` guard.
+    independent_of: tuple[Exclusion, ...] = ()
 
     @classmethod
     def from_manifest(cls, name: str, data: dict[str, Any], *, plugin: str) -> State:
@@ -435,6 +494,8 @@ class State:
                 for n, g in (data.get("guards") or {}).items()
                 if isinstance(g, dict)
             },
+            maker=Maker.read(data.get("maker")),
+            independent_of=Exclusion.read_all(data.get("independent_of")),
         )
 
 
@@ -515,6 +576,259 @@ class Guard:
             when=data.get("when"),
             description=data.get("description"),
         )
+
+
+@dataclass(frozen=True)
+class Maker:
+    """A signature that's the maker's own (ADR 0301): whoever created the record or
+    edited it in the current window, or the person a field names."""
+
+    #: The person field naming the maker, or None for the creator or a current editor.
+    person: str | None = None
+
+    @classmethod
+    def read(cls, data: object) -> Maker | None:
+        if data is True:
+            return cls()
+        if isinstance(data, dict) and isinstance(data.get("person"), str):
+            return cls(person=data["person"])
+        return None
+
+
+#: What a signer can be independent of (ADR 0301).
+EXCLUSIONS = ("creator", "editors", "signers", "people")
+
+
+@dataclass(frozen=True)
+class Exclusion:
+    """Someone a signer must not be (ADR 0301): the record's creator, its editors in a
+    window, the signers of some states, or the people some fields name."""
+
+    #: One of :data:`EXCLUSIONS`.
+    kind: str
+    #: ``signers``: the states whose latest signer is excluded.
+    states: tuple[str, ...] = ()
+    #: ``editors``: only those who changed one of these fields; all editors when empty.
+    fields: tuple[str, ...] = ()
+    #: ``editors`` of a state field without a procedure: the states whose edits count.
+    window: tuple[str, ...] = ()
+    #: ``people``: person fields, lists of people, or ones a reference away (``a.b``).
+    people: tuple[str, ...] = ()
+    #: CEL: it applies only when this is true.
+    when: str | None = None
+
+    @classmethod
+    def read_all(cls, data: object) -> tuple[Exclusion, ...]:
+        if not isinstance(data, list):
+            return ()
+        out = []
+        for item in data:
+            if item in ("creator", "editors"):
+                out.append(cls(kind=str(item)))
+                continue
+            if not isinstance(item, dict):
+                continue
+            when = item.get("when") if isinstance(item.get("when"), str) else None
+            if item.get("creator") is True:
+                out.append(cls(kind="creator", when=when))
+            elif "editors" in item:
+                editors = item["editors"]
+                spec = editors if isinstance(editors, dict) else {}
+                out.append(
+                    cls(
+                        kind="editors",
+                        fields=tuple(spec.get("fields") or ()),
+                        window=tuple(spec.get("in") or ()),
+                        when=when,
+                    )
+                )
+            elif "signers" in item:
+                out.append(cls(kind="signers", states=tuple(item["signers"] or ()), when=when))
+            elif "people" in item:
+                out.append(cls(kind="people", people=tuple(item["people"] or ()), when=when))
+        return tuple(out)
+
+
+@dataclass(frozen=True)
+class Slot:
+    """A part someone plays in a review procedure, bound to a lab role at setup (ADR 0304)."""
+
+    name: str
+    label: str
+    description: str | None = None
+
+
+@dataclass(frozen=True)
+class ReviewState:
+    """One of a review procedure's states (ADR 0301)."""
+
+    name: str
+    label: str
+    description: str | None = None
+    #: The slots whose holders may set it.
+    by: tuple[str, ...] = ()
+    locks: bool = False
+    reason: str | None = None
+    on_edit: str | None = None
+    #: The signature setting it needs, if any (ADR 0126).
+    signature: Signature | None = None
+    maker: Maker | None = None
+    independent_of: tuple[Exclusion, ...] = ()
+
+
+@dataclass(frozen=True)
+class ReviewFlow:
+    """A way through a review procedure a project can choose (ADR 0301)."""
+
+    name: str
+    label: str
+    summary: str
+    #: Its states in order: records start in the first, and the last is its final state.
+    route: tuple[str, ...]
+    #: The other moves it allows: into a state, from these states.
+    moves: dict[str, tuple[str, ...]] = field(default_factory=dict)
+
+    @property
+    def open(self) -> str:
+        """The state its records start in, where the work is recorded and edited."""
+        return self.route[0]
+
+    @property
+    def final(self) -> str:
+        return self.route[-1]
+
+    @property
+    def states(self) -> tuple[str, ...]:
+        """Its states: the route's, then those only its moves reach."""
+        extra = [s for s in self.moves if s not in self.route]
+        return (*self.route, *extra)
+
+    def sources(self, state: str) -> tuple[str, ...]:
+        """The states a record may move into ``state`` from."""
+        out: list[str] = []
+        if state in self.route:
+            index = self.route.index(state)
+            if index > 0:
+                out.append(self.route[index - 1])
+        for s in self.moves.get(state, ()):
+            if s not in out:
+                out.append(s)
+        return tuple(out)
+
+
+@dataclass(frozen=True)
+class ReviewProcedure:
+    """A review procedure, declared once by a plugin (ADR 0301), referred to as
+    ``plugin.name@version``. A published version never changes."""
+
+    plugin: str
+    name: str
+    version: int
+    label: str
+    description: str | None = None
+    slots: dict[str, Slot] = field(default_factory=dict)
+    states: dict[str, ReviewState] = field(default_factory=dict)
+    flows: dict[str, ReviewFlow] = field(default_factory=dict)
+    file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def qualified_name(self) -> str:
+        return f"{self.plugin}.{self.name}@{self.version}"
+
+
+@dataclass(frozen=True)
+class ReviewNeeds:
+    """What a reviewed type needs of a procedure (ADR 0301)."""
+
+    #: The state its actions write in: every flow starts in it.
+    open: str = "recorded"
+    #: The states its readers take as complete: every flow ends in one. Any when empty.
+    final: tuple[str, ...] = ()
+    #: Other states it names: the procedure has each.
+    states: tuple[str, ...] = ()
+    #: ``signed``: every signed state locks; ``final``: each final state locks.
+    locks: str | None = None
+    #: The slots its own fields and guards name.
+    slots: tuple[str, ...] = ()
+
+    @property
+    def named(self) -> tuple[str, ...]:
+        """Every state it names, the open one first."""
+        out = [self.open]
+        for s in (*self.final, *self.states):
+            if s not in out:
+                out.append(s)
+        return tuple(out)
+
+
+@dataclass(frozen=True)
+class TypeGuard:
+    """A reviewed type's own condition on some of its procedure's states (ADR 0301)."""
+
+    guard: Guard
+    #: State names, ``signed`` or ``final``.
+    on: tuple[str, ...] = ()
+
+
+#: The groups of states a type's review guard can be ``on``, besides state names.
+GUARD_GROUPS = ("signed", "final")
+
+
+@dataclass(frozen=True)
+class ReviewSpec:
+    """How a type's records are reviewed (ADRs 0301, 0302): the state field a pinned
+    procedure drives, where the procedure is pinned from, and what it needs of one."""
+
+    #: The state field the procedure drives; Iki adds it, and ``review_procedure`` and
+    #: ``review_flow`` beside it. Empty for a type that only opens work (``opens``).
+    field: str = "review"
+    label: str = "Review"
+    #: The reference whose record's procedure it follows; None: pinned at create.
+    by: str | None = None
+    #: It has no review of its own and pins a procedure for the records that follow it.
+    opens: bool = False
+    #: It re-issues a record already reviewed under the same flow.
+    derived: bool = False
+    needs: ReviewNeeds = dataclasses.field(default_factory=ReviewNeeds)
+    #: People every independent state also excludes.
+    independent_of: tuple[Exclusion, ...] = ()
+    guards: dict[str, TypeGuard] = dataclasses.field(default_factory=dict)
+
+    @classmethod
+    def read(cls, data: object) -> ReviewSpec | None:
+        if not isinstance(data, dict):
+            return None
+        needs: dict[str, Any] = data["needs"] if isinstance(data.get("needs"), dict) else {}
+        pinned = data.get("pinned")
+        opens = data.get("opens") is True
+        return cls(
+            field="" if opens else str(data.get("field") or "review"),
+            label=str(data.get("label") or "Review"),
+            by=pinned["by"]
+            if isinstance(pinned, dict) and isinstance(pinned.get("by"), str)
+            else None,
+            opens=opens,
+            derived=data.get("derived") is True,
+            needs=ReviewNeeds(
+                open=str(needs.get("open") or "recorded"),
+                final=tuple(needs.get("final") or ()),
+                states=tuple(needs.get("states") or ()),
+                locks=needs.get("locks"),
+                slots=tuple(needs.get("slots") or ()),
+            ),
+            independent_of=Exclusion.read_all(data.get("independent_of")),
+            guards={
+                n: TypeGuard(guard=Guard.from_manifest(n, g), on=tuple(g.get("on") or ()))
+                for n, g in (data.get("guards") or {}).items()
+                if isinstance(g, dict)
+            },
+        )
+
+
+#: The fields Iki adds to a reviewed type beside its review state field (ADR 0302).
+PINNED_FIELDS = ("review_procedure", "review_flow")
 
 
 def _while_value(value: object) -> str:
@@ -925,7 +1239,7 @@ class DrawTarget:
     unit: str | None = None
 
 
-#: The fields every lab list's options have (ADR 0270), which the list marker gives its type:
+#: The fields every lab list's options have (ADR 0270), which a list's type has before its own:
 #: its code, which is its identity, and its label, description and place in the list, which
 #: are registry facts its curators change.
 LIST_CODE = "code"
@@ -939,10 +1253,13 @@ LIST_CODE_PATTERN = "^[A-Za-z0-9][A-Za-z0-9_.+-]*$"
 LIST_LABEL_PATTERN = r"^\S(?:.*\S)?$"
 #: The most options a list may have, as a dropdown or its search can offer them.
 LIST_MAX_OPTIONS = 10000
+#: The HRID prefix of every list's options (ADR 0295): one sequence numbers them all, as
+#: they're named by their code and shown by their label. Iki reserves it: no type declares it.
+LIST_HRID_PREFIX = "OPTION"
 
 
 def list_fields() -> dict[str, Field]:
-    """The fields the list marker gives a type (ADR 0270), before the type's own."""
+    """The fields a lab list's options have (ADR 0270), before the list's own."""
     return {
         LIST_CODE: Field(
             name=LIST_CODE,
@@ -1061,13 +1378,26 @@ class EntityType:
     #: these unless they name their own.
     refines_to: dict[str, tuple[str, ...]] = field(default_factory=dict)
     #: Its entities are a lab list's options (ADR 0270): registry entries every project in
-    #: their registry may pick, curated by its registrars and list curators.
+    #: their registry may pick, curated by its registrars and list curators. A ``kind: List``
+    #: manifest declares it (ADR 0295).
     list_spec: ListSpec | None = None
+    #: How its records are reviewed (ADR 0301): its own, or an ancestor's.
+    review: ReviewSpec | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
-    def is_list(self) -> bool:
+    def is_lab_list(self) -> bool:
         """Whether its entities are a lab list's options (ADR 0270)."""
         return self.list_spec is not None
+
+    @property
+    def numbering_prefix(self) -> str | None:
+        """The prefix its entities' HRIDs have: its own, or for a lab list, which has none,
+        the one every list's options share (ADR 0295). None for an abstract type."""
+        if self.is_lab_list:
+            return LIST_HRID_PREFIX
+        return None if self.abstract else self.hrid_prefix
 
     @property
     def qualified_name(self) -> str:
@@ -1081,6 +1411,19 @@ class EntityType:
     def current_fields(self) -> dict[str, Field]:
         """The fields entities have now, without the removed ones."""
         return {name: f for name, f in self.fields.items() if not f.removed}
+
+
+def lineage(type_name: str, types: Mapping[str, EntityType]) -> list[str]:
+    """A validated type and each type it extends, nearest first, ending with
+    ``iki/core.Entity``: what a run input gives a command as an entity's ``types``."""
+    out = [type_name]
+    current = types[type_name]
+    while current.extends:
+        out.append(current.extends)
+        current = types[current.extends]
+    if out[-1] != naming.ENTITY:
+        out.append(naming.ENTITY)
+    return out
 
 
 def amount_of(type_name: str, types: Mapping[str, EntityType]) -> Amount | None:
@@ -1242,6 +1585,8 @@ class Extension:
     file: str | None = None
     #: Rules every save of the extended type's records keeps (ADR 0127), by name.
     rules: dict[str, Rule] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def table(self) -> str:
@@ -1317,6 +1662,9 @@ class Creates:
     derived_from: tuple[str, ...] = ()
     #: A unique field: a create with a value an entity in the project has updates it.
     match_on: str | None = None
+    #: What a create that matches does: ``update`` the entity with its values, or ``keep``
+    #: it as it is, as whoever made it first made it.
+    on_match: str = "update"
     #: For a fresh physical lot, the singular input naming its storage container.
     receive_into: str | None = None
 
@@ -1470,6 +1818,8 @@ class Action:
     retry_max: int = 0
     retry_on: tuple[str, ...] = ()
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1508,6 +1858,8 @@ class Environment:
     file: str | None = None
     #: Provisioned runs need an image supplied by this deployment.
     customer_image_required: bool = False
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 #: A condition's operators: how its value compares with its operand.
@@ -1608,6 +1960,8 @@ class Workflow:
     params: dict[str, Field] = field(default_factory=dict)
     steps: dict[str, WorkflowStep] = field(default_factory=dict)
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1705,6 +2059,8 @@ class Trigger:
     related: dict[str, Related] = field(default_factory=dict)
     recheck: str = ""
     watch_included: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1777,6 +2133,8 @@ class Component:
     #: The module's SHA-256, in hex, as the plugin was read: what the build copies.
     sha256: str = ""
     file: str | None = None
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def qualified_name(self) -> str:
@@ -1833,7 +2191,7 @@ class Plugin:
     description: str | None = None
     license: str | None = None
     homepage: str | None = None
-    #: The Iki releases it works with, such as `>=0.1,<0.3`, or None to say nothing.
+    #: The Iki releases it works with, such as `>=0.1,<0.3`; plugin.yaml must say (ADR 0293).
     iki: str | None = None
     #: plugin name → {type name → schema-version constraint}
     dependencies: dict[str, dict[str, str]] = field(default_factory=dict)
@@ -1855,6 +2213,10 @@ class Plugin:
     apis: dict[str, OutsideApi] = field(default_factory=dict)
     #: The writers of export formats it declares, by qualified ID (ADR 0230).
     writers: dict[str, Writer] = field(default_factory=dict)
+    #: The review procedures it declares, by qualified name and version (ADR 0301).
+    procedures: dict[str, ReviewProcedure] = field(default_factory=dict)
+    #: A lab's own metadata about it, by name (ADR 0293): kept and shown, never acted on.
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class _CoreTypes(Mapping[str, EntityType]):
@@ -1947,6 +2309,15 @@ _DATACLASSES = (
     State,
     Signature,
     Guard,
+    Maker,
+    Exclusion,
+    Slot,
+    ReviewState,
+    ReviewFlow,
+    ReviewProcedure,
+    ReviewNeeds,
+    TypeGuard,
+    ReviewSpec,
     Rule,
     StateMove,
     TypeNotification,
@@ -2012,12 +2383,13 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
                 and isinstance(value, EntityType)
                 and value.draw_target is None
             )
+            and not (f.name == "annotations" and not getattr(value, f.name))
             and not (isinstance(value, Plugin) and f.name == "formats" and not value.formats)
             and not (isinstance(value, Plugin) and f.name == "writers" and not value.writers)
             and not (
-                f.name == "reason_on_clear"
+                f.name in {"reason_on_clear", "cel", "cel_reads"}
                 and isinstance(value, Field)
-                and not value.reason_on_clear
+                and not getattr(value, f.name)
             )
             and not (
                 isinstance(value, RequestSpec)
@@ -2036,6 +2408,14 @@ def _to_json(value: Any) -> Any:  # noqa: ANN401 - walks dataclasses of JSON-sha
             and not (
                 isinstance(value, EntityType) and f.name == "list_spec" and value.list_spec is None
             )
+            and not (isinstance(value, EntityType) and f.name == "review" and value.review is None)
+            and not (isinstance(value, Field) and f.name == "procedure" and not value.procedure)
+            and not (
+                isinstance(value, State)
+                and f.name in {"maker", "independent_of"}
+                and not getattr(value, f.name)
+            )
+            and not (isinstance(value, Plugin) and f.name == "procedures" and not value.procedures)
             and not (
                 f.name == "customer_image_required"
                 and isinstance(value, Environment)
@@ -2127,6 +2507,8 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
                         )
                         if v.get("list_spec")
                         else None,
+                        # ...or reviews (ADR 0301).
+                        "review": _review(v["review"]) if v.get("review") else None,
                     }
                 )
                 for k, v in data["types"].items()
@@ -2181,6 +2563,76 @@ def plugin_from_dict(data: dict[str, Any]) -> Plugin:
             "apis": {k: outside_api(v) for k, v in (data.get("apis") or {}).items()},
             # ...or writers.
             "writers": {k: _writer(v) for k, v in (data.get("writers") or {}).items()},
+            # ...or review procedures (ADR 0301).
+            "procedures": {k: _procedure(v) for k, v in (data.get("procedures") or {}).items()},
+        }
+    )
+
+
+def _exclusions(data: list[dict[str, Any]] | None) -> tuple[Exclusion, ...]:
+    return tuple(
+        Exclusion(
+            **{
+                **x,
+                "states": tuple(x.get("states") or ()),
+                "fields": tuple(x.get("fields") or ()),
+                "window": tuple(x.get("window") or ()),
+                "people": tuple(x.get("people") or ()),
+            }
+        )
+        for x in data or ()
+    )
+
+
+def _procedure(data: dict[str, Any]) -> ReviewProcedure:
+    return ReviewProcedure(
+        **{
+            **data,
+            "slots": {k: Slot(**v) for k, v in data["slots"].items()},
+            "states": {
+                k: ReviewState(
+                    **{
+                        **v,
+                        "by": tuple(v["by"]),
+                        "signature": Signature(**v["signature"]) if v.get("signature") else None,
+                        "maker": Maker(**v["maker"]) if v.get("maker") else None,
+                        "independent_of": _exclusions(v.get("independent_of")),
+                    }
+                )
+                for k, v in data["states"].items()
+            },
+            "flows": {
+                k: ReviewFlow(
+                    **{
+                        **v,
+                        "route": tuple(v["route"]),
+                        "moves": {s: tuple(f) for s, f in (v.get("moves") or {}).items()},
+                    }
+                )
+                for k, v in data["flows"].items()
+            },
+        }
+    )
+
+
+def _review(data: dict[str, Any]) -> ReviewSpec:
+    needs = data["needs"]
+    return ReviewSpec(
+        **{
+            **data,
+            "needs": ReviewNeeds(
+                **{
+                    **needs,
+                    "final": tuple(needs["final"]),
+                    "states": tuple(needs["states"]),
+                    "slots": tuple(needs["slots"]),
+                }
+            ),
+            "independent_of": _exclusions(data.get("independent_of")),
+            "guards": {
+                n: TypeGuard(guard=_guards({n: g["guard"]})[n], on=tuple(g["on"]))
+                for n, g in (data.get("guards") or {}).items()
+            },
         }
     )
 
@@ -2388,6 +2840,7 @@ def _field(data: dict[str, Any]) -> Field:
             "to": (data["to"],) if isinstance(data.get("to"), str) else tuple(data.get("to") or ()),
             "items": _field(data["items"]) if data["items"] is not None else None,
             "assignment_states": tuple(data.get("assignment_states") or ()),
+            "cel_reads": tuple(data.get("cel_reads") or ()),
             # Plugins built before state fields have none.
             "states": {
                 n: State(
@@ -2398,6 +2851,9 @@ def _field(data: dict[str, Any]) -> Field:
                         "signatures": tuple(Signature(**x) for x in st.get("signatures") or ()),
                         # ...or guards.
                         "guards": _guards(st.get("guards") or {}),
+                        # ...or declared independence (ADR 0301).
+                        "maker": Maker(**st["maker"]) if st.get("maker") else None,
+                        "independent_of": _exclusions(st.get("independent_of")),
                     }
                 )
                 for n, st in (data.get("states") or {}).items()
@@ -2410,6 +2866,8 @@ def _field(data: dict[str, Any]) -> Field:
             # Plugins built before rows (ADR 0137) have none.
             "fields": {n: _field(c) for n, c in (data.get("fields") or {}).items()},
             "identity": tuple(data.get("identity") or ()),
+            # Plugins built before row IDs have none.
+            "row_id": data.get("row_id"),
             "by": data.get("by"),
             "roles": {n: _row_role(r) for n, r in (data.get("roles") or {}).items()},
         }

@@ -6,6 +6,7 @@
  * from the first page when the refinement changes.
  */
 
+import type { ReadRefinement as Refinement } from "@ikisci/component/host";
 import { unwrap, type Problem } from "@ikisci/sdk";
 import { keepPreviousData, useInfiniteQuery, useQueries } from "@tanstack/react-query";
 import { useCallback, useMemo, useState } from "react";
@@ -17,7 +18,6 @@ import {
   type EntityTab,
   type PlaceRequest,
   type PluginComponent,
-  type Refinement,
 } from "./components";
 import { ENTITIES } from "./entities";
 import { fetchPageRead } from "./page-reads";

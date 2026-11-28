@@ -147,7 +147,7 @@ def test_a_request_arriving_is_ranked_as_the_services_account_on_the_admins_auth
     client_rank(lab, other, 1)
     admin = lab.api("core_admin")
     url = f"/projects/{lab.core.pk}/triggers/{ON_ARRIVAL}/enable"
-    listed = {t["name"]: t for t in admin.get(f"/projects/{lab.core.pk}/triggers").json()}
+    listed = {t["name"]: t for t in admin.every(f"/projects/{lab.core.pk}/triggers")}
     assert listed[ON_ARRIVAL]["runs_as_account"] is True
     assert (
         "A trigger on a request's arrival runs as a service account"

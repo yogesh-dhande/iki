@@ -58,7 +58,7 @@ def edit(
 
 
 def work(world: World, who: str, query: str = "", open_: bool = False) -> list[dict[str, Any]]:
-    path = "/me/work/open" if open_ else "/me/work"
+    path = "/me/open-work-items" if open_ else "/me/work-items"
     answer = api_as(world, who).get(f"{path}{query}")
     assert answer.status_code == 200, answer.content
     items: list[dict[str, Any]] = answer.json()["items"]
@@ -156,13 +156,13 @@ def test_the_picker_lists_whom_a_field_can_name(world: World) -> None:
     roles(world, viewer=(ANALYST,), editor=(ANALYST, REVIEWER))
     api = api_as(world, "editor")
     path = f"/projects/{world.project.pk}/people"
-    everyone = [p["name"] for p in api.get(path).json()]
+    everyone = [p["name"] for p in api.every(path)]
     # Active people who read it, by their own grant or a team's: no one deactivated.
     assert everyone == ["Admin", "Editor", "Mixed", "Runner", "Via Team", "Viewer"]
-    analysts = api.get(f"{path}?type={SAMPLE}&field=analyst").json()
+    analysts = api.every(path, entity_type=SAMPLE, field="analyst")
     assert [p["name"] for p in analysts] == ["Editor", "Viewer"]
-    assert [p["name"] for p in api.get(f"{path}?role={REVIEWER}").json()] == ["Editor"]
-    assert [p["email"] for p in api.get(f"{path}?q=vie").json()] == ["viewer@example.com"]
+    assert [p["name"] for p in api.every(path, role=REVIEWER)] == ["Editor"]
+    assert [p["email"] for p in api.every(path, q="vie")] == ["viewer@example.com"]
     # Only for those who read the project: its people aren't anyone else's to list.
     problem(api_as(world, "outsider").get(path), 404, "not_found")
     problem(api.get(f"{path}?role=acme/protein.nobody"), 404, "not_found")
@@ -224,14 +224,16 @@ def test_my_work_follows_the_records_state_field(world: World) -> None:
         first["hrid"],
     ]
     assert hrids(work(world, "viewer", "?limit=1")) == [second["hrid"]]
-    page = api_as(world, "viewer").get("/me/work?limit=2").json()
-    rest = api_as(world, "viewer").get(f"/me/work?limit=2&cursor={page['next_cursor']}").json()
+    page = api_as(world, "viewer").get("/me/work-items?limit=2").json()
+    rest = (
+        api_as(world, "viewer").get(f"/me/work-items?limit=2&cursor={page['next_cursor']}").json()
+    )
     assert hrids(page["items"] + rest["items"]) == hrids(mine)
     assert rest["next_cursor"] is None
     assert hrids(work(world, "viewer", "?state=status.in_review")) == []
     # A state is named with its field: a bare one isn't a state field's.
     bare = problem(
-        api_as(world, "viewer").get("/me/work?state=in_review"), 422, "validation_failed"
+        api_as(world, "viewer").get("/me/work-items?state=in_review"), 422, "validation_failed"
     )
     assert "`in_review` isn't a state field's state" in bare["errors"][0]["detail"]
     assert hrids(work(world, "runner")) == []
@@ -684,6 +686,6 @@ def test_work_is_only_your_own(world: World) -> None:
     for who in ("editor", "admin", "org_admin", "auditor", "outsider"):
         assert body["hrid"] not in hrids(work(world, who)), who
     # Anyone signed in has work, if only none.
-    problem(Api(world.browser("anonymous")).get("/me/work"), 401, "not_authenticated")
+    problem(Api(world.browser("anonymous")).get("/me/work-items"), 401, "not_authenticated")
     second = build_world("second-")
     assert hrids(work(second, "viewer")) == []

@@ -49,11 +49,15 @@ def _signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_list_installed_starters(
     project: str | None, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    def request(client: Client, method: str, path: str, **kwargs: Any) -> list[dict[str, Any]]:
+    def request(client: Client, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         assert client.url == "https://service.example"
         assert (method, path) == ("GET", "/starters")
-        assert kwargs["params"] == ({"project": project} if project else {})
-        return [STARTER]
+        assert kwargs["params"] == {
+            **({"project": project} if project else {}),
+            "limit": 100,
+            "cursor": None,
+        }
+        return {"items": [STARTER], "next_cursor": None}
 
     monkeypatch.setattr(Client, "request", request)
     args = ["starter", "list", "--project", project] if project else ["starter", "list", "--json"]
@@ -71,6 +75,24 @@ def test_list_installed_starters(
             assert item in output
     else:
         assert json.loads(output) == [STARTER]
+
+
+def test_listing_starters_follows_every_page(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    later = {**STARTER, "id": "plasmid-qc", "applied": None}
+    pages: dict[str | None, dict[str, Any]] = {
+        None: {"items": [STARTER], "next_cursor": "c2"},
+        "c2": {"items": [later]},
+    }
+
+    def request(client: Client, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        page = pages[kwargs["params"]["cursor"]]
+        return {"next_cursor": None, **page}
+
+    monkeypatch.setattr(Client, "request", request)
+    assert main(["starter", "list", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out) == [STARTER, later]
 
 
 @pytest.mark.parametrize(

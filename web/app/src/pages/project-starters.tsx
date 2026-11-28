@@ -42,7 +42,7 @@ import {
   RadioField,
   useMessages,
 } from "../ui";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 export function ProjectStarters() {
   const project = useProject();

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { valueText } from "./entities";
 import { field } from "./entity-fixtures";
 import { keyLabel, objectList, objectListText } from "./object-lists";
-import { ObjectTable } from "./pages/entity";
+import { ObjectTable } from "./pages/entity-value";
 
 /** A plasmid's annotated features, as the plasmid plugin's annotation writes them: pUC19's
  * lac promoter and origin, each with the INSDC record its part's bases are from. */

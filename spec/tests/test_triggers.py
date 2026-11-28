@@ -14,6 +14,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 roles:
   analyst: { label: Analyst }
 """
@@ -135,10 +136,11 @@ name: on_assay
 """
 
 
-def make(tmp_path: Path, *triggers: str) -> Result:
+def make(tmp_path: Path, *triggers: str, more: dict[str, str] | None = None) -> Result:
     root = tmp_path / "acme"
     shutil.rmtree(root, ignore_errors=True)
     every = {
+        **(more or {}),
         "plugin.yaml": PLUGIN,
         "types/types.yaml": TYPES,
         "actions/actions.yaml": ACTIONS,
@@ -147,6 +149,10 @@ def make(tmp_path: Path, *triggers: str) -> Result:
         "run.py": "",
         **{f"triggers/t{i}.yaml": text for i, text in enumerate(triggers)},
     }
+    every["types/types.yaml"] += (more or {}).get("types", "")
+    every["actions/actions.yaml"] += (more or {}).get("actions", "")
+    every.pop("types", None)
+    every.pop("actions", None)
     for name, text in every.items():
         (root / name).parent.mkdir(parents=True, exist_ok=True)
         (root / name).write_text(text)
@@ -652,3 +658,161 @@ def test_an_input_from_the_project_takes_many(tmp_path: Path) -> None:
     finally:
         RANK = saved
     assert "from-project-one" in codes(result), result.problems
+
+
+#: A dose worked out from what its references name: a method, an option of the lab's list
+#: whose calculation a curator can change; a reagent, whose potency can be corrected;
+#: and a standard, whose every value is fixed once it's registered.
+READS = {
+    "types": """\
+---
+apiVersion: iki/v1
+kind: List
+name: Method
+schema_version: 1
+fields:
+  calculation: { type: enum, values: [a280], immutable: true }
+options:
+  - { code: a280, label: A280, calculation: a280 }
+  - { code: bca, label: BCA assay }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Reagent
+schema_version: 1
+hrid: { prefix: RGT }
+fields:
+  code: { type: string, required: true, immutable: true }
+  potency: { type: float }
+  lot_state:
+    type: state
+    initial: open
+    states: { open: {}, closed: { set_by: [analyst] } }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Standard
+schema_version: 1
+hrid: { prefix: STD }
+fields:
+  code: { type: string, required: true, immutable: true }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: Dose
+schema_version: 1
+hrid: { prefix: DOS }
+fields:
+  method: { type: ref, to: Method }
+  reagent: { type: ref, to: Reagent }
+  standard: { type: ref, to: Standard, required: true, immutable: true }
+  amount: { type: float }
+  result: { type: float, computed: true }
+""",
+    "actions": """\
+---
+apiVersion: iki/v1
+kind: Action
+name: dose
+inputs:
+  dose: { type: Dose, include: [method, reagent, standard] }
+effects:
+  updates: [{ input: dose, fields: [result] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+deterministic: true
+---
+apiVersion: iki/v1
+kind: Action
+name: label_dose
+inputs:
+  dose: { type: Dose, include: [method] }
+effects:
+  creates: [{ type: Readout, derived_from: [dose] }]
+runs_on: { tier: backend, environment: tools }
+command: [python, ./run.py]
+""",
+}
+
+WATCHED = """\
+on: entity.updated
+type: Dose
+fields: [amount, method, reagent, standard]
+run: dose
+watch_included:
+  method: [calculation]
+  reagent: [potency]
+"""
+
+
+def reads(tmp_path: Path, body: str) -> Result:
+    return make(tmp_path, trigger(body), more=READS)
+
+
+def test_a_calculation_watches_what_it_reads_through_its_references(tmp_path: Path) -> None:
+    """Watched, it's flagged when they change (ADR 0080): a reagent's potency, which can
+    be corrected; and a method's calculation, fixed once the option is added (ADR 0143),
+    which never changes and says only that the calculation reads it. A standard, all of it
+    fixed, needs no watch."""
+    result = reads(tmp_path, WATCHED)
+    assert result.problems == [], [(p.code, p.message) for p in result.problems]
+    assert result.plugin is not None
+    assert result.plugin.triggers["on_assay"].watch_included == {
+        "method": ("calculation",),
+        "reagent": ("potency",),
+    }
+
+
+def test_a_reference_whose_values_can_change_is_watched(tmp_path: Path) -> None:
+    """A lab list's option has a label a curator changes though its calculation is fixed,
+    so only the calculation can say it reads nothing else of it."""
+    body = WATCHED.replace("  method: [calculation]\n", "")
+    message = only(reads(tmp_path, body), "trigger-reads-unwatched")
+    assert message.startswith("`dose` reads what `method` names, whose values can change (")
+    assert "`calculation`" not in message
+    assert "`label`" in message
+
+
+def test_a_reference_is_watched_when_none_is(tmp_path: Path) -> None:
+    body = WATCHED.split("watch_included:")[0]
+    result = reads(tmp_path, body)
+    assert codes(result) == ["trigger-reads-unwatched"] * 2
+    assert {p.message.split("`")[3] for p in result.problems} == {"method", "reagent"}
+
+
+@pytest.mark.parametrize("reference", ["reagent", "standard"])
+def test_a_reference_field_is_watched(tmp_path: Path, reference: str) -> None:
+    """Pointed at another reagent, the dose is worked out from that one: unless the
+    trigger fires on any change, it watches the reference too. So does it a fixed one,
+    the standard, which a move to a superseded standard's replacement re-points."""
+    body = WATCHED.replace(f", {reference}", "", 1)
+    message = only(reads(tmp_path, body), "trigger-reference-unwatched")
+    assert message.startswith(f"`{reference}` can be pointed at another record")
+    on_any_change = WATCHED.replace("fields: [amount, method, reagent, standard]\n", "")
+    assert reads(tmp_path, on_any_change).problems == []
+
+
+@pytest.mark.parametrize(
+    ("watch", "code"),
+    [
+        ("reagent: [potencey]", "unknown-field"),
+        ("reagent: [potency, lot_state]", "trigger-field-is-state"),
+    ],
+)
+def test_watched_fields_are_ones_a_change_can_wake(tmp_path: Path, watch: str, code: str) -> None:
+    message = only(reads(tmp_path, WATCHED.replace("reagent: [potency]", watch)), code)
+    assert "potencey" in message or "lot_state" in message
+
+
+def test_what_isnt_a_calculation_watches_nothing_it_reads(tmp_path: Path) -> None:
+    """Only a calculation, an update of the entity it's given, is worked out again: a
+    trigger making something new from it reads what it includes as it was."""
+    body = "on: entity.updated\ntype: Dose\nfields: [amount, method]\nrun: label_dose\n"
+    assert reads(tmp_path, body).problems == []
+
+
+def test_a_recheck_watches_only_its_record(tmp_path: Path) -> None:
+    """A recheck runs as whoever edited the record, and a change to what it names has no
+    editor."""
+    body = WATCHED.replace("run: dose\n", "run: dose\nrecheck: result\n")
+    assert "trigger-recheck-watch-included" in codes(reads(tmp_path, body))

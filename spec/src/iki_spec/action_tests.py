@@ -31,7 +31,16 @@ from typing import Any
 
 from iki_spec import API_VERSION, naming, schemas
 from iki_spec.formats import FormatRegistry
-from iki_spec.model import Action, EntityType, Field, Input, Plugin, amount_of, included_reference
+from iki_spec.model import (
+    Action,
+    EntityType,
+    Field,
+    Input,
+    Plugin,
+    amount_of,
+    included_reference,
+    lineage,
+)
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
 from iki_spec.yamlsource import Document, read_documents
@@ -478,13 +487,14 @@ def run_input(
         nonlocal n
         n += 1
         entity_type = every[type_name]
-        prefix = entity_type.hrid_prefix or "ENT"
+        prefix = entity_type.numbering_prefix or "ENT"
         amount = amount_of(type_name, every)
         return {
             **({"material_field": amount.material} if amount and amount.material else {}),
             "id": _id(3, n),
             "hrid": entity.get("hrid") or f"{prefix}-{n:0{entity_type.hrid_digits}d}",
             "type": type_name,
+            "types": lineage(type_name, every),
             "schema_version": entity_type.schema_version,
             "revision": 1,
             "values": _with_ids(entity["values"], file_ids),

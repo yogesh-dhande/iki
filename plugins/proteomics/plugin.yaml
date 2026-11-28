@@ -1,7 +1,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/proteomics
-version: 0.3.0
+version: 0.4.1
 title: Proteomics
 description: Review peptide and protein identifications and quantities from search reports while retaining their raw MS files.
 license: Apache-2.0

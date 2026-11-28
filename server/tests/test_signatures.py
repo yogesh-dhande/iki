@@ -142,8 +142,8 @@ def standing(world: World, ref: str, who: str = "viewer") -> list[dict[str, Any]
     assert answer.status_code == 200, answer.content
     body: dict[str, Any] = answer.json()
     assert body["missing"] == []
-    items: list[dict[str, Any]] = body["items"]
-    return items
+    signatures: list[dict[str, Any]] = body["signatures"]
+    return signatures
 
 
 def offered(world: World, who: str, ref: str) -> dict[str, dict[str, Any]]:
@@ -256,7 +256,7 @@ def test_a_type_says_which_states_are_signed_for(world: World) -> None:
     ]
     assert by_name["open"]["signatures"] == []
     # What each lab role lets its holders sign is listed with it.
-    listed = {r["name"]: r["uses"] for r in api_as(world, "viewer").get("/lab-roles").json()}
+    listed = {r["name"]: r["uses"] for r in api_as(world, "viewer").every("/lab-roles")}
     assert {
         "kind": "signature",
         "owner": LOT,
@@ -287,6 +287,45 @@ def test_a_signed_state_isnt_set_directly(lab: World) -> None:
             "in_review",
             expected_revision=1,
         )
+
+
+@pytest.mark.parametrize("hold", [False, True], ids=["refuses", "holds"])
+def test_a_signed_state_isnt_given_while_a_rule_reading_it_breaks(
+    lab: World, monkeypatch: pytest.MonkeyPatch, hold: bool
+) -> None:
+    """A state is a value the record saves (ADR 0127): nobody signs for one the plugins'
+    rules reading it would refuse, nor one that would hold the record, as a signature gives
+    no reason to hold it for."""
+    from iki_server.entities import checking
+    from iki_spec.model import Rule
+
+    rule = Rule(
+        name="reviewed_under_its_own_label",
+        label="Reviewed under its own label",
+        plugin="acme/protein",
+        check='record.label != "LOT A"',
+        when='record.status == "in_review"',
+        message="Give the lot its own label before review.",
+        hold=(QA,) if hold else (),
+        reads=("label", "status"),
+    )
+    checks, every = checking.checks_of, checking.rules_of
+    monkeypatch.setattr(
+        checking, "checks_of", lambda t: (*checks(t), rule) if t == LOT else checks(t)
+    )
+    monkeypatch.setattr(checking, "rules_of", lambda t: (*every(t), rule) if t == LOT else every(t))
+    made = lot(lab)
+    [slot] = offered(lab, "editor", made["id"])["in_review"]["signatures"]
+    assert slot["why_not"] == "Give the lot its own label before review."
+    with pytest.raises(Refused, match="its own label"):
+        begin(lab, "editor", made["id"], "in_review", reason="Ready")
+    assert Entity.objects.get(pk=made["id"]).revision == made["revision"]
+    # Kept, it's signed for.
+    editor = api_as(lab, "editor")
+    etag = editor.get(f"/entities/{made['id']}")["ETag"]
+    relabelled = patch(editor, made["id"], {"values": {"label": "LOT 2026-118"}}, etag)
+    assert relabelled.status_code == 200, relabelled.content
+    signed(lab, "editor", made["id"], "in_review", reason="Ready")
 
 
 # --- Signing ------------------------------------------------------------------------------------
@@ -703,12 +742,13 @@ def test_someone_else_signing_in_locks_signing_after_three_tries(lab: World, oid
     assert services.locked_out(editor)
     assert not UserSession.objects.filter(user=editor).exists()
     assert "locked" in (services.why_cant_sign(editor) or "")
-    # An Org Admin unlocks it; nobody else can.
+    # An Org Admin unlocks it, saying why; nobody else can.
     path = f"/users/{editor.pk}/signing/unlock"
-    assert api_as(lab, "admin").post(path).status_code == 403
-    assert api_as(lab, "org_admin").post(path).status_code == 204
+    why = {"reason": "Their colleague signed at their desk by mistake; spoke to both."}
+    assert api_as(lab, "admin").post(path, why).status_code == 403
+    assert api_as(lab, "org_admin").post(path, why).status_code == 204
     assert not services.locked_out(editor)
-    problem(api_as(lab, "org_admin").post(path), 409, "refused")
+    problem(api_as(lab, "org_admin").post(path, why), 409, "refused")
     signed(lab, "editor", made["id"], "in_review")
 
 
@@ -748,9 +788,81 @@ def test_org_admins_certify_and_unlock_in_settings(world: World) -> None:
     assert "Unlock Editor’s signing" in page
     reader = world.browser("auditor").get("/admin/signatures/").content.decode()
     assert "QA-DOC-9" in reader and "Unlock Editor" not in reader
-    post(admin, "/admin/signatures/", {"action": "unlock", "user": str(editor.pk)})
+    # Not without saying why.
+    unsaid = post(admin, "/admin/signatures/", {"action": "unlock", "user": str(editor.pk)})
+    assert services.locked_out(editor)
+    assert "Say why it’s safe to unlock" in admin.get(unsaid["Location"]).content.decode()
+    post(
+        admin,
+        "/admin/signatures/",
+        {"action": "unlock", "user": str(editor.pk), "reason": "Mistyped account at the IdP."},
+    )
     assert not services.locked_out(editor)
-    assert AuditEvent.objects.filter(action="signature.unlocked", target_id=str(editor.pk)).exists()
+    unlocked = AuditEvent.objects.get(action="signature.unlocked", target_id=str(editor.pk))
+    assert unlocked.data == {"reason": "Mistyped account at the IdP."}
+
+
+def test_nobody_unlocks_their_own_signing(world: World) -> None:
+    """21 CFR 11.300(d): someone may have been trying to sign as them, so another Org
+    Admin finds out who before it's unlocked; the page doesn't offer it to them."""
+    from org_world import post
+
+    from iki_server.accounts.models import User
+    from iki_server.org.models import OrgRole, OrgRoleAssignment
+    from iki_server.signatures import alerts
+
+    ready(world)
+    me = world.users["org_admin"]
+    alerts.lock(me, 3)
+    why = {"reason": "It was me, mistyping"}
+    path = f"/users/{me.pk}/signing/unlock"
+    said = problem(api_as(world, "org_admin").post(path, why), 403, "forbidden")
+    assert "Another Org Admin unlocks your signing" in said["detail"]
+    # A session of theirs, signed in again after the lock ended the others.
+    browser = world.browser("org_admin")
+    page = browser.get("/admin/signatures/").content.decode()
+    assert "Another Org Admin unlocks yours." in page
+    assert f"Unlock {me.name or me.email}’s signing" not in page
+    post(browser, "/admin/signatures/", {"action": "unlock", "user": str(me.pk), **why})
+    assert services.locked_out(me)
+    assert not AuditEvent.objects.filter(action="signature.unlocked").exists()
+    other = User.objects.create_user(email="second-admin@example.com", name="Second Admin")
+    OrgRoleAssignment.objects.create(user=other, role=OrgRole.ORG_ADMIN)
+    services.unlock(other, me, "Spoke to them: they mistyped their IdP account")
+    assert not services.locked_out(me)
+
+
+@pytest.mark.parametrize("scope", ["read write admin", "admin"])
+def test_no_token_or_agent_unlocks_signing(world: World, scope: str) -> None:
+    """Unlocking someone's signing is a person's act, as signing is: an Org Admin's
+    token can't, nor an agent acting for them, whatever its scopes."""
+    from iki_server.signatures import alerts
+
+    ready(world)
+    editor = world.users["editor"]
+    alerts.lock(editor, 3)
+    _, tokens = signed_in_token(world, "org_admin", scope=scope)
+    path = f"/users/{editor.pk}/signing/unlock"
+    refused = bearer(tokens["access_token"], "POST", path, {"reason": "Checked with them"})
+    assert refused.status_code == 403, refused.content
+    assert services.locked_out(editor)
+    assert not AuditEvent.objects.filter(action="signature.unlocked").exists()
+    # The person, in the web app, can.
+    done = api_as(world, "org_admin").post(path, {"reason": "Checked with them"})
+    assert done.status_code == 204, done.content
+
+
+def test_an_unlock_says_why(world: World) -> None:
+    from iki_server.signatures import alerts
+
+    ready(world)
+    editor = world.users["editor"]
+    alerts.lock(editor, 3)
+    path = f"/users/{editor.pk}/signing/unlock"
+    org_admin = api_as(world, "org_admin")
+    assert org_admin.post(path, {"reason": "   "}).status_code == 422
+    assert org_admin.post(path).status_code == 422
+    assert services.locked_out(editor)
 
 
 def test_saml_signing_forces_authentication(lab: World, saml_idp: Any, settings: Any) -> None:
@@ -821,7 +933,7 @@ def _failed(ref: str, world: World) -> dict[str, str]:
     body = api_as(world, "viewer").get(f"/entities/{ref}/signatures", verify="true").json()
     return {
         c["name"]: c["detail"]
-        for s in body["items"]
+        for s in body["signatures"]
         for c in s["verification"]["checks"]
         if not c["ok"]
     }

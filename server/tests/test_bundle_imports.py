@@ -14,8 +14,9 @@ from typing import Any, cast
 import pytest
 import requests
 from api_client import Api, problem
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.utils import ProgrammingError
+from django.test import override_settings
 from org_world import World, build_world
 from scan_fixtures import clean_blob
 
@@ -39,11 +40,14 @@ from iki_server.tasks.runner import Runner
 pytestmark = pytest.mark.django_db
 
 PUBLIC = "ed25519:riAtz4Nv0SFcXARze-_ieUqB027N1ie892Fk7U0Ao-4"
+#: Another deployment, whose bundles this one trusts: signatures made there are signed by
+#: its keys, never this deployment's (ADR 0126).
+SOURCE = "Lab A"
 
 
 @pytest.fixture
 def world(s3: Any, settings: Any) -> World:
-    settings.IKI_BUNDLE_TRUSTED_KEYS = {"test": (PUBLIC,)}
+    settings.IKI_BUNDLE_TRUSTED_KEYS = {"test": (PUBLIC,), SOURCE: (PUBLIC,)}
     made = build_world()
     OrgRoleAssignment.objects.create(user=made.users["admin"], role=OrgRole.ORG_ADMIN)
     return made
@@ -53,10 +57,14 @@ class _UndoError(Exception):
     pass
 
 
-def bundle_of(world: World, tmp_path: Path, make: Callable[[], list[Any]]) -> Path:
-    """A bundle of what ``make`` makes, which is then undone, as if made elsewhere."""
+def bundle_of(
+    world: World, tmp_path: Path, make: Callable[[], list[Any]], *, source: str | None = None
+) -> Path:
+    """A bundle of what ``make`` makes, which is then undone, as if made elsewhere: at the
+    deployment named ``source``, made and signed there, if it's given."""
     out = tmp_path / f"bundle-{len(list(tmp_path.iterdir()))}.tar.gz"
-    with contextlib.suppress(_UndoError), transaction.atomic():
+    named = override_settings(IKI_ENVIRONMENT=source) if source else contextlib.nullcontext()
+    with named, contextlib.suppress(_UndoError), transaction.atomic():
         export.write(world.project, make(), out, by=world.users["admin"], reason="r", selection="s")
         raise _UndoError
     return out
@@ -453,7 +461,7 @@ def test_applying_makes_its_entities_with_their_history_files_and_authors(
     # Its page says where it's from.
     origins = api.get(f"/entities/{kinase.hrid}/bundles")
     assert origins.status_code == 200, origins.content
-    (origin,) = origins.json()
+    (origin,) = origins.json()["items"]
     assert origin["deployment"] == "test" and origin["hrid"] == kinase.hrid
     assert origin["action"] == "new" and origin["revisions"] == 2
     assert origin["bundle_import"] == made["id"]
@@ -592,7 +600,7 @@ def test_applying_renumbers_taken_hrids_and_adds_later_revisions(
     assert api.get(f"/entities/{here.hrid}").json()["values"]["name"] == "changed there"
     moved = Entity.objects.get(pk=renumbered["id"])
     assert moved.hrid != renumbered["hrid"]
-    (origin,) = api.get(f"/entities/{moved.hrid}/bundles").json()
+    (origin,) = api.every(f"/entities/{moved.hrid}/bundles")
     assert origin["hrid"] == renumbered["hrid"]
     rows = {r["id"]: r for r in entities_of(api, done)}
     assert rows[renumbered["id"]]["hrid_here"] == moved.hrid
@@ -1402,3 +1410,44 @@ def test_a_number_kept_from_the_source_is_never_handed_out_later_in_the_same_imp
     writer = _Writer(made=cast(Any, None), bundle=cast(Any, None), tmp=tmp_path)
     writer._keep(HRID_PREFIX, f"{HRID_PREFIX}-{ahead:06d}")
     assert int(run_services._next_hrid().rpartition("-")[2]) > ahead
+
+
+def test_a_bundles_computed_values_are_worked_out_again_by_this_deployments_expressions(
+    world: World, tmp_path: Path
+) -> None:
+    """A record brings the values the other deployment's expressions gave (ADR 0297); here,
+    they're what this deployment's give, each change a revision of its own."""
+    import datetime as dt
+
+    from iki_server.entities.models import Revision
+    from iki_server.entities.values import shape
+
+    def elsewhere() -> list[Any]:
+        made = services.create(
+            world.users["admin"],
+            "acme/protein.Batch",
+            world.project,
+            {"name": "L-7", "made_on": "2026-11-27", "shelf_life_days": 30},
+        ).entity
+        # As a shelf life counted another way there gave it. History is append-only, so
+        # its trigger is off for this transaction alone, which bundle_of rolls back.
+        part = shape("acme/protein.Batch").part_of("use_by")
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL session_replication_role = replica")
+        for table in (part.model, part.history):
+            table._default_manager.filter(entity_id=made.pk).update(use_by=dt.date(2026, 12, 1))
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL session_replication_role = origin")
+        return [Entity.objects.get(pk=made.pk)]
+
+    path = bundle_of(world, tmp_path, elsewhere)
+    api = Api(world.browser("admin"))
+    made = upload(api, world.project, path)
+    assert made["plan"]["applicable"], made["plan"]
+    assert applied(api, made)["state"] == "applied"
+    batch = Entity.objects.get(type="acme/protein.Batch")
+    assert services.current_values_of([batch])[batch.pk]["use_by"] == dt.date(2026, 12, 27)
+    latest = Revision.objects.get(entity=batch, number=batch.revision)
+    assert (latest.kind, latest.via, latest.user_id) == ("migrated", "system", None)
+    assert latest.changed_fields == ["use_by"]
+    assert "imported from test" in latest.reason

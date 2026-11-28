@@ -22,12 +22,13 @@ ROW: dict[str, Any] = dict.fromkeys(
         "unit",
         "lower",
         "upper",
+        "rounding",
         "acceptance",
         "source",
     ]
 )
 NUMBER = ROW | {"attribute": "Assay", "method": "Titration", "kind": "numeric", "unit": "%"}
-NUMBER |= {"lower": 99.0}
+NUMBER |= {"lower": "99.0", "rounding": "limit_places"}
 IDENTITY = ROW | {
     "attribute": "Identification A",
     "method": "USP <191>",
@@ -59,7 +60,7 @@ def test_a_criterion_is_a_number_with_limits_or_a_requirement() -> None:
     cases = [
         ([NUMBER, IDENTITY], True),
         ([NUMBER | {"unit": None}], False),
-        ([IDENTITY | {"upper": 1}], False),
+        ([IDENTITY | {"upper": "1"}], False),
         ([IDENTITY | {"unit": "%"}], False),
         ([NUMBER | {"acceptance": "Clear"}], False),
     ]
@@ -89,8 +90,20 @@ def test_approval_needs_each_criterions_limit_or_requirement() -> None:
 @pytest.mark.parametrize(
     ("values", "ok"),
     [
-        ({"kind": "numeric", "unit": "%", "value": 99.5, "lower": 99}, True),
-        ({"kind": "numeric", "unit": "%", "lower": 99}, False),
+        (
+            {
+                "kind": "numeric",
+                "unit": "%",
+                "value": 99.46,
+                "reported": "99.5",
+                "rounding": "limit_places",
+                "lower": "99.0",
+            },
+            True,
+        ),
+        ({"kind": "numeric", "unit": "%", "lower": "99.0"}, False),
+        # The reportable value its limits were compared with is kept beside the measured one.
+        ({"kind": "numeric", "unit": "%", "value": 99.46, "lower": "99.0"}, False),
         ({"kind": "conforms", "result": "conforms", "acceptance": "Meets the requirements"}, True),
         ({"kind": "conforms", "acceptance": "Meets the requirements"}, False),
         ({"kind": "conforms", "result": "conforms", "acceptance": "Meets", "value": 1}, False),
@@ -110,3 +123,33 @@ def test_a_release_test_keeps_its_kind_of_result(values: dict[str, Any], ok: boo
         "observed_by": "p",
     }
     assert outcomes(test, check, [origin | values]) == [ok]
+
+
+@pytest.mark.parametrize(
+    ("lower", "upper", "rounding", "ordered", "same_place"),
+    [
+        ("98.0", "102.0", "limit_places", True, True),
+        ("99.0", "100.5", "limit_places", True, True),
+        ("-0.5", "0.5", "limit_places", True, True),
+        ("-12.25", "-0.75", "limit_places", True, True),
+        ("0.020", "0.10", "limit_places", True, False),
+        ("98", "102.0", "limit_places", True, False),
+        ("-0.5", "1", "limit_places", True, False),
+        # Compared unrounded, nothing is rounded to either limit's place.
+        ("98", "102.0", "unrounded", True, True),
+        # As numbers, not as text: "100.5" sorts before "99.0".
+        ("99.0", "100.5", "limit_places", True, True),
+        ("100.5", "99.0", "limit_places", False, True),
+        ("5", None, "limit_places", True, True),
+    ],
+)
+def test_a_ranges_limits_are_ordered_and_stated_to_one_place(
+    lower: str, upper: str | None, rounding: str, ordered: bool, same_place: bool
+) -> None:
+    version = spec(QC, "iki/qc_release.SpecificationVersion")
+    row = NUMBER | {"lower": lower, "upper": upper, "rounding": rounding}
+    found = [
+        outcomes(version, version.rules[name].check or "", [{"criteria": [row]}])[0]
+        for name in ("ordered_limits", "stated_places")
+    ]
+    assert found == [ordered, same_place]
