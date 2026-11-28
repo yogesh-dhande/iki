@@ -27,7 +27,7 @@ from iki_server.files.scan_state import ScanStatus, statuses_for_blobs
 from iki_server.org.models import Project
 from iki_server.org.services import Refused
 from iki_server.runs.models import ActionRun, RunInclusion, RunInput
-from iki_spec.model import Action, amount_of, included_reference
+from iki_spec.model import Action, amount_of, included_reference, lineage
 
 
 @dataclass(frozen=True)
@@ -371,45 +371,105 @@ class Manifest:
 
 def manifest(run: ActionRun) -> Manifest:
     """Read and authorize the same pinned documents for launch, reuse and each lease."""
+    found = manifests([run])[run.pk]
+    if isinstance(found, Unavailable):
+        raise found
+    return found
+
+
+@dataclass
+class _Reading:
+    """What a run's manifest has read so far, and what it still has to check."""
+
+    run: ActionRun
+    result: Manifest
+    mask: set[str]
+    references: set[UUID] = field(default_factory=set)
+    entries: set[UUID] = field(default_factory=set)
+    records: set[UUID] = field(default_factory=set)
+
+
+def manifests(runs: Sequence[ActionRun]) -> dict[UUID, Manifest | Unavailable]:
+    """:func:`manifest` for each of ``runs``, as a lease reads a pack's (ADR 0055), in as
+    many queries however many runs there are and however many documents they read. Each
+    run's is its own: its manifest, or why it's unavailable."""
     from iki_server.entities import requests
-    from iki_server.entities.services import values_and_entry_at
+    from iki_server.entities.services import values_and_entries_at
     from iki_server.runs import input_files
 
-    imported = run.imported or {}
-    if imported.get("inputs") or imported.get("included"):
-        raise Unavailable()
-    result = Manifest(
-        {name: [] for name in run.spec["inputs"]}, param_files=input_files.of_params(run)
-    )
-    references: set[UUID] = set()
-    entries: set[UUID] = set()
-    records: set[UUID] = set()
-    mask = set(run.reference_mask)
+    out: dict[UUID, Manifest | Unavailable] = {}
+    reading: list[ActionRun] = []
+    for run in runs:
+        imported = run.imported or {}
+        if imported.get("inputs") or imported.get("included"):
+            out[run.pk] = Unavailable()
+        else:
+            reading.append(run)
+    if not reading:
+        return out
+    ids = [run.pk for run in reading]
+    pinned: dict[UUID, list[RunInclusion]] = defaultdict(list)
+    for pin in (
+        RunInclusion.objects.filter(run_id__in=ids)
+        .select_related("entity")
+        .order_by("run_id", "input", "position", "field", "index")
+    ):
+        pinned[pin.run_id].append(pin)
+    given: dict[UUID, list[RunInput]] = defaultdict(list)
+    for row in (
+        RunInput.objects.filter(run_id__in=ids)
+        .select_related("entity")
+        .order_by("run_id", "name", "position")
+    ):
+        given[row.run_id].append(row)
 
-    def document(row: RunInput | RunInclusion, prefix: str) -> dict[str, Any]:
+    def rows_of(run: ActionRun) -> list[RunInput | RunInclusion]:
+        return [*pinned[run.pk], *given[run.pk]]
+
+    # A run that reads a purged entity is unavailable, whatever else it reads.
+    purged = {run.pk for run in reading for row in rows_of(run) if row.entity.purged_at is not None}
+    rows = [row for run in reading if run.pk not in purged for row in rows_of(run)]
+    read = dict(
+        zip(
+            map(id, rows),
+            values_and_entries_at([(r.entity, r.revision, r.entry_revision) for r in rows]),
+            strict=True,
+        )
+    )
+    entities = list({row.entity.pk: row.entity for row in rows}.values())
+    sides = requests.run_sides(entities)
+    moved = {
+        entry[0]
+        for row in rows
+        if row.entity.entry_id is not None
+        and (entry := read[id(row)][1]) is not None
+        and entry[0] != row.entity.entry_id
+    }
+    hrids = dict(Entity.objects.filter(pk__in=moved).values_list("pk", "hrid")) if moved else {}
+
+    def document(at: _Reading, row: RunInput | RunInclusion, prefix: str) -> dict[str, Any]:
         entity = row.entity
-        if entity.purged_at is not None:
-            raise Unavailable()
-        records.add(entity.pk)
-        values, entry = values_and_entry_at(entity, row.revision, row.entry_revision)
+        at.records.add(entity.pk)
+        values, entry = read[id(row)]
         fields = shape(entity.type).fields()
         shown = {n: to_json(fields[n], v) for n, v in values.items() if n in fields}
-        for at, pk in reference_positions(fields, values):
-            path = _value_path(prefix, at)
-            if path in mask:
+        for position, pk in reference_positions(fields, values):
+            path = _value_path(prefix, position)
+            if path in at.mask:
                 containing: Any = shown
-                for key in at[:-1]:
+                for key in position[:-1]:
                     containing = containing[key]
-                containing[at[-1]] = UNREADABLE_REFERENCE
-                mask.remove(path)
+                containing[position[-1]] = UNREADABLE_REFERENCE
+                at.mask.remove(path)
             else:
-                references.add(pk)
+                at.references.add(pk)
         for name in shown:
-            result.input_files.update(input_files.file_ids(fields[name], values[name]))
+            at.result.input_files.update(input_files.file_ids(fields[name], values[name]))
         item = {
             "id": str(entity.pk),
             "hrid": entity.hrid,
             "type": entity.type,
+            "types": lineage(entity.type, registry.types()),
             "schema_version": registry.types()[entity.type].schema_version,
             "revision": row.revision,
             "values": shown,
@@ -417,64 +477,111 @@ def manifest(run: ActionRun) -> Manifest:
         amount = amount_of(entity.type, registry.types())
         if amount is not None and amount.material is not None:
             item["material_field"] = amount.material
-        if (sides := requests.run_sides([entity]).get(entity.pk)) is not None:
-            item["request"] = sides
+        if (request := sides.get(entity.pk)) is not None:
+            item["request"] = request
         if entity.entry_id is not None and entry is not None:
             entry_id, _ = entry
-            entries.add(entry_id)
+            at.entries.add(entry_id)
             item["entry_id"] = str(entry_id)
             if row.entry_revision is not None:
                 item["entry_revision"] = row.entry_revision
             if entity.entry_id != entry_id:
-                item["hrid"] = Entity.objects.values_list("hrid", flat=True).get(pk=entry_id)
+                item["hrid"] = hrids[entry_id]
         return item
 
-    nested: dict[tuple[str, int], dict[str, list[dict[str, Any]]]] = defaultdict(dict)
-    for pin in run.inclusions.select_related("entity").order_by(
-        "input", "position", "field", "index"
-    ):
-        item = document(pin, _included_path(pin))
-        if pin.covered_materials is not None:
-            references.update(UUID(pk) for pk in pin.covered_materials)
-            item["covered_materials"] = pin.covered_materials
-        nested[(pin.input, pin.position)].setdefault(pin.field, []).append(item)
-    for given in run.inputs.select_related("entity").order_by("name", "position"):
-        item = document(given, f"/{given.name}/{given.position}")
-        if includes := run.spec["inputs"].get(given.name, {}).get("include"):
-            pinned = nested[(given.name, given.position)]
-            item["included"] = {name: pinned.get(name, []) for name in includes}
-        result.inputs.setdefault(given.name, []).append(item)
+    readings: list[_Reading] = []
+    for run in reading:
+        if run.pk in purged:
+            out[run.pk] = Unavailable()
+            continue
+        at = _Reading(
+            run,
+            Manifest(
+                {name: [] for name in run.spec["inputs"]}, param_files=input_files.of_params(run)
+            ),
+            set(run.reference_mask),
+        )
+        nested: dict[tuple[str, int], dict[str, list[dict[str, Any]]]] = defaultdict(dict)
+        for pin in pinned[run.pk]:
+            item = document(at, pin, _included_path(pin))
+            if pin.covered_materials is not None:
+                at.references.update(UUID(pk) for pk in pin.covered_materials)
+                item["covered_materials"] = pin.covered_materials
+            nested[(pin.input, pin.position)].setdefault(pin.field, []).append(item)
+        for row in given[run.pk]:
+            item = document(at, row, f"/{row.name}/{row.position}")
+            if includes := run.spec["inputs"].get(row.name, {}).get("include"):
+                pinned_here = nested[(row.name, row.position)]
+                item["included"] = {name: pinned_here.get(name, []) for name in includes}
+            at.result.inputs.setdefault(row.name, []).append(item)
+        readings.append(at)
+    for at, why in zip(readings, _authorized(readings), strict=True):
+        out[at.run.pk] = at.result if why is None else why
+    return {run.pk: out[run.pk] for run in runs}
 
-    # The record's pinned revision authorizes its historical registry identity after a move.
-    named = records | (references - entries)
-    if mask or access.project_reference_ids(run.project, named) != named:
-        raise Unavailable()
-    if result.param_files and access.project_files(run.project).filter(
-        pk__in=result.param_files
-    ).count() != len(result.param_files):
-        raise Unavailable()
-    ids = result.param_files | result.input_files
-    if ids:
-        files = {f.pk: f for f in File.objects.filter(pk__in=ids).only("pk", "name", "blob_id")}
-        if ids != files.keys():
-            raise Unavailable()
-        scans = statuses_for_blobs({f.blob_id for f in files.values()})
-        pending: set[UUID] = set()
-        # A held file ends it at once, whatever else is still being scanned.
-        for pk in sorted(ids):
-            scan = scans[files[pk].blob_id]
-            if scan.usable:
-                continue
-            if scan.state == "pending":
-                pending.add(pk)
-                continue
-            try:
-                scan.require_usable()
-            except Problem as error:
-                raise Unavailable(held(files[pk].name, scan), ends_with=error.code) from error
-        if pending:
-            raise WaitingForScan(result, pending)
-    return result
+
+def _authorized(readings: Sequence[_Reading]) -> list[Unavailable | None]:
+    """For each of ``readings``, why its run can't be given what it read, or None. Its
+    project's readers must be able to read every record and reference in it (the pinned
+    revision authorizes a record's historical registry identity after a move), its file
+    params must name its project's files, and every file it reads must be usable. What
+    each project reads, and each file, is looked up once for them all."""
+    named = {at.run.pk: at.records | (at.references - at.entries) for at in readings}
+    by_project: dict[UUID, list[_Reading]] = defaultdict(list)
+    for at in readings:
+        by_project[at.run.project_id].append(at)
+    readable: dict[UUID, set[UUID]] = {}
+    params: dict[UUID, set[UUID]] = {}
+    for project_id, theirs in by_project.items():
+        project = theirs[0].run.project
+        wanted = set().union(*(named[at.run.pk] for at in theirs if not at.mask))
+        readable[project_id] = access.project_reference_ids(project, wanted)
+        wanted = set().union(*(at.result.param_files for at in theirs))
+        params[project_id] = (
+            set(access.project_files(project).filter(pk__in=wanted).values_list("pk", flat=True))
+            if wanted
+            else set()
+        )
+    ids = set().union(*(at.result.param_files | at.result.input_files for at in readings))
+    files = (
+        {f.pk: f for f in File.objects.filter(pk__in=ids).only("pk", "name", "blob_id")}
+        if ids
+        else {}
+    )
+    scans = statuses_for_blobs({f.blob_id for f in files.values()}) if files else {}
+    out: list[Unavailable | None] = []
+    for at in readings:
+        project_id, result = at.run.project_id, at.result
+        allowed = not at.mask and named[at.run.pk] <= readable[project_id]
+        if not allowed or not result.param_files <= params[project_id]:
+            out.append(Unavailable())
+        else:
+            out.append(_usable(result, result.param_files | result.input_files, files, scans))
+    return out
+
+
+def _usable(
+    result: Manifest, ids: set[UUID], files: Mapping[UUID, File], scans: Mapping[UUID, ScanStatus]
+) -> Unavailable | None:
+    """Why a run can't read its files, or None: each must exist, and its scan let it be
+    read. A held file ends it at once, whatever else is still being scanned."""
+    if not ids <= files.keys():
+        return Unavailable()
+    pending: set[UUID] = set()
+    for pk in sorted(ids):
+        scan = scans[files[pk].blob_id]
+        if scan.usable:
+            continue
+        if scan.state == "pending":
+            pending.add(pk)
+            continue
+        try:
+            scan.require_usable()
+        except Problem as error:
+            why = Unavailable(held(files[pk].name, scan), ends_with=error.code)
+            why.__cause__ = error
+            return why
+    return WaitingForScan(result, pending) if pending else None
 
 
 def still_scanning(

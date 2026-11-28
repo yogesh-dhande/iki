@@ -888,6 +888,10 @@
             "$ref": "#/$defs/fieldName"
           }
         },
+        "row_id": {
+          "description": "The row's string field that holds its stable ID: Iki gives a new row a UUID there, keeps each row's ID through edits, and refuses an edit naming an ID the record's rows don't have or one twice. Leave it out of a new row; keep it in a row that's kept. Other records and exports can name a row by it.",
+          "$ref": "#/$defs/fieldName"
+        },
         "by": {
           "description": "The row field, an enum or a string, whose value is each row's role, which `roles` says more of. Where it's a string, the roles named are the only ones a row may have; an abstract type can leave them to its subtypes, which give them in `refines` (ADR 0164).",
           "$ref": "#/$defs/fieldName"
@@ -1064,6 +1068,12 @@
         "guards": {
           "description": "Conditions on setting this state. CEL reads the actor, record, proposed state change, history, last change into each state, open holds and signatures.",
           "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/guards"
+        },
+        "maker": {
+          "$ref": "https://ikisci.org/schemas/review-procedure/v1#/$defs/maker"
+        },
+        "independent_of": {
+          "$ref": "https://ikisci.org/schemas/review-procedure/v1#/$defs/independentOf"
         }
       }
     },

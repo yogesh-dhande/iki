@@ -33,7 +33,7 @@ import {
   type TargetState,
   type ViewerName,
 } from "../views";
-import { NO_RULES } from "./new-run";
+import { NO_RULES } from "../entity-values";
 
 type AnyViewer = EntityType["viewers"][number];
 

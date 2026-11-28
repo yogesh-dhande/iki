@@ -1,0 +1,87 @@
+# Iki's result review (ADR 0301): Record only, Accept without sign-off, Research and
+# Regulated QC, for any type whose needs it fits. A lab declares its own procedure in its
+# own plugin; this one never changes under version 1.
+apiVersion: iki/v1
+kind: ReviewProcedure
+name: result_review
+version: 1
+label: Result review
+description: >-
+  How a result is reviewed before others rely on it: kept as recorded, accepted without a
+  signature, signed off by one independent reviewer, or submitted, independently reviewed
+  and released by QA.
+slots:
+  analyst:
+    label: Analyst
+    description: Records the work and signs its submission.
+  reviewer:
+    label: Reviewer
+    description: Reviews work they didn't make or edit, and signs the review or returns it for correction.
+  qa:
+    label: QA
+    description: Releases independently reviewed work.
+states:
+  recorded:
+    label: Recorded
+    description: The work is recorded and can be edited.
+    by: [analyst, reviewer, qa]
+    reason: required
+  accepted:
+    label: Accepted
+    description: The work is accepted as recorded, without a signature, and locked.
+    by: [analyst, reviewer]
+    locks: true
+  signed_off:
+    label: Signed off
+    description: A reviewer who didn't make or edit it has signed it off.
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors]
+  submitted:
+    label: Submitted
+    description: Its maker has signed it and submitted it for review.
+    by: analyst
+    locks: true
+    signature: { meaning: authorship }
+    maker: true
+  reviewed:
+    label: Independently reviewed
+    description: A reviewer independent of its maker and submitter has signed the review.
+    by: reviewer
+    locks: true
+    signature: { meaning: review }
+    independent_of: [creator, editors, signers: [submitted]]
+  released:
+    label: QA released
+    description: QA, independent of everyone before, has released it.
+    by: qa
+    locks: true
+    signature: { meaning: approval, label: QA release }
+    independent_of: [creator, editors, signers: [submitted, reviewed]]
+flows:
+  record_only:
+    label: Record only
+    summary: >-
+      The work is kept as evidence, as it was recorded, and no one signs it. For work whose
+      review happens elsewhere, or not at all.
+    route: [recorded]
+  accepted:
+    label: Accept without sign-off
+    summary: >-
+      Someone accepts the work as recorded, which locks it. No one signs it. For work that's
+      complete when it's used, such as an assay's input.
+    route: [recorded, accepted]
+  research:
+    label: Research
+    summary: >-
+      The work is recorded, then one reviewer, who didn't make or edit it, signs it off. For
+      discovery work, where one check is enough.
+    route: [recorded, signed_off]
+  regulated_qc:
+    label: Regulated QC
+    summary: >-
+      Its maker signs the submission, an independent reviewer signs the review, and QA signs
+      the release: three different people, each signing in again. For GxP and QC work.
+    route: [recorded, submitted, reviewed, released]
+    moves: { recorded: [submitted, reviewed] }

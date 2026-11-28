@@ -13,12 +13,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import yaml
 from first_party_dependencies import EXECUTION_FIXTURE, FIRST_PARTY, TEMPLATE, build_order, withs
 from first_party_dependencies import PLUGINS as FIRST_PARTY_PLUGINS
 from test_worker_e2e import (
     PLUGINS,
     worker_bin,  # noqa: F401 - a fixture
 )
+
+from iki_spec.action_tests import KIND, fixture_files
 
 pytestmark = pytest.mark.worker_e2e
 
@@ -82,6 +85,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
         "id": "s1",
         "hrid": "PST-000001",
         "type": "iki/protein.ProteinStructure",
+        "types": ["iki/protein.ProteinStructure", "iki/core.Entity"],
         "schema_version": 1,
         "revision": 1,
         "values": {"structure": "f1", "method": "xray", "chains": ["c1"]},
@@ -92,6 +96,7 @@ def test_a_fixture_runs_with_its_files_and_its_result_files_are_described(
                     "id": "c1",
                     "hrid": "PRT-000001",
                     "type": "iki/protein.Protein",
+                    "types": ["iki/protein.Protein", "iki/core.Sequence", "iki/core.Entity"],
                     "schema_version": 1,
                     "revision": 1,
                     "values": {"sequence": "MKVLA"},
@@ -138,7 +143,7 @@ def test_results_must_be_files_the_command_made(
     )
     ran = run_local(worker_bin, tmp_path, run_input([sys.executable, "main.py"]), plugin=plugin)
     assert ran.returncode == 1
-    assert "isn't a file in IKI_OUT_DIR" in ran.stderr
+    assert "isn't a regular file in IKI_OUT_DIR" in ran.stderr
 
 
 def test_the_command_sees_only_its_own_environment_and_is_stopped_at_its_timeout(
@@ -186,28 +191,52 @@ def dependencies_of(plugin: Path) -> tuple[Path, ...]:
     """Build the declared closure, plus providers of types the action tests exercise."""
     referenced = {
         FIRST_PARTY_PLUGINS / name
-        for path in plugin.rglob("*.yaml")
+        for path in (*plugin.rglob("*.yaml"), *plugin.rglob("*.yml"))
         for name in NEEDS.findall(path.read_text(encoding="utf-8"))
     }
     providers = sorted(path for path in referenced if path in FIRST_PARTY and path != plugin)
     return tuple(path for path in build_order(*providers, plugin) if path != plugin)
 
 
-def with_action_tests() -> list[Path]:
+def declares_action_tests(file: Path) -> bool:
+    """Whether a fixture file holds an action test, in any layout YAML allows; a file that
+    isn't YAML counts, so its plugin runs and the loader says what's wrong with it."""
+    try:
+        documents = list(yaml.safe_load_all(file.read_text(encoding="utf-8")))
+    except (yaml.YAMLError, UnicodeDecodeError):
+        return True
+    return any(isinstance(d, dict) and d.get("kind") == KIND for d in documents)
+
+
+def with_action_tests(plugins: tuple[Path, ...] = (*FIRST_PARTY, TEMPLATE)) -> list[Path]:
     """Every first-party plugin, and the template, that declares action tests.
 
     The matrix is read off the tree rather than listed, so a plugin's fixtures can't be
     added -- or a plugin written -- without iki-worker being run against them: the
-    plasmid plugin's eleven fixtures were in the tree and in no CI job.
+    plasmid plugin's eleven fixtures were in the tree and in no CI job. Its files are
+    the ones ``iki plugin test`` reads, wherever under ``tests/`` and ``.yaml`` or ``.yml``.
     """
     return [
         plugin
-        for plugin in (*FIRST_PARTY, TEMPLATE)
-        if any(
-            "\nkind: ActionTest" in found.read_text(encoding="utf-8")
-            for found in sorted((plugin / "tests").glob("*.yaml"))
-        )
+        for plugin in plugins
+        if any(declares_action_tests(found) for found in fixture_files(plugin))
     ]
+
+
+def test_ci_runs_a_plugins_action_tests_wherever_the_loader_finds_them(tmp_path: Path) -> None:
+    """A fixture nested under tests/, in a .yml file, with its kind first and quoted, is
+    still one CI runs; a plugin whose tests/ holds no action test isn't; and a file that
+    isn't YAML is run, so it fails visibly."""
+    nested, none, broken = (tmp_path / n for n in ("nested", "none", "broken"))
+    (nested / "tests" / "deep").mkdir(parents=True)
+    (nested / "tests" / "deep" / "case.yml").write_text(
+        'kind: "ActionTest"\napiVersion: iki/v1\nname: nested\n', encoding="utf-8"
+    )
+    (none / "tests").mkdir(parents=True)
+    (none / "tests" / "upgrade.yaml").write_text("kind: UpgradeTest\n", encoding="utf-8")
+    (broken / "tests").mkdir(parents=True)
+    (broken / "tests" / "case.yaml").write_text("kind: [ActionTest\n", encoding="utf-8")
+    assert with_action_tests((nested, none, broken)) == [nested, broken]
 
 
 @pytest.mark.parametrize("plugin", [*with_action_tests(), EXECUTION_FIXTURE], ids=lambda p: p.name)

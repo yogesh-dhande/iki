@@ -1,0 +1,49 @@
+# A lab's bought-in antibodies (ADR 0165): one identity for every kind, the vendor's
+# catalog number, so a secondary antibody registered by mistake as a primary is one entry,
+# which a registrar supersedes with a new entry of the right kind. What every kind has, its
+# RRID and the lab's LIMS ID, goes with it.
+apiVersion: iki/v1
+kind: EntityType
+name: Reagent
+abstract: true
+schema_version: 1
+description: A bought-in antibody, by its vendor and catalog number.
+identity: [vendor, catalog_number]
+fields:
+  vendor: { type: string, max_length: 100, required: true, immutable: true }
+  catalog_number: { type: string, max_length: 40, required: true, immutable: true }
+  rrid:
+    type: string
+    registry: fact
+    unique: true
+    indexed: true
+    max_length: 20
+    pattern: "^AB_[0-9]+$"
+    pattern_help: AB_ and digits, such as AB_2313606
+    label: RRID
+    description: Its Research Resource Identifier, one per antibody.
+  # The ID the lab's LIMS keeps for its stock of it, unique in each project (ADR 0082).
+  lims_id: { type: string, max_length: 40, unique: true, indexed: true, label: LIMS ID }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: PrimaryAntibody
+label: Primary antibody
+extends: Reagent
+schema_version: 1
+description: An antibody that binds the target itself.
+hrid: { prefix: PAB }
+fields:
+  host: { type: enum, registry: fact, values: [mouse, rabbit, goat, donkey] }
+---
+apiVersion: iki/v1
+kind: EntityType
+name: SecondaryAntibody
+label: Secondary antibody
+extends: Reagent
+schema_version: 1
+description: An antibody that binds another species' antibodies, to detect a primary.
+hrid: { prefix: SAB }
+fields:
+  raised_against: { type: enum, registry: fact, values: [mouse, rabbit, goat, human] }
+  host: { type: enum, registry: fact, values: [mouse, rabbit, goat, donkey] }

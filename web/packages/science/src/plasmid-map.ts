@@ -36,14 +36,13 @@ export interface MapDifference extends MapSpan {
   hgvs: string;
   kind:
     "substitution" | "deletion" | "insertion" | "duplication" | "inversion" | "deletion_insertion";
-  /** The bases it replaces and those it has, each at most its first 200: a long change's
-   * are only a preview, and its lengths are what it is. */
+  /** Each allele's first 200 bases. */
   reference: string;
   observed: string;
-  length_change: number;
-  /** How many bases it replaces, and how many it has, in full. */
+  /** Each allele's whole length, which its first 200 bases don't say. */
   reference_length: number;
   observed_length: number;
+  length_change: number;
   homopolymer?: number;
   features?: readonly string[];
   depth?: number;
@@ -895,17 +894,12 @@ function readsOf(difference: MapDifference) {
   return `${String(difference.support)} of ${String(difference.depth)}, ${percentOf(difference.support, difference.depth)}${strands}`;
 }
 
-/** What a difference replaces and has: their bases where they're few enough to read, and
- * otherwise how many, from its full lengths, not its preview's. */
+/** What a difference changed: each allele's bases, or its length past a dozen. */
 function changeOf(difference: MapDifference) {
-  const side = (bases: string, length: number) =>
-    !length
-      ? "\u2014"
-      : length <= 12 && bases.length === length
-        ? bases
-        : `${length.toLocaleString("en")} bp`;
-  const was = side(difference.reference, difference.reference_length);
-  const now = side(difference.observed, difference.observed_length);
+  const shown = (bases: string, length: number) =>
+    !length ? "\u2014" : length > 12 ? `${String(length)} bp` : bases;
+  const was = shown(difference.reference, difference.reference_length);
+  const now = shown(difference.observed, difference.observed_length);
   return `${difference.kind.replace("_", "-")}: ${was} \u2192 ${now}`;
 }
 

@@ -13,6 +13,7 @@ from django.core.exceptions import ObjectDoesNotExist, PermissionDenied
 from django.http import Http404, HttpRequest, HttpResponse
 from ninja import NinjaAPI
 from ninja.errors import AuthenticationError, HttpError, ValidationError
+from ninja.openapi.schema import OpenAPISchema
 
 from iki_server.api import (
     amounts,
@@ -55,7 +56,7 @@ from iki_server.api import (
     work,
     workflows,
 )
-from iki_server.api.problems import Problem, from_validation, response
+from iki_server.api.problems import Problem, documented, from_validation, response
 from iki_server.api.security import BearerAuth, SessionAuth
 from iki_server.files.storage import StorageError
 from iki_server.org.services import Refused
@@ -63,7 +64,19 @@ from iki_server.storage.scan_identity import ScanAmbiguous, ScanRefused
 
 logger = structlog.get_logger("iki.api")
 
-api = NinjaAPI(
+
+class _Api(NinjaAPI):
+    """The API, whose OpenAPI document says how each operation answers an error."""
+
+    def get_openapi_schema(
+        self, *, path_prefix: str | None = None, path_params: dict[str, Any] | None = None
+    ) -> OpenAPISchema:
+        schema = super().get_openapi_schema(path_prefix=path_prefix, path_params=path_params)
+        documented(schema)
+        return schema
+
+
+api = _Api(
     title="Iki API",
     version="1",
     description=(

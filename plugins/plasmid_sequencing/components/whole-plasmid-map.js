@@ -624,12 +624,11 @@ function readsOf(difference) {
 	const strands = difference.forward !== void 0 && difference.reverse !== void 0 ? ` (${String(difference.forward)} forward, ${String(difference.reverse)} reverse)` : "";
 	return `${String(difference.support)} of ${String(difference.depth)}, ${percentOf(difference.support, difference.depth)}${strands}`;
 }
-/** What a difference replaces and has: their bases where they're few enough to read, and
-* otherwise how many, from its full lengths, not its preview's. */
+/** What a difference changed: each allele's bases, or its length past a dozen. */
 function changeOf(difference) {
-	const side = (bases, length) => !length ? "—" : length <= 12 && bases.length === length ? bases : `${length.toLocaleString("en")} bp`;
-	const was = side(difference.reference, difference.reference_length);
-	const now = side(difference.observed, difference.observed_length);
+	const shown = (bases, length) => !length ? "—" : length > 12 ? `${String(length)} bp` : bases;
+	const was = shown(difference.reference, difference.reference_length);
+	const now = shown(difference.observed, difference.observed_length);
 	return `${difference.kind.replace("_", "-")}: ${was} \u2192 ${now}`;
 }
 /** Each difference: its HGVS name, where it lies, what changed, the features it lies in,

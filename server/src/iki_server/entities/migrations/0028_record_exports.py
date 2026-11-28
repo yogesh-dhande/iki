@@ -70,6 +70,7 @@ class Migration(migrations.Migration):
                         max_length=16,
                     ),
                 ),
+                ("background", models.BooleanField(default=False)),
                 ("error", models.TextField(blank=True, default="")),
                 ("done", models.PositiveIntegerField(default=0)),
                 ("name", models.CharField(db_comment="The file's name.", max_length=200)),

@@ -95,6 +95,14 @@ def _shown(value: float, places: int = 2) -> str:
     return _trimmed(f"{value:,.{places}f}")
 
 
+def _nanodaltons(value: float) -> int:
+    """A mass or tolerance in whole nanodaltons, rounded half up, by the same double
+    arithmetic as the lot's rule in CEL: ``int(x * 1000000000.0 + 0.5)``. That's exactly
+    its decimal for one given to nine places or fewer below 1,000,000 Da, as a measured
+    mass is. They're never negative, so truncating toward zero rounds."""
+    return int(value * 1000000000.0 + 0.5)
+
+
 def _given(value: float | Decimal) -> str:
     """``value`` as it was given, to every decimal it has: a specification's 0.05001 Da
     isn't 0.05."""
@@ -211,7 +219,8 @@ def oligo(lot: Lot) -> None:
             f"({basis}), {sign}{_given(abs(error))} Da"
         )
         if tolerance is not None:
-            within = abs(error) <= Decimal(repr(tolerance))
+            # As the lot's rule decides it, so the two never disagree (oligo_lot.yaml).
+            within = abs(_nanodaltons(measured) - _nanodaltons(expected)) <= _nanodaltons(tolerance)
             said += f", {'within' if within else 'outside'} ±{_given(tolerance)} Da"
         print(said)
     od = lot.get("yield_od")

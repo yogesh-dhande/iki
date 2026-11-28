@@ -10,8 +10,7 @@ run's inputs say which. Each creates one `iki/plasmid_sequencing.WholePlasmidAli
   with every base in the artifact `coverage.tsv`;
 - the consensus, in the reference's frame, from its origin (`consensus.fasta`);
 - each difference from the reference, named as HGVS names it, with the features it falls
-  in and the reads that support it on each strand. The record keeps a long change's first
-  bases and its full lengths; `differences.tsv` has every base of each.
+  in and the reads that support it on each strand (`differences.tsv`).
 
 **Aligning.** minimap2 (Li 2018, https://doi.org/10.1093/bioinformatics/bty191) aligns reads
 with its `map-ont` or `map-hifi` preset, and a consensus with `asm5`, and writes each
@@ -111,8 +110,7 @@ OVERHANG = 1000
 #: Inserted bases a difference's name lists; a longer insertion is named by where its bases
 #: are in the consensus, as HGVS names one copied from another sequence.
 MAX_NAMED = 100
-#: The bases of each side a difference's record keeps, a preview: the record has both sides'
-#: full lengths too, and differences.tsv every base of them.
+#: The bases a difference's record lists; it keeps its full length.
 MAX_SHOWN = 200
 #: The run-output schema's limit on a message.
 MAX_TEXT = 2000
@@ -1078,7 +1076,6 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
         )
     features = features_of(values, plasmid["values"])
     listed: list[dict[str, Any]] = []
-    #: Each difference's bases replaced and bases it has, whole, for differences.tsv.
     alleles: list[tuple[str, str]] = []
     for change in comparison.changes:
         was = stretch(reference, change.start, change.stop)
@@ -1113,6 +1110,7 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 fraction=round(call.support / call.depth, 3) if call.depth else 0.0,
             )
         listed.append(row)
+        # The download has each allele whole; the record, its first MAX_SHOWN bases.
         alleles.append((was, change.bases))
 
     unplaced = [
@@ -1156,9 +1154,8 @@ def verify(run: dict[str, Any], out_dir: Path) -> dict[str, Any]:
                 [k + 1, reference[k], depths[k], comparison.before[k] + comparison.aligned[k]]
             )
     with (out_dir / "differences.tsv").open("w", encoding="utf-8", newline="") as handle:
-        # Each side whole, however long: the record's are only their first bases.
-        columns = ["hgvs", "kind", "start", "end", "reference", "observed", "reference_length"]
-        columns += ["observed_length", "length_change", "homopolymer"]
+        columns = ["hgvs", "kind", "start", "end", "reference", "observed"]
+        columns += ["reference_length", "observed_length", "length_change", "homopolymer"]
         if source == "reads":
             columns += ["depth", "support", "forward", "reverse", "fraction"]
         writer = csv.writer(handle, delimiter="\t", lineterminator="\n")

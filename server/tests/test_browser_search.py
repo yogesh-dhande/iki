@@ -3,6 +3,7 @@
 and the server's own, finds what its person can read across their projects, is driven by
 keyboard as a combobox, passes axe in both themes, and fits a phone's width."""
 
+import re
 from typing import Any
 
 import pytest
@@ -104,6 +105,33 @@ def test_the_palette_finds_what_you_read_across_projects_and_opens_it(
     page.get_by_role("heading", level=1, name="Lysozyme C").wait_for()
     page.get_by_text(made["c"].hrid, exact=True).first.wait_for()
     assert "/projects/" not in page.url
+    assert_clean(page)
+
+
+def test_enter_on_a_pasted_hrid_opens_that_record_not_what_the_text_before_found(
+    open_as: Any, world: World
+) -> None:
+    """↵ pressed at once after pasting, while the last text's results still show and the
+    answer for the new text is on its way, waits for that answer and opens what it found."""
+    made = lysozymes(world)
+    page = open_as("admin", "/projects/")
+    dialog = search_for(page, "lysozyme")
+    found = dialog.get_by_role("group", name="Entities").get_by_role("option")
+    expect(found.first).to_contain_text(made["b"].hrid)
+    held: list[Route] = []
+    asked = re.compile(r"/api/v1/search\?.*q=" + re.escape(made["c"].hrid))
+    page.route(asked, lambda route: held.append(route))
+    with page.expect_request(asked):
+        dialog.get_by_role("combobox").fill(made["c"].hrid)
+        page.keyboard.press("Enter")
+    # Lysozyme B, which "lysozyme" found first, still shows, and ↵ didn't open it.
+    expect(found.first).to_contain_text(made["b"].hrid)
+    expect(dialog).to_be_visible()
+    assert "/entities/" not in page.url
+    assert len(held) == 1
+    held[0].continue_()
+    page.get_by_role("heading", level=1, name="Lysozyme C").wait_for()
+    page.get_by_text(made["c"].hrid, exact=True).first.wait_for()
     assert_clean(page)
 
 

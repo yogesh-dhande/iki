@@ -1,6 +1,7 @@
 # 0247. A project chooses how its experiments are signed
 
 - Status: Accepted
+- Superseded in part by [0301](0301-a-review-procedure-is-declared-once-and-a-type-says-what-it-needs.md) and [0302](0302-a-project-chooses-each-types-review-procedure-and-the-server-pins-it.md): an experiment is pinned at create and never re-pinned
 - Date: 2026-11-26
 - Refines: [0189](0189-an-experiment-pins-the-evidence-its-witness-signs.md),
   [0198](0198-a-project-applies-a-versioned-assay-starter.md),
@@ -37,7 +38,12 @@ author. With no starter applied, the deployment's `review_flow` setting still
 decides. A capture pins the flow its run was launched under into the record,
 and each state's guard requires that flow. A project that changes its flow
 leaves signed records as they were signed. A record that is still being
-recorded follows the new flow at its next capture.
+recorded follows the new flow at its next capture, unless it was captured for
+Regulated QC. That one finishes Regulated QC review, as a case or study in
+progress finishes under the procedure it began with (ADR 0240): a submission
+returned for correction is never closed by its author alone, nor by a single
+witness. The author sign-off and research routes are refused for a record
+submitted for review.
 
 Every flow's records are **Experiment** records. Experiments are created by
 hand from the type picker, so one type per flow would make each author choose a

@@ -14,7 +14,7 @@ import { ENTITIES, entityQuery, typesQuery } from "../entities";
 import { usePageTitle } from "../layout";
 import { Button, Loading, ProblemAlert, RelativeTime, useMessages } from "../ui";
 import { AppPanel } from "./app";
-import { useProject } from "./project-overview";
+import { useProject } from "../project";
 
 export function AppDraft() {
   const project = useProject();

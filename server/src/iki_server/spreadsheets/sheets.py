@@ -16,9 +16,10 @@ record, a value that's another record's, a plugin's rule, a reference the person
 
 :func:`save` is given what the person reviewed: each row's values as the check read them,
 the revision of each record they saw, and the exact place of each new record. It locks
-the records, refuses (:class:`Stale`) if any has changed since, and then makes every
-change, all of them or none (:class:`Failed`), each edit a revision with the reason, by
-the person and any agent acting for them, as one operation in the audit trail.
+the records, refuses (:class:`Stale`) if any has changed since, or if another placement
+took a place the check found, and then makes every change, all of them or none
+(:class:`Failed`), each edit a revision with the reason, by the person and any agent
+acting for them, as one operation in the audit trail.
 """
 
 from __future__ import annotations
@@ -55,6 +56,7 @@ __all__ = [
     "Problem",
     "Row",
     "Stale",
+    "Taken",
     "check",
     "read",
     "save",
@@ -83,7 +85,8 @@ class Problem:
 
 @dataclass(frozen=True)
 class Place:
-    """Where a new record goes: a container, at a position (``A1``), or its next free one."""
+    """Where a new record goes: a container, at a position (``A1``). A check finds a
+    container's next free one, for none; a save takes the one the check found."""
 
     container: uuid.UUID
     position: str | None = None
@@ -137,18 +140,44 @@ class Outcome:
     shown: dict[str, Any] = field(default_factory=dict)
 
 
-class Stale(Exception):  # noqa: N818 - reads as "the sheet was stale"
-    """Records changed since the person read them: their rows and current revisions.
-    Nothing was written."""
+@dataclass(frozen=True)
+class Taken:
+    """A new row's place, as the check found it, that another placement took since: its
+    row, the container, and the position."""
 
-    def __init__(self, rows: list[tuple[str, Entity]]) -> None:
+    key: str
+    container: Entity
+    position: str
+
+    @property
+    def shown(self) -> str:
+        return f"{self.container.hrid} {self.position}"
+
+
+class Stale(Exception):  # noqa: N818 - reads as "the sheet was stale"
+    """What the person reviewed has moved on: records changed since they read them (their
+    rows and current revisions), or places taken since the check. Nothing was written."""
+
+    def __init__(self, rows: list[tuple[str, Entity]], places: Sequence[Taken] = ()) -> None:
         self.rows = rows
-        names = ", ".join(e.hrid for _, e in rows[:5]) + (", …" if len(rows) > 5 else "")
-        one = len(rows) == 1
-        super().__init__(
-            f"{names} changed since you read {'it' if one else 'them'}: nothing was saved. "
-            f"Review {'its' if one else 'their'} latest values, then save again."
-        )
+        self.places = list(places)
+        said = []
+        if rows:
+            names = ", ".join(e.hrid for _, e in rows[:5]) + (", …" if len(rows) > 5 else "")
+            said.append(f"{names} changed since you read {'it' if len(rows) == 1 else 'them'}")
+        if self.places:
+            where = ", ".join(p.shown for p in self.places[:5])
+            more = ", …" if len(self.places) > 5 else ""
+            said.append(f"something else was put at {where}{more} since you checked")
+        text = "; ".join(said)
+        if rows and not self.places:
+            one = len(rows) == 1
+            advice = f"Review {'its' if one else 'their'} latest values, then save again."
+        elif self.places and not rows:
+            advice = "Check the sheet again, and review where the new rows go now."
+        else:
+            advice = "Review the latest values, and check where the new rows go now."
+        super().__init__(f"{text[0].upper()}{text[1:]}: nothing was saved. {advice}")
 
 
 class Failed(Exception):  # noqa: N818 - reads as "the save failed"
@@ -623,8 +652,10 @@ def _put_away(
     operation: uuid.UUID,
     checking: bool,
 ) -> None:
-    """Puts each new record where its row says, all in one move: checked as a move plans
-    them, each at its position, or a container's next free ones in its order."""
+    """Puts each new record where its row says, all in one move. A check plans them as a
+    move does, each at its position, or a container's next free ones in its order. A save
+    puts each at the position its check found (ADR 0207), never at another: it holds the
+    containers while it does, and raises :class:`Stale` if another placement took one."""
     from iki_server.storage import services as storage
 
     placing = [
@@ -647,9 +678,31 @@ def _put_away(
     by_record = {o.entity.pk: o for _, o in placing if o.entity is not None}
     if not wanted:
         return
+    if not checking:
+        # Nothing else goes in them until this is saved, or isn't.
+        storage.lock({w.to.pk for w in wanted if w.to is not None})
     planned = storage.plan(user, wanted)
-    for p in planned:
+    if not checking:
+        taken = [
+            Taken(by_record[p.record.pk].key, w.to, w.position)
+            for w, p in zip(wanted, planned, strict=True)
+            if p.occupied and w.to is not None and w.position is not None
+        ]
+        if taken:
+            raise Stale([], taken)
+    for w, p in zip(wanted, planned, strict=True):
         outcome = by_record[p.record.pk]
+        if not checking and w.position is None and p.shape is not None and not p.problems:
+            # Only a check finds the next free one: a save takes the one it found.
+            assert w.to is not None  # noqa: S101 - each new record goes in a container
+            outcome.problems.append(
+                Problem(
+                    LOCATION,
+                    f"{w.to.hrid} has positions: save the one the check gave this new "
+                    f"{_label(p.record.type).lower()}.",
+                )
+            )
+            continue
         if p.problems:
             new = f"This new {_label(p.record.type).lower()}"
             outcome.problems.extend(
@@ -657,7 +710,7 @@ def _put_away(
             )
         else:
             outcome.container, outcome.position = p.to, p.position
-    if checking or any(p.problems for p in planned):
+    if checking or any(p.problems for p in planned) or any(o.problems for _, o in placing):
         return
     exact = [storage.Wanted(p.record, p.to, p.position) for p in planned]
     try:

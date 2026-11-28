@@ -200,10 +200,9 @@ fields:
     immutable: true
     description: >-
       Each difference of the consensus from the plasmid's sequence, by its HGVS name, with
-      how many bases it replaces and has and the first 200 of each (differences.tsv has
-      them all), the features it lies in, the longest run of one base it touches, and for
-      reads, the reads across it and those that have its whole allele, each read once, on
-      each strand.
+      the bases it replaces and has, the features it lies in, the longest run of one base it
+      touches, and for reads, the reads across it and those that have its whole allele, each
+      read once, on each strand.
     schema:
       type: array
       maxItems: 500
@@ -232,19 +231,14 @@ fields:
           reference:
             type: string
             maxLength: 200
-            description: The bases it replaces, at most the first 200.
+            description: The reference's allele, its first 200 bases; differences.tsv has it whole.
           observed:
             type: string
             maxLength: 200
-            description: The bases it has instead, at most the first 200.
+            description: The consensus's allele, its first 200 bases; differences.tsv has it whole.
           reference_length:
-            type: integer
-            minimum: 0
-            description: How many bases it replaces, all of them.
-          observed_length:
-            type: integer
-            minimum: 0
-            description: How many bases it has instead, all of them.
+            { type: integer, minimum: 0, description: The reference allele's bases. }
+          observed_length: { type: integer, minimum: 0, description: The consensus allele's bases. }
           length_change: { type: integer }
           homopolymer: { type: integer, minimum: 1 }
           features: { type: array, maxItems: 20, items: { type: string, maxLength: 300 } }

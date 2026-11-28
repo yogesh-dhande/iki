@@ -260,7 +260,19 @@ def test_every_test_runs_in_exactly_one_shard(tmp_path: Path) -> None:
 
     out = tmp_path / "durations.json"
     summary = tmp_path / "summary.md"
-    args = [str(reports), "--durations", str(out), "--markdown", str(summary)]
+    workflow = _workflow(
+        tmp_path,
+        [("plain", 1, 2), ("plain", 2, 2), ("worker", 1, 1), ("browser", 1, 1)],
+    )
+    args = [
+        str(reports),
+        "--workflow",
+        str(workflow),
+        "--durations",
+        str(out),
+        "--markdown",
+        str(summary),
+    ]
     assert shard_summary.main(args) == 0
     recorded = json.loads(out.read_text(encoding="utf-8"))
     python = pytest_shards.python_version()
@@ -270,6 +282,75 @@ def test_every_test_runs_in_exactly_one_shard(tmp_path: Path) -> None:
     assert recorded[python]["plain"]["test_mixed.py"]["seconds"] >= 0.0
     assert pytest_shards.recorded_durations(out, python, "worker") == recorded[python]["worker"]
     assert f"Python {python} browser 1/1" in summary.read_text(encoding="utf-8")
+
+
+def _workflow(
+    tmp_path: Path, shards: list[tuple[str, int, int]], python: str | None = None
+) -> Path:
+    """A workflow whose job runs these shards on this Python (and, with ``python``, the
+    plain ones on that version too), laid out as ci.yml lays its matrix out."""
+    version = pytest_shards.python_version()
+    entries = [(version, *s) for s in shards]
+    if python is not None:
+        entries += [(python, *s) for s in shards if s[0] == "plain"]
+    lines = [
+        "jobs:",
+        "  lint:",
+        "    strategy:",
+        "      matrix:",
+        "        include:",
+        '          - { python: "9.9", kind: plain, shard: 1, shards: 1 }',
+        "  python-tests:",
+        "    strategy:",
+        "      matrix:",
+        "        include:",
+        *(
+            f'          - {{ python: "{p}", kind: {k}, shard: {n}, shards: {c} }}'
+            for p, k, n, c in entries
+        ),
+        "  python-summary:",
+        "    needs: python-tests",
+    ]
+    path = tmp_path / "ci.yml"
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def test_the_shards_expected_are_the_workflows_matrix() -> None:
+    """Read from ci.yml itself: each version and kind it declares, and only its own job's."""
+    found = shard_summary.matrix(CI.parents[1] / ".github" / "workflows" / "ci.yml")
+    assert {(p, k) for p, k, _, _ in found} >= {
+        ("3.12", "plain"),
+        ("3.14", "plain"),
+        ("3.14", "worker"),
+        ("3.14", "browser"),
+    }
+    for python, kind in {(p, k) for p, k, _, _ in found}:
+        group = sorted((n, c) for p, k, n, c in found if (p, k) == (python, kind))
+        (count,) = {c for _, c in group}
+        assert [n for n, _ in group] == list(range(1, count + 1)), (python, kind)
+
+
+def test_a_version_whose_reports_are_all_missing_fails_the_check(tmp_path: Path) -> None:
+    """Every report of one Python version gone: its tests all ran on the other version, so
+    only the workflow's matrix says something's missing."""
+    reports = _run_shards(tmp_path, ["plain:1/2", "plain:2/2", "worker:1/1", "browser:1/1"])
+    loaded, errors = shard_summary.load(reports)
+    assert errors == [] and shard_summary.check(loaded) == []
+    shards = [("plain", 1, 2), ("plain", 2, 2), ("worker", 1, 1), ("browser", 1, 1)]
+    workflow = _workflow(tmp_path, shards, python="3.11")
+    found = shard_summary.expected(loaded, shard_summary.matrix(workflow))
+    assert found == [
+        "Python 3.11 plain 1/2: in the workflow's matrix, but no report",
+        "Python 3.11 plain 2/2: in the workflow's matrix, but no report",
+    ]
+    assert shard_summary.main([str(reports), "--workflow", str(workflow)]) == 1
+    # And a report the matrix doesn't run is one too many.
+    fewer = _workflow(tmp_path, shards[:3])
+    assert shard_summary.expected(loaded, shard_summary.matrix(fewer)) == [
+        f"Python {pytest_shards.python_version()} browser 1/1: a report, but not in the "
+        "workflow's matrix"
+    ]
 
 
 def test_a_missing_shard_fails_the_check(tmp_path: Path) -> None:

@@ -31,7 +31,16 @@ from typing import Any
 
 from iki_spec import API_VERSION, naming, schemas
 from iki_spec.formats import FormatRegistry
-from iki_spec.model import Action, EntityType, Field, Input, Plugin, amount_of, included_reference
+from iki_spec.model import (
+    Action,
+    EntityType,
+    Field,
+    Input,
+    Plugin,
+    amount_of,
+    included_reference,
+    lineage,
+)
 from iki_spec.problems import Path as DocPath
 from iki_spec.problems import Problem, Severity
 from iki_spec.yamlsource import Document, read_documents
@@ -44,6 +53,7 @@ __all__ = [
     "Loaded",
     "compare",
     "effects",
+    "fixture_files",
     "load_tests",
     "run_input",
 ]
@@ -87,6 +97,19 @@ class Loaded:
         return not any(p.is_error for p in self.problems)
 
 
+def fixture_files(directory: Path) -> list[Path]:
+    """Every file a plugin's tests may be in: YAML (``.yaml`` or ``.yml``) anywhere under
+    its ``tests/``, in path order. CI picks plugins to run by these, as this loader reads
+    them, so a fixture can't be where one reads it and the other doesn't."""
+    root = directory / DIRECTORY
+    if not root.is_dir():
+        return []
+    return sorted(
+        (p for p in root.rglob("*") if p.suffix in (".yaml", ".yml") and p.is_file()),
+        key=lambda p: p.relative_to(directory).as_posix(),
+    )
+
+
 def load_tests(
     directory: Path, plugin: Plugin, types: Mapping[str, EntityType] | None = None
 ) -> Loaded:
@@ -97,16 +120,7 @@ def load_tests(
     tests: list[ActionTest] = []
     problems: list[Problem] = []
     seen: dict[str, str] = {}
-    root = directory / DIRECTORY
-    files = (
-        sorted(
-            (p for p in root.rglob("*") if p.suffix in (".yaml", ".yml") and p.is_file()),
-            key=lambda p: p.relative_to(directory).as_posix(),
-        )
-        if root.is_dir()
-        else []
-    )
-    for file in files:
+    for file in fixture_files(directory):
         name = file.relative_to(directory).as_posix()
         documents, read = read_documents(file, name)
         problems += read
@@ -480,6 +494,7 @@ def run_input(
             "id": _id(3, n),
             "hrid": entity.get("hrid") or f"{prefix}-{n:0{entity_type.hrid_digits}d}",
             "type": type_name,
+            "types": lineage(type_name, every),
             "schema_version": entity_type.schema_version,
             "revision": 1,
             "values": _with_ids(entity["values"], file_ids),

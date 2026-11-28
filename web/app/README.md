@@ -52,9 +52,13 @@ console.
   as a collection (ADR 0038), an entity of its own, and shows a collection's
   members in the grid.
 - `src/router.tsx` and `src/pages/`: the pages, at the server pages' old
-  addresses. Pages other than the frame, home and a project's overview load
-  when they're first opened (`lazyRouteComponent`), so the first page stays
-  small.
+  addresses, and the parts they share. Pages other than the frame and home
+  load when they're first opened, or when a link to one is pointed at
+  (`lazyRouteComponent`), so the first page stays small. Nothing imports a
+  page, the router included, or the page would load with whatever imported
+  it: eslint refuses it, and what pages share goes in a module of its own.
+  `make web` checks what the app starts with against its budget
+  (`ikiSizeBudgets` in `package.json`).
 
 ## Tests
 

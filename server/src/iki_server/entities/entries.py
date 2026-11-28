@@ -12,10 +12,19 @@ is what's done to the entry itself, and to the records that name one:
   registry (CPD-000456), with a reason. It can't be undone. The superseded
   entry is kept, marked, and can't be registered again; the people who
   added each holding project's record, and those projects' Admins, are told.
+- **Registering as another type** (ADR 0165). Types under one identity share
+  entries (a protein complex and an antibody of the same chains are one), so an
+  entry registered as the wrong one is superseded by a new entry of its
+  identity as the right one, which it hands its identity to: registering that
+  identity finds the new entry from then on. Or by an entry of another
+  identity of that kind, as any mistaken entry is.
 - **Moving.** A holder's Editor moves the project's record from the
   superseded entry to its replacement: the record keeps its data, history
   and runs, and the project's own references to the old entry are re-pointed
-  to the new one, each a revision with the reason.
+  to the new one, each a revision with the reason. A record can't change its
+  type, so a move to an entry of another type makes the project's record of
+  it, with the values the two types' records share, and archives the old one,
+  which keeps its history, signatures and runs.
 - **Adding a record** of an entry the project doesn't hold, by its ID: as
   registering its identity there.
 
@@ -36,11 +45,37 @@ from django.db.models import Count, Exists, OuterRef, Q, QuerySet
 
 from iki_server.accounts.models import User
 from iki_server.audit import log
-from iki_server.entities import access, registry, services, states, unique
-from iki_server.entities.models import Entity, ProjectLink, Revision, RevisionKind
-from iki_server.entities.values import Invalid, problems_of, row_columns, shape, to_db, to_json
+from iki_server.core.ids import uuid7
+from iki_server.entities import (
+    access,
+    checking,
+    identity,
+    registry,
+    requests,
+    services,
+    states,
+    unique,
+)
+from iki_server.entities.models import (
+    Entity,
+    ProjectLink,
+    Revision,
+    RevisionKind,
+    UniqueValue,
+)
+from iki_server.entities.values import (
+    Invalid,
+    Shape,
+    ids_in,
+    problems_of,
+    referable,
+    row_columns,
+    shape,
+    to_db,
+    to_json,
+)
 from iki_server.org import permissions
-from iki_server.org.models import Project, ProjectMembership, ProjectRole, Registry
+from iki_server.org.models import Project, ProjectRole, Registry
 from iki_server.org.permissions import Action
 from iki_server.org.services import Refused
 from iki_spec.model import LIST_LABEL, LIST_POSITION
@@ -49,12 +84,16 @@ __all__ = [
     "Supersession",
     "add_record",
     "announce",
+    "carried",
     "curate",
     "holders",
     "move",
+    "registrable_as",
     "registrar_entries",
     "supersede",
+    "supersede_as",
     "supersession",
+    "to_give",
 ]
 
 
@@ -276,8 +315,8 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
             raise Invalid({"replacement": ["An entry can't replace itself."]})
         if other.registry_id != locked.registry_id:
             raise Invalid({"replacement": [f"must be an entry in {found.name}."]})
-        if other.type != locked.type:
-            raise Invalid({"replacement": [f"must be a {locked.type}, as {locked.hrid} is."]})
+        if unlike := _unlike(locked, other.type):
+            raise Invalid({"replacement": [unlike]})
         if other.superseded_by_id is not None:
             raise Invalid({"replacement": [f"{other.hrid} was superseded itself."]})
         if services.frozen(shape(locked.type)) is not None:
@@ -301,6 +340,230 @@ def supersede(user: User, entry: Entity, replacement: Entity, *, reason: str) ->
         else:
             _tell_holders(user, locked, other, reason.strip())
     return revision
+
+
+def _unlike(entry: Entity, type_name: str) -> str | None:
+    """Why an entry of ``type_name`` can't replace ``entry``, or None if it can: one of a
+    type with its identity (ADR 0165), as a protein complex's entry may be an antibody's.
+    A lab list's option is replaced by another option of its list."""
+    if type_name == entry.type:
+        return None
+    every = registry.types()
+    owner = registry.identity_owner(every[entry.type])
+    other = every.get(type_name)
+    if not _is_list(entry.type) and owner is not None and other is not None:
+        theirs = registry.identity_owner(other)
+        if theirs is not None and theirs.qualified_name == owner.qualified_name:
+            return None
+    kind = entry.type if _is_list(entry.type) or owner is None else owner.qualified_name
+    return f"must be a {kind}, as {entry.hrid} is."
+
+
+def registrable_as(entry: Entity) -> list[str]:
+    """The other types ``entry``'s identity can be registered as (ADR 0165), which a
+    registrar may supersede it with a new entry of: those under the type its identity is,
+    with entities of their own, that can take new ones."""
+    every = registry.types()
+    owner = registry.identity_owner(every[entry.type])
+    if owner is None or _is_list(entry.type):
+        return []
+    return sorted(
+        name
+        for name, t in every.items()
+        if name != entry.type
+        and not t.abstract
+        and not t.is_list
+        and (theirs := registry.identity_owner(t)) is not None
+        and theirs.qualified_name == owner.qualified_name
+        and services.frozen(shape(name)) is None
+    )
+
+
+def to_give(entry_type: str, type_name: str) -> list[str]:
+    """The registry fields a registrar gives a new entry of an ``entry_type``'s identity
+    as ``type_name`` (ADR 0165): those the superseded entry's values don't fill as they
+    are, outside the tables the two types share, or refined by the new type (its parts'
+    roles, ADR 0164). Not those only actions compute."""
+    was, form = shape(entry_type), shape(type_name)
+    theirs = {p.name: p for p in was.parts if p.entry}
+    kept = services._kept(form)
+    return [
+        name
+        for part in form.parts
+        if part.entry
+        for name, f in part.fields.items()
+        if not f.removed
+        and not f.computed
+        and name not in kept
+        and (part.name not in theirs or theirs[part.name].fields.get(name) != f)
+    ]
+
+
+def supersede_as(
+    user: User,
+    entry: Entity,
+    type_name: str,
+    values: Mapping[str, Any] | None = None,
+    *,
+    reason: str,
+) -> Entity:
+    """Supersedes an entry registered as the wrong type with a new entry of its identity
+    as ``type_name``, one under the same identity (ADR 0165), with a reason, for good, and
+    tells its holders. The new entry has the superseded one's values for the fields the two
+    types share, and ``values`` for the rest, or in place of them: its own facts, and its
+    parts' roles as its type names them, say. Its identity is the same, and is the new
+    entry's from now on: registering it finds the new entry. Returns the new entry."""
+    found = _registrar(user, entry)
+    said = reason.strip()
+    if not said:
+        raise Invalid({"reason": ["Say why: its holders are told."]})
+    if entry.superseded_by_id is not None or entry.identity_hash is None:
+        raise Refused(f"{entry.hrid} was superseded already.")
+    with transaction.atomic(), services._unique_values():
+        # The identity's lock first, then the entry's, as registering it takes them: a
+        # registration of it waits, then finds the new entry.
+        services.lock_identity(registry.types()[entry.type], entry.registry_id, entry.identity_hash)
+        locked = Entity.objects.select_for_update().get(pk=entry.pk)
+        if locked.superseded_by_id is not None:
+            raise Refused(f"{locked.hrid} was superseded already.")
+        if locked.purged_at is not None:
+            raise Refused(services.purged(locked))
+        why = services.frozen(shape(locked.type))
+        if why:
+            raise Refused(why)
+        form = _registrable(locked, type_name)
+        given, carried_unique = _registered_as(user, locked, form, values or {})
+        if services.identity_digest(form, given) != locked.identity_hash:
+            raise Invalid(
+                {
+                    name: [
+                        f"must be {locked.hrid}'s: an entry registered as another type has "
+                        "the same identity."
+                    ]
+                    for name in identity.identity_of(form.entity_type)
+                }
+            )
+        errors = _taken_in_registry(form, locked, given)
+        if errors:
+            raise Invalid(errors)
+        # Its identity, and the unique facts that come with what the types share, are the
+        # new entry's from now on. Its values stay, as its history and page show them.
+        new_id = uuid7()
+        UniqueValue.objects.filter(entity_id=locked.pk, key__in=carried_unique).delete()
+        Entity.objects.filter(pk=locked.pk).update(
+            identity_hash=None, superseded_by_id=new_id, superseded_at=dt.datetime.now(dt.UTC)
+        )
+        new, _ = services.register_entry(
+            user, form, locked.registry_id, given, said, pk=new_id, moved_from=locked.pk
+        )
+        services._revise(locked, RevisionKind.SUPERSEDED, [], user, said)
+        log.record(
+            "entry.superseded",
+            actor=user,
+            target=locked,
+            data={
+                "registry": str(found.pk),
+                "replacement": {"id": str(new.pk), "hrid": new.hrid, "type": new.type},
+                "registered": True,
+                "reason": said,
+            },
+        )
+        _tell_holders(user, locked, new, said)
+    return new
+
+
+def _registrable(entry: Entity, type_name: str) -> Shape:
+    """The shape of the type ``entry`` is being registered as instead (ADR 0165)."""
+    target = registry.types().get(type_name)
+    if target is None or type_name == "iki/core.Entity":
+        raise Invalid({"type": [f"There's no entity type {type_name}."]})
+    if type_name == entry.type:
+        raise Invalid({"type": [f"{entry.hrid} is a {type_name} already."]})
+    if unlike := _unlike(entry, type_name):
+        raise Invalid({"type": [unlike]})
+    if target.abstract:
+        raise Invalid({"type": [f"{type_name} is abstract: choose one of its subtypes."]})
+    form = shape(type_name)
+    why = services.frozen(form)
+    if why:
+        raise Invalid({"type": [why]})
+    return form
+
+
+def _registered_as(
+    user: User, entry: Entity, form: Shape, values: Mapping[str, Any]
+) -> tuple[dict[str, Any], list[str]]:
+    """The new entry's values, as the database stores them: the superseded entry's for the
+    fields their types share, checked as the new type has them (it may refine a list's
+    roles, ADR 0164), and ``values``; defaults filled in, and checked against the new type's
+    fields and the rules that read only its entries' fields. With the keys of the unique
+    values it carries, which move with it."""
+    was = shape(entry.type)
+    stored = services.Rows(was, None, services.specific(entry))
+    theirs = {p.name: p for p in was.parts if p.entry}
+    fields = form.entry_fields()
+    kept = services._kept(form)
+    refs = _registry_refs(entry)
+    errors: dict[str, list[str]] = {}
+    given: dict[str, Any] = {}
+    carried_unique: list[str] = []
+    for part in form.parts:
+        before = theirs.get(part.name) if part.entry else None
+        if before is None:
+            continue
+        for name, f in part.fields.items():
+            if f.removed:
+                continue
+            value = stored.value(before, before.fields[name])
+            if f.unique and value is not None:
+                carried_unique.append(unique.key(part.model, name))
+            if name in values or value is None or value == []:
+                continue
+            if f == before.fields[name]:
+                given[name] = value
+                continue
+            # Refined in the new type: what it was must be what the new type takes. What
+            # it names already it may keep naming (ADR 0270).
+            found = ids_in({name: before.fields[name]}, {name: value})
+            try:
+                with refs.keeping(found["ref"]):
+                    given[name] = form.field_value(f, to_json(before.fields[name], value), refs)
+            except ValueError as error:
+                errors.update(problems_of(name, error))
+    for name, value in values.items():
+        wanted = fields.get(name)
+        if wanted is None:
+            errors[name] = [f"{form.entity_type.qualified_name}'s entries have no field `{name}`."]
+        elif name in kept:
+            errors[name] = [kept[name]]
+        elif wanted.computed:
+            errors[name] = ["is computed: only actions set it."]
+        else:
+            try:
+                given[name] = form.field_value(wanted, value, refs)
+            except ValueError as error:
+                errors.update(problems_of(name, error))
+    for name, f in fields.items():
+        if name in given or name in values or name in kept or f.computed:
+            continue
+        if f.has_default:
+            try:
+                given[name] = form.field_value(f, f.default, refs)
+            except ValueError as error:
+                errors.update(problems_of(name, error))
+        if f.required and given.get(name) is None and not services._wrong(errors, name):
+            errors[name] = ["is required."]
+    if not errors:
+        for broken in checking.broken(
+            form.entity_type.qualified_name,
+            [checking.Saving(given.get)],
+            reading=frozenset(fields),
+        )[0]:
+            for name in broken.fields or ("",):
+                errors.setdefault(name, []).append(broken.message)
+    if errors:
+        raise Invalid(errors)
+    return given, carried_unique
 
 
 def _tell_holders(user: User, entry: Entity, replacement: Entity, reason: str) -> None:
@@ -367,8 +630,12 @@ class Moved:
     repointed: list[Entity]
 
 
-def move(user: User, record: Entity, *, reason: str) -> Moved:
-    """Moves a project's record to its superseded entry's replacement, with a reason."""
+def move(
+    user: User, record: Entity, *, reason: str, values: Mapping[str, Any] | None = None
+) -> Moved:
+    """Moves a project's record to its superseded entry's replacement, with a reason. To
+    a replacement of another type (ADR 0165), ``values`` are the new record's own, beside
+    those it carries."""
     said = reason.strip()
     if not said:
         raise Invalid({"reason": ["Say why the record is being moved."]})
@@ -394,9 +661,19 @@ def move(user: User, record: Entity, *, reason: str) -> Moved:
                 f"{project.name} has a record of {new.hrid} already: archive this one, or "
                 "move its data there by hand."
             )
+        if new.type != locked.type:
+            return _move_across(user, locked, old, new, project, said, values or {})
+        if values:
+            raise Invalid(
+                {"values": [f"{new.hrid} is a {new.type}, as the record is: it keeps its values."]}
+            )
         Entity.objects.filter(pk=locked.pk).update(entry=new, hrid=new.hrid)
         revision = services._revise(locked, RevisionKind.MOVED, [], user, said, moved_from=old.pk)
         repointed = _repoint(user, project, old, new, said)
+        from iki_server.runs import triggers
+
+        # What the project's records read through it is the replacement's now (ADR 0080).
+        triggers.moved(locked)
         log.record(
             "entity.moved",
             actor=user,
@@ -412,12 +689,164 @@ def move(user: User, record: Entity, *, reason: str) -> Moved:
     return Moved(services.specific(Entity.objects.get(pk=locked.pk)), revision, repointed)
 
 
+def carried(record_type: str, replacement_type: str) -> tuple[str, ...]:
+    """The fields a record's move to an entry of another type gives the new record (ADR
+    0165): the record's own fields in the tables the two types' records share, those a
+    person sets. Computed ones are worked out again, by the actions that compute them."""
+    was, form = shape(record_type), shape(replacement_type)
+    shared = {p.name for p in was.parts if not p.entry}
+    kept = services._kept(form)
+    ledger = registry.draws_received(replacement_type)
+    return tuple(
+        name
+        for part in form.parts
+        if not part.entry and part.name in shared
+        for name, f in part.fields.items()
+        if not f.removed
+        and not f.computed
+        and f.type != "state"
+        and name not in kept
+        and name != ledger
+        and not requests.is_service_field(replacement_type, name)
+    )
+
+
+def _move_across(
+    user: User,
+    record: Entity,
+    old: Entity,
+    new: Entity,
+    project: Project,
+    reason: str,
+    values: Mapping[str, Any],
+) -> Moved:
+    """A record's move to a replacement of another type (ADR 0165), which a record can't
+    become: the project's record of the replacement, with the values the two types' records
+    share and ``values``, and the old one archived, keeping its history, signatures and runs.
+    The project's references to the old entry name the new one, as a move's do; one that
+    can't (a lot of an antibody, say, of a replacement that isn't one) stops it."""
+    form = shape(new.type)
+    entry_fields = form.entry_fields()
+    errors = {
+        name: [f"is {new.hrid}'s registry entry's: the record has its own fields."]
+        for name in values
+        if name in entry_fields
+    }
+    if errors:
+        raise Invalid(errors)
+    stuck = _unreferable(project, old, new, besides=record.pk)
+    if stuck:
+        raise Refused(
+            f"{'; '.join(stuck[:3])}{' and others' if len(stuck) > 3 else ''}: archive "
+            f"or change {'it' if len(stuck) == 1 else 'them'} before moving this record to "
+            f"{new.hrid}."
+        )
+    owner = registry.identity_owner(form.entity_type)
+    assert owner is not None  # noqa: S101 - entries have an identity
+    theirs = services.current_values(services.specific(new))
+    given = {n: to_json(entry_fields[n], theirs.get(n)) for n in owner.identity}
+    was = shape(record.type)
+    mine = services.current_values(services.specific(record))
+    taking = [n for n in carried(record.type, new.type) if n not in values]
+    for name in taking:
+        value = mine.get(name)
+        if value is not None and value != []:
+            given[name] = to_json(was.fields()[name], value)
+    given.update(values)
+    # What it names already it may keep naming: an archived option of a lab list, say.
+    named = ids_in(was.fields(), {n: mine.get(n) for n in taking})
+    services.set_archived(user, record, True, reason=reason)
+    # The unique values it carries are the new record's from now on (ADR 0082): an ID in
+    # another system it links, say.
+    UniqueValue.objects.filter(
+        entity_id=record.pk,
+        key__in=[unique.key(was.part_of(n).model, n) for n in taking if was.fields()[n].unique],
+    ).delete()
+    saved = services.create(
+        user, new.type, project, given, reason=reason, keeping=frozenset(named["ref"])
+    )
+    repointed = _repoint(user, project, old, new, reason)
+    log.record(
+        "entity.moved",
+        actor=user,
+        target=record,
+        project=project,
+        data={
+            "from": {"id": str(old.pk), "hrid": old.hrid},
+            "to": {"id": str(new.pk), "hrid": new.hrid},
+            "record": {"id": str(saved.entity.pk), "type": new.type},
+            "repointed": [e.hrid for e in repointed],
+            "reason": reason,
+        },
+    )
+    assert saved.revision is not None  # noqa: S101 - it's a new record
+    return Moved(saved.entity, saved.revision, repointed)
+
+
+def _unreferable(project: Project, old: Entity, new: Entity, *, besides: Any) -> list[str]:  # noqa: ANN401 - a UUID
+    """The project's references to ``old`` that a move would re-point, but that can't name
+    ``new``, as it's of a type they don't refer to: each as "LOT-000003's Antibody must be
+    a iki/antibody.Antibody". Those a move leaves alone (archived, locked or detached
+    records', as :func:`_repoint` does) aren't."""
+    stuck: list[str] = []
+    own = Entity.objects.filter(
+        owner_project=project, archived_at__isnull=True, purged_at__isnull=True, locked_by=[]
+    ).exclude(pk=besides)
+    for qualified in sorted(registry.types()):
+        entity_type = registry.types()[qualified]
+        if entity_type.abstract or qualified == "iki/core.Entity":
+            continue
+        form = shape(qualified)
+        if services.frozen(form) is not None:
+            continue
+        records = own.filter(type=qualified)
+        for part in form.parts:
+            if part.entry:
+                continue
+            for name, f in part.fields.items():
+                if f.removed:
+                    continue
+                for cell, column, model in _ref_columns(part, f, name):
+                    if new.type in referable(cell):
+                        continue
+                    key = "entity_id" if f.type == "list" or part.extension else "pk"
+                    ids = set(
+                        model._default_manager.filter(**{column: old.pk}).values_list(
+                            key, flat=True
+                        )
+                    )
+                    for hrid in records.filter(pk__in=ids).values_list("hrid", flat=True):
+                        targets = " or ".join(f"a {t}" for t in cell.to)
+                        stuck.append(f"{hrid}'s {f.label or name} must be {targets}")
+    return sorted(set(stuck))
+
+
+def _ref_columns(part: Any, f: Any, name: str) -> list[tuple[Any, str, Any]]:  # noqa: ANN401
+    """Where a field's references are stored: (the field or row field, its column, its
+    table's model), for a reference, a list of them, or a list of rows with them."""
+    if f.is_rows:
+        assert f.items is not None  # noqa: S101 - lists have items
+        return [
+            (f.items.fields[c], column, part.list_model(name))
+            for c, column in row_columns(f).items()
+            if f.items.fields[c].type == "ref"
+        ]
+    if f.type == "list":
+        if f.items is None or f.items.type != "ref":
+            return []
+        return [(f.items, "item_id", part.list_model(name))]
+    if f.type != "ref":
+        return []
+    return [(f, f"{name}_id", part.model)]
+
+
 def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str) -> list[Entity]:
     """The project's own records that refer to ``old``, referring to ``new`` instead, each
-    a revision: immutable references too, as the entry they named was a mistake. Archived
-    records keep theirs, as do locked ones (ADR 0125) and those of a detached plugin's
-    types."""
-    done: list[Entity] = []
+    a revision with the reason: immutable references too, as the entry they named was a
+    mistake. Each is saved as any edit is, so its rules and holds are checked, the checks
+    that read what changed are cleared and run again, and whoever watches it is told.
+    Archived records keep theirs, as do locked ones (ADR 0125) and a detached plugin's."""
+    changes: dict[Any, dict[str, Any]] = {}
     own = Entity.objects.filter(
         owner_project=project, archived_at__isnull=True, purged_at__isnull=True, locked_by=[]
     )
@@ -428,11 +857,12 @@ def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str
         form = shape(qualified)
         if services.frozen(form) is not None:
             continue
+        kept = services._kept(form)
         for part in form.parts:
             if part.entry:
                 continue
             for name, f in part.fields.items():
-                if f.removed:
+                if f.removed or name in kept:
                     continue
                 kind = f.items.type if f.type == "list" and f.items is not None else f.type
                 if kind == "row":
@@ -444,10 +874,12 @@ def _repoint(user: User, project: Project, old: Entity, new: Entity, reason: str
                 ids = _referring(part, f, name, old.pk) & set(
                     own.filter(type=qualified).values_list("pk", flat=True)
                 )
-                for pk in sorted(ids, key=str):
-                    _repoint_one(user, form, part, f, name, pk, old.pk, new.pk, reason)
-                    done.append(Entity.objects.get(pk=pk))
-    return sorted({e.pk: e for e in done}.values(), key=lambda e: e.hrid)
+                for pk in ids:
+                    changes.setdefault(pk, {})[name] = f
+    done = [
+        _repoint_one(user, changes[pk], pk, old, new, reason) for pk in sorted(changes, key=str)
+    ]
+    return sorted(done, key=lambda e: e.hrid)
 
 
 def _referring(part: Any, f: Any, name: str, target: Any) -> set[Any]:  # noqa: ANN401
@@ -470,28 +902,50 @@ def _referring(part: Any, f: Any, name: str, target: Any) -> set[Any]:  # noqa: 
 
 def _repoint_one(
     user: User,
-    form: Any,  # noqa: ANN401 - a Shape
-    part: Any,  # noqa: ANN401 - a Part
-    f: Any,  # noqa: ANN401 - a Field
-    name: str,
-    pk: Any,  # noqa: ANN401
-    old: Any,  # noqa: ANN401
-    new: Any,  # noqa: ANN401
+    fields: Mapping[str, Any],
+    pk: Any,  # noqa: ANN401 - a UUID
+    old: Entity,
+    new: Entity,
     reason: str,
-) -> None:
+) -> Entity:
+    """One record's references to ``old`` naming ``new``, in one save through
+    :func:`services.update`, as every save is: a rule it would break refuses the move, a
+    rule that holds holds the record with the move's reason."""
     locked = Entity.objects.select_for_update().get(pk=pk)
     rows = services.Rows.of(services.specific(locked))
-    current = rows.value(part, f)
-    if f.is_rows:
-        refs = [n for n, cell in f.items.fields.items() if cell.type == "ref"]
-        value = [{n: new if n in refs and v == old else v for n, v in r.items()} for r in current]
-    elif f.type == "list":
-        value = [new if item == old else item for item in current]
-    else:
-        value = new
-    touched = services._write(form, rows, {name: value}, locked.pk)
-    revision = services._revise(locked, RevisionKind.EDITED, [name], user, reason)
-    services._write_history(touched, rows, revision.number)
+    was, now = str(old.pk), str(new.pk)
+    values: dict[str, Any] = {}
+    for name, f in fields.items():
+        current = to_json(f, rows.get(name))
+        if f.is_rows:
+            refs = {n for n, cell in f.items.fields.items() if cell.type == "ref"}
+            values[name] = [
+                {n: now if n in refs and v == was else v for n, v in row.items()} for row in current
+            ]
+        elif f.type == "list":
+            values[name] = [now if item == was else item for item in current]
+        else:
+            values[name] = now
+    try:
+        services.update(
+            user,
+            locked,
+            values,
+            expected_revision=locked.revision,
+            reason=reason,
+            hold_reason=reason,
+            _repointing=frozenset(values),
+        )
+    except Invalid as error:
+        said = " ".join(m for messages in error.errors.values() for m in messages)
+        raise Refused(
+            f"{locked.hrid} can't refer to {new.hrid} instead of {old.hrid}: {said}"
+        ) from None
+    from iki_server.runs import triggers
+
+    # What it's worked out from is another record now (ADR 0080).
+    triggers.repointed(locked, set(values))
+    return Entity.objects.get(pk=pk)
 
 
 # --- Adding a record ----------------------------------------------------------------------------
@@ -566,7 +1020,3 @@ def held_through(user: Any, entry: Entity) -> QuerySet[Project]:  # noqa: ANN401
     records = Entity.objects.filter(entry=entry, purged_at__isnull=True)
     links = ProjectLink.objects.filter(project=OuterRef("pk"), entity__in=records)
     return projects.filter(Exists(links))
-
-
-def is_member(user: Any, project: Project) -> bool:  # noqa: ANN401
-    return ProjectMembership.objects.filter(project=project, user=user).exists()

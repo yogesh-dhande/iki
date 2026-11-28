@@ -1,15 +1,17 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 #
 # A two-chain antibody is a specific complex (ADR 0161): its parts are a heavy chain and a
-# light chain, each with its copies, so it's found by searching complexes, and a complex of
-# the same parts registered as another type is this antibody's entry.
+# light chain, each with its copies, so it's found by searching complexes. Complexes share
+# one identity, so the same parts registered as another complex type are refused, naming
+# this antibody's entry, and an antibody registered as a protein complex by mistake is
+# superseded by a registrar with its parts registered as an antibody (ADR 0165).
 apiVersion: iki/v1
 kind: EntityType
 name: Antibody
 label: Antibody
 label_plural: Antibodies
 extends: iki/core.Complex
-schema_version: 4
+schema_version: 5
 description: >-
   An antibody by the proteins that are its chains: at most one kind of heavy
   chain and one of light chain, each with its copies. Two copies of each for a
@@ -20,9 +22,9 @@ description: >-
   assembling one again finds its registry entry. Its format and isotype are its
   chains': an IgG1 and an IgG4 of the same variable domains have different
   heavy chains, so they're different antibodies, and a heavy and a light
-  variable domain alone are an Fv. One of more kinds of chain, such as a
-  bispecific IgG's two heavy and two light chains, or more copies, such as an
-  IgM pentamer's ten of each and its J chain, is a protein complex.
+  variable domain alone are an Fv. An IgM pentamer is format other, of ten of
+  each chain and its J chain. One of more kinds of chain, such as a bispecific
+  IgG's two heavy and two light chains, is a protein complex.
 hrid: { prefix: ABY }
 # Its parts are its chains (ADR 0164): a heavy chain, and a light chain unless it's a VHH
 # or an scFv, each a protein.
@@ -36,6 +38,10 @@ refines:
         to: { part: iki/protein.Protein }
       light:
         label: Light chain
+        max: 1
+        to: { part: iki/protein.Protein }
+      j_chain:
+        label: J chain
         max: 1
         to: { part: iki/protein.Protein }
 fields:
@@ -60,23 +66,26 @@ fields:
     description: >-
       Its heavy chain constant region's class and subclass, which its heavy
       chain's sequence carries, as its constant region's species names them:
-      igg1 to igg4, iga1 and iga2 for a human's; igg1, igg2a, igg2b, igg2c and
-      igg3 for a mouse's; igg1, igg2a, igg2b and igg2c for a rat's; igg for a
-      rabbit's one IgG; and iga where a species' IgA isn't split by subclass
+      igg1 to igg4, iga1 and iga2 for a human's; igg1 to igg4 for a macaque's,
+      as IMGT names its IGHG genes; igg1, igg2a, igg2b, igg2c and igg3 for a
+      mouse's; igg1, igg2a, igg2b and igg2c for a rat's; igg for a rabbit's one
+      IgG; and iga where a species has one IgA, or it isn't split by subclass
       here. An IgG's is one of IgG's, a Fab's or another format's with a
       constant region any, and an Fv, scFv or VHH has none. A registry fact:
       given once, then changed only by its registrars.
   constant_species:
     type: enum
     registry: fact
-    values: [human, mouse, rat, rabbit]
+    values: [human, macaque, mouse, rat, rabbit]
     label: Constant region species
     indexed: true
     description: >-
       The species whose constant region the heavy chain has, which names its
       isotype: a chimeric antibody's mouse variable domains on a human IgG1 is
-      human here. `assemble` gives human when the chain matches a human
-      constant region, and takes another species as given. A registry fact.
+      human here. macaque is a rhesus or a cynomolgus macaque's, whose constant
+      regions are the same genes. `assemble` gives human when the chain matches
+      a human constant region and is nearer it than a macaque's, and takes
+      another species as given. A registry fact.
   target:
     type: string
     max_length: 255
@@ -133,6 +142,24 @@ rules:
       A Fab, an Fv, an scFv and a VHH are one binding site, so one copy of each
       chain: for two, choose igg or other.
     fields: [components]
+  a_j_chain_joins_a_polymer:
+    label: A J chain joins an IgM's or an IgA's polymer
+    description: >-
+      A J chain is one chain of an IgM pentamer or an IgA polymer, whose
+      subunits are two heavy and two light chains each; an IgM hexamer has
+      none (Wiersma et al., J Immunol 160:5979-5989, 1998).
+    check: >-
+      record.format == "other" &&
+      record.components.all(c, c.role != "j_chain" || c.copies == 1) &&
+      record.components.exists(c, c.role == "heavy" && c.copies >= 4 && c.copies % 2 == 0) &&
+      (record.isotype == null || record.isotype in ["igm", "iga", "iga1", "iga2"]) &&
+      !(record.isotype == "igm" && record.components.exists(c, c.role == "heavy" && c.copies == 12))
+    when: record.components.exists(c, c.role == "j_chain")
+    message: >-
+      A J chain joins an IgM pentamer's or an IgA polymer's subunits, not an
+      IgM hexamer's, which has none: give one copy of it, with format other, an
+      IgM or IgA isotype, and two copies of each other chain for each subunit.
+    fields: [components, format, isotype]
   no_isotype_without_a_constant_region:
     label: An Fv, scFv or VHH has no isotype
     description: >-
@@ -164,11 +191,14 @@ rules:
     label: The isotype is one its constant region's species has
     description: >-
       Subclasses are named per species, as IMGT's Repertoire names each
-      species' IGHC genes: a mouse has IgG2a, IgG2b and IgG2c but no IgG2 or
-      IgG4, a rat no IgG3, and a rabbit one IgG and no IgD.
+      species' IGHC genes: a macaque has one IgA, a mouse has IgG2a, IgG2b and
+      IgG2c but no IgG2 or IgG4, a rat no IgG3, and a rabbit one IgG and no
+      IgD.
     check: >-
       record.constant_species == "human" ?
         record.isotype in ["igg1", "igg2", "igg3", "igg4", "iga1", "iga2", "igm", "ige", "igd"] :
+      record.constant_species == "macaque" ?
+        record.isotype in ["igg1", "igg2", "igg3", "igg4", "iga", "igm", "ige", "igd"] :
       record.constant_species == "mouse" ?
         record.isotype in ["igg1", "igg2a", "igg2b", "igg2c", "igg3", "iga", "igm", "ige", "igd"] :
       record.constant_species == "rat" ?

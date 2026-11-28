@@ -12,13 +12,15 @@ import {
   entity,
   field,
   KINASE,
+  moreActions,
   nth,
   PROTEIN,
   renderApp,
   revision,
   withTypes,
 } from "./entity-fixtures";
-import { answer, calls, page, problem, respond } from "./test-server";
+import { queryClient } from "./api";
+import { answer, calls, page, problem, respond, stale } from "./test-server";
 
 const SAMPLE_ID = "00000000-0000-7000-8000-00000000e501";
 const POST = `POST /api/v1/entities/${SAMPLE_ID}/states/status`;
@@ -215,6 +217,45 @@ describe("a record's state fields", () => {
     expect(await screen.findByText("SMP-000001’s Status is Received now.")).toBeInTheDocument();
   });
 
+  it("says when someone else changed it first, reads it again, and tries with its new revision", async () => {
+    onSample();
+    // Someone else renamed it while this dialog was open: Iki refuses the old revision.
+    const theirs = sample({
+      revision: 3,
+      values: { name: "Lot 7 (relabelled)", status: "in_testing", custody: "in_lab" },
+    });
+    answer(POST, () => {
+      answer("GET /api/v1/entities/SMP-000001", theirs);
+      return stale(3);
+    });
+    const { user } = await renderApp("/entities/SMP-000001/");
+    const states = await screen.findByRole("region", { name: "States" });
+    await user.click(within(states).getByRole("button", { name: "Set Status" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Set Status of SMP-000001" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Wrong lot");
+    const reads = calls("GET", "/api/v1/entities/SMP-000001").length;
+    await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Someone changed it while this was open. The page now shows their change: check it, then try again.",
+    );
+    // It's read again, so the page behind the dialog shows their change.
+    expect(await screen.findByText("Lot 7 (relabelled)")).toBeInTheDocument();
+    expect(calls("GET", "/api/v1/entities/SMP-000001").length).toBeGreaterThan(reads);
+
+    answer(
+      POST,
+      sample({
+        revision: 4,
+        values: { name: "Lot 7 (relabelled)", status: "received", custody: "in_lab" },
+      }),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
+    expect(await screen.findByText("SMP-000001’s Status is Received now.")).toBeInTheDocument();
+    const sent = calls("POST", `/api/v1/entities/${SAMPLE_ID}/states/status`);
+    expect(sent.map((call) => call.headers.get("If-Match"))).toEqual(['"2"', '"3"']);
+    expect(sent.at(-1)?.body).toEqual({ state: "received", reason: "Wrong lot" });
+  });
+
   it("says a locked record can't change until its states do, and offers no edit", async () => {
     onSample(
       sample({
@@ -234,7 +275,7 @@ describe("a record's state fields", () => {
         },
       }),
     );
-    await renderApp("/entities/SMP-000001/");
+    const { user } = await renderApp("/entities/SMP-000001/");
     const states = await screen.findByRole("region", { name: "States" });
     expect(
       within(states).getByText(
@@ -247,7 +288,9 @@ describe("a record's state fields", () => {
     );
     expect(screen.getByText("Locked", { selector: ".badge" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Edit" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    const offered = await moreActions(user, "SMP-000001");
+    expect(offered).toContain("Download audit trail (CSV)");
+    expect(offered).not.toContain("Archive…");
   });
 
   it("warns before saving a correction and records why with the edit", async () => {
@@ -373,6 +416,41 @@ describe("a record's state fields", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.getByText("“Bench 4”")).toBeInTheDocument();
+  });
+});
+
+describe("setting a state while someone else changes the record", () => {
+  it("sends the revision the dialog opened at, and after a refusal the one shown", async () => {
+    onSample();
+    const { user } = await renderApp("/entities/SMP-000001/");
+    const states = await screen.findByRole("region", { name: "States" });
+    await user.click(within(states).getByRole("button", { name: "Set Status" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Set Status of SMP-000001" });
+    const changed = sample({
+      revision: 3,
+      values: { name: "Lot 8", status: "in_testing", custody: "in_lab" },
+    });
+    answer("GET /api/v1/entities/SMP-000001", changed);
+    await queryClient.refetchQueries();
+    await screen.findAllByText("Lot 8");
+    answer(POST, problem(412, "stale", "It changed since you read it."));
+    await user.type(within(dialog).getByRole("textbox", { name: "Reason" }), "Wrong lot");
+    await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
+    expect(await within(dialog).findByText(/Someone changed it while this was open/)).toBeVisible();
+    // Trying again, they've seen the change: it's made from the revision now shown.
+    answer(
+      POST,
+      respond(200, sample({ revision: 4, values: { ...changed.values, status: "received" } })),
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Set Status" }));
+    await waitFor(() => {
+      expect(calls("POST", `/api/v1/entities/${SAMPLE_ID}/states/status`)).toHaveLength(2);
+    });
+    expect(
+      calls("POST", `/api/v1/entities/${SAMPLE_ID}/states/status`).map((c) =>
+        c.headers.get("If-Match"),
+      ),
+    ).toEqual(['"2"', '"3"']);
   });
 });
 
