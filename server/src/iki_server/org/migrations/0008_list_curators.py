@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
                 (
                     "list_type",
                     models.CharField(
-                        db_comment="The list's type, such as iki/lots.LotMethod (ADR 0270).",
+                        db_comment="The list's type, such as iki/lots.PurityMethod (ADR 0270).",
                         max_length=112,
                     ),
                 ),
