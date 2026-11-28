@@ -82,7 +82,7 @@ def record_use(run: Record) -> list[Record]:
         or evidence["review"] not in SIGNED
     ):
         raise ValueError("Select this instrument's signed calibration in force at the measurement.")
-    if result["type"].startswith(PREFIX) or result["id"] == instrument["id"]:
+    if equipments(result) or result["id"] == instrument["id"]:
         raise ValueError("Select the actual measured result.")
     name = instrument["values"].get("name") or instrument.get("hrid") or instrument["id"]
     failed = evidence["outcome"] == "out_of_tolerance"
