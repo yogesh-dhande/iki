@@ -186,8 +186,13 @@ export default tseslint.config(
     },
   },
   {
-    // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084).
-    files: ["plugins/*/web/src/**/*.js", "examples/plugins/*/web/src/**/*.js"],
+    // Plugins' components: Web Components that run in a sandboxed frame (ADR 0084). The
+    // spec tests' plugins write theirs as they run, unbuilt.
+    files: [
+      "plugins/*/web/src/**/*.js",
+      "examples/plugins/*/web/src/**/*.js",
+      "spec/tests/plugins/*/components/*.js",
+    ],
     languageOptions: {
       globals: {
         CustomEvent: "readonly",
