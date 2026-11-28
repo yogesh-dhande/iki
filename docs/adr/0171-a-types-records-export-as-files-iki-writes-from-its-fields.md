@@ -81,7 +81,12 @@ as an attachment, named for the record (`pUC19.gb`, or
 - Anyone who can read the record may download it, and a token needs only the
   read scope, the same as reading it.
 - A revision is always the same file. Even the LOCUS line's date is the
-  revision's own.
+  revision's own. The file says only what never changes of the revision: its
+  record, its number and its date (2026-11-27). Whether it was the latest
+  when it was taken changes with every later edit, so it's in the download's
+  name and its audit event, never in the file. Until then COMMENT (and a
+  Molfile's comment line) said "not its latest" of an earlier revision, so
+  the same revision's file changed after an unrelated edit.
 - Each download goes in the audit log as `entity.exported`, with the record,
   its project, the format, the revision, whether it was the latest, the
   file's name, size and SHA-256, and the notes on what the file couldn't

@@ -356,8 +356,10 @@ class Downloaded:
 
 @dataclass(frozen=True)
 class Gathered:
-    """What a record's file is written from at one revision, as its writer takes it; its
-    file's name alone; and every record read to gather it (itself, the sequence a
+    """What a record's file is written from at one revision, as its writer takes it: what
+    the revision holds and which record and revision it is, never whether it's still the
+    latest, so the same revision is always the same file (ADRs 0171 and 0229); its file's
+    name alone; and every record read to gather it (itself, the sequence a
     plasmid's is, its organism, what its SD data refers to), which whoever takes the file
     must be able to read."""
 
@@ -472,7 +474,7 @@ def export(
         written = Written(head + one.content + tail.content, [*one.left_out, *tail.left_out])
         if chosen.plugin is not None:
             check_signature(chosen, written.content, "a file")
-        name = gathered.name
+        name = _downloaded_as(gathered, latest=number == entity.revision)
         identity = file_writer.identity
     with transaction.atomic():
         audit.record(
@@ -496,18 +498,21 @@ def export(
     return Downloaded(name, chosen.media_type, written.content, written.left_out)
 
 
-def file_name(
-    record: SequenceFile | ProteinFile | CompoundFile | PluginRecord, chosen: Format
-) -> str:
-    """Its name, or its HRID, and the revision when it isn't the latest: ``pUC19.gb``."""
-    return _named(record, chosen)
-
-
 def _named(record: SequenceFile | ProteinFile | CompoundFile | PluginRecord, chosen: Format) -> str:
+    """Its name, or its HRID: ``pUC19.gb``. The same for every revision whenever it's
+    written, as a ZIP's file of it is named."""
     base = " ".join(_UNSAFE.sub("_", record.name).split())[:100] or record.hrid
-    if not record.latest:
-        base = f"{base} (revision {record.revision})"
     return f"{base}.{chosen.extension}"
+
+
+def _downloaded_as(gathered: Gathered, *, latest: bool) -> str:
+    """A download's name: its file's, with the revision when it isn't the record's latest
+    as it's taken, ``pUC19 (revision 2).gb``. The file itself never says that (ADR 0171):
+    the next edit would change it."""
+    if latest:
+        return gathered.name
+    stem, dot, extension = gathered.name.rpartition(".")
+    return f"{stem} (revision {gathered.record.revision}){dot}{extension}"
 
 
 # --- What a record's files are written from ------------------------------------------------------
@@ -593,7 +598,6 @@ def _plugin_record(
             name=title,
             type=entity.type,
             revision=number,
-            latest=number == entity.revision,
             revised_at=when,
             roles=roles,
             withheld=tuple(withheld),
@@ -620,7 +624,6 @@ def _protein_file(
         revision=number,
         description=str(values.get(export_.description) or "") if export_.description else "",
         organism=organism.name if organism is not None else "",
-        latest=number == entity.revision,
     )
 
 
@@ -684,7 +687,6 @@ def _compound_file(
         revision=number,
         structure=structure,
         data=tuple(_sd_data(user, fields, values, names, read)),
-        latest=number == entity.revision,
     )
 
 
@@ -769,7 +771,6 @@ def _sequence_file(
             description=description or inner.description,
             features=(*inner.features, *_beyond(own, inner.features)),
             sequence_of=target.entity.hrid,
-            latest=number == entity.revision,
         )
     bases = str(values.get(export_.sequence) or "")
     topology = str(values.get(spec.topology) or "linear") if spec and spec.topology else "linear"
@@ -791,7 +792,6 @@ def _sequence_file(
             else None
         ),
         features=own,
-        latest=number == entity.revision,
     )
 
 
