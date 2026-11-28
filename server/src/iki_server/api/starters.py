@@ -264,8 +264,10 @@ def apply_starter(request: HttpRequest, name: str, payload: StarterApplyIn) -> d
             return starters.apply(*args, by=me, plan=payload.plan)
         return declared_starters.apply(*args, by=me, plan=payload.plan, slots=payload.slots)
     except starters.PlanChanged as changed:
+        # The plan as a preview answers it, so applying it as given applies what it says.
+        plan = StarterSetupOut.model_validate(changed.plan).model_dump(mode="json")
         raise Problem(
-            409, str(changed), code="starter_plan_changed", extensions={"plan": changed.plan}
+            409, str(changed), code="starter_plan_changed", extensions={"plan": plan}
         ) from None
 
 
