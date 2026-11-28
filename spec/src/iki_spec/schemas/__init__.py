@@ -29,6 +29,7 @@ NAMES = (
     "plugin",
     "entity-type",
     "entity-type-extension",
+    "list",
     "field",
     "rule",
     "settings",
@@ -140,6 +141,28 @@ def _explain(error: ValidationError, document: Any) -> Iterator[SchemaIssue]:  #
         name = str(error.instance)
         key_path = (*path, name)
         parent = _at(document, path)
+        if (
+            validator == "enum"
+            and isinstance(document, dict)
+            and document.get("kind") == "List"
+            and len(path) == 2
+            and path[0] == "fields"
+        ):
+            # A list's fields are its options' facts (ADR 0295): its schema allows a fact's
+            # options only, besides what each kind of field allows. A field of a kind no fact
+            # is is reported as such, not also for its kind's options.
+            kinds = load("list")["$defs"]["fact"]["properties"]["type"]["enum"]
+            if isinstance(parent, dict) and parent.get("type") not in kinds:
+                return
+            yield SchemaIssue(
+                key_path,
+                f"`{name}` isn't an option for a list's fields: they're its options' facts, "
+                "which its curators give.",
+                hint="A fact is never computed, and each of a list's fields is one already. "
+                "Make it `immutable: true` for a fact fixed when the option is added.",
+                at_key=True,
+            )
+            return
         if validator == "enum" and isinstance(parent, dict) and isinstance(parent.get("type"), str):
             allowed = [str(v) for v in _values(error)]
             if path[:1] == ("settings",):

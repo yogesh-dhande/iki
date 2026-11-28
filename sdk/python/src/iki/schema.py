@@ -1440,6 +1440,7 @@ class EntityTypeOut(TypedDict):
     exports: NotRequired[list[FileExportOut | ProteinExportOut | CompoundExportOut | SignedReportExportOut | PluginExportOut]]
     extends: str | None
     fields: list[FieldOut]
+    #: The prefix of its entities' HRIDs, such as PRT. None for an abstract type, and for a lab list, whose options are named by their code and numbered in the one sequence every list's options share (ADR 0295).
     hrid_prefix: str | None
     #: The fields that tell two entities apart. With one, its entities are projects' records of registry entries (ADR 0115): one entry per identity in a registry, one record of it per project.
     identity: list[str]
@@ -3320,6 +3321,7 @@ class OptionOut(TypedDict):
     #: Its identity in the list, which never changes: what exports give for it.
     code: str
     description: str
+    #: Its page's address, such as OPTION-000123, from the one sequence every list's options share (ADR 0295). It's shown by its label and named by its code.
     hrid: str
     #: What a record's reference to it holds.
     id: str

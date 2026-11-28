@@ -1,18 +1,16 @@
 # yaml-language-server: $schema=https://ikisci.org/schemas/manifest/v1
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: SECCalibrationStandard
 label: SEC calibration standard
 schema_version: 1
 description: >-
   The standards a conventional SEC is calibrated with: the molecular weights it gives
   are relative to theirs. A lab list (ADR 0270).
-hrid: { prefix: SCS }
-list:
-  options:
-    - { code: polystyrene, label: Polystyrene }
-    - { code: poly_methyl_methacrylate, label: Poly(methyl methacrylate) }
-    - { code: polyethylene_glycol, label: Poly(ethylene glycol) }
-    - { code: polyethylene_oxide, label: Poly(ethylene oxide) }
-    - { code: pullulan, label: Pullulan }
-    - { code: dextran, label: Dextran }
+options:
+  - { code: polystyrene, label: Polystyrene }
+  - { code: poly_methyl_methacrylate, label: Poly(methyl methacrylate) }
+  - { code: polyethylene_glycol, label: Poly(ethylene glycol) }
+  - { code: polyethylene_oxide, label: Poly(ethylene oxide) }
+  - { code: pullulan, label: Pullulan }
+  - { code: dextran, label: Dextran }

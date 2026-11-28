@@ -692,7 +692,11 @@ class EntityTypeOut(Schema):
         "and no new ones can be made."
     )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
-    hrid_prefix: str | None
+    hrid_prefix: str | None = Field(
+        description="The prefix of its entities' HRIDs, such as PRT. None for an abstract type, "
+        "and for a lab list, whose options are named by their code and numbered in the one "
+        "sequence every list's options share (ADR 0295)."
+    )
     identity: list[str] = Field(
         description="The fields that tell two entities apart. With one, its entities are "
         "projects' records of registry entries (ADR 0115): one entry per identity in a "
@@ -1605,7 +1609,7 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "extends": entity_type.extends if entity_type.extends != "iki/core.Entity" else None,
         "abstract": entity_type.abstract,
         "sample": name in registry.sample_types(),
-        "lab_list": entity_type.is_list,
+        "lab_list": entity_type.is_lab_list,
         "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
@@ -2470,7 +2474,7 @@ def _lookup(
             out["superseded"] = e.superseded_by_id is not None
         return out
 
-    listed = access.list_types()
+    listed = registry.lab_lists()
     named = lists.names_of([e.pk for e in entries if e.type in listed])
 
     refs: dict[Any, dict[str, Any]] = {}

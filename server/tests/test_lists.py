@@ -26,7 +26,7 @@ from iki_server.org.models import (
     ProjectRole,
     Registry,
 )
-from iki_spec.model import ListSpec, Rule
+from iki_spec.model import LIST_HRID_PREFIX, ListSpec, Rule
 
 pytestmark = pytest.mark.django_db
 
@@ -120,6 +120,12 @@ def test_a_registry_starts_with_the_plugins_options_in_order(world: World) -> No
     # The entity types say it's a list, for forms to show a dropdown.
     types = {t["name"]: t for t in editor.get("/entity-types").json()}
     assert types[METHOD]["lab_list"] and not types[PREP]["lab_list"]
+    # A list spends no HRID prefix: its options are numbered in the sequence every list's
+    # options share, which only gives their pages an address (ADR 0295).
+    assert types[METHOD]["hrid_prefix"] is None and types[CATEGORY]["hrid_prefix"] is None
+    numbered = [o["hrid"] for o in found] + [category[0]["hrid"]]
+    assert all(h.startswith(f"{LIST_HRID_PREFIX}-") for h in numbered), numbered
+    assert len(set(numbered)) == len(numbered)
     # Each starting option's first revision says where it came from.
     first = editor.get(f"/entries/{found[0]['id']}/revisions").json()["items"][-1]
     assert first["kind"] == "created" and first["user"] is None

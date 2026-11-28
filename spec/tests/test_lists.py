@@ -1,11 +1,11 @@
-"""Lab lists (ADR 0270): a type marked as a list, its options' fields, and starting options."""
+"""Lab lists (ADR 0270, ADR 0295): `kind: List`, its options' fields, and starting options."""
 
 import textwrap
 from pathlib import Path
 
 import pytest
 
-from iki_spec.model import LIST_FIELDS, plugin_from_dict, plugin_to_dict
+from iki_spec.model import LIST_FIELDS, LIST_HRID_PREFIX, plugin_from_dict, plugin_to_dict
 from iki_spec.validate import Result, load_plugin
 
 PLUGIN = """\
@@ -17,16 +17,14 @@ version: 1.0.0
 
 METHOD = """\
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: PurificationMethod
 label: Purification method
 schema_version: 1
-hrid: { prefix: PUM }
-list:
-  options:
-    - { code: hplc, label: HPLC, description: Reversed-phase HPLC. }
-    - { code: iex, label: Ion exchange, category: chromatography }
-    - { code: desalt, label: Desalting }
+options:
+  - { code: hplc, label: HPLC, description: Reversed-phase HPLC. }
+  - { code: iex, label: Ion exchange, category: chromatography }
+  - { code: desalt, label: Desalting }
 fields:
   category:
     type: ref
@@ -39,13 +37,11 @@ fields:
 
 CATEGORY = """\
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: Category
 schema_version: 1
-hrid: { prefix: CAT }
-list:
-  options:
-    - { code: chromatography, label: Chromatography }
+options:
+  - { code: chromatography, label: Chromatography }
 """
 
 BATCH = """\
@@ -93,10 +89,12 @@ def test_a_list_type_gets_its_options_fields(tmp_path: Path) -> None:
     assert result.ok, problems(result)
     assert result.plugin is not None
     method = result.plugin.types["acme/lab.PurificationMethod"]
-    assert method.is_list
+    assert method.is_lab_list
     assert method.identity == ("code",)
     assert list(method.fields)[:4] == list(LIST_FIELDS)
     assert method.display_title == "{{ label }}"
+    # Its options are numbered in the sequence every list's options share (ADR 0295).
+    assert method.hrid_prefix is None and method.numbering_prefix == LIST_HRID_PREFIX
     code, label, description, position = (method.fields[n] for n in LIST_FIELDS)
     assert code.required and code.immutable and code.registry is None
     assert label.registry == "fact" and label.required and label.unique
@@ -107,7 +105,7 @@ def test_a_list_type_gets_its_options_fields(tmp_path: Path) -> None:
     assert method.fields["sop"].registry == "fact"
     assert method.list_spec is not None
     assert [o["code"] for o in method.list_spec.options] == ["hplc", "iex", "desalt"]
-    assert not result.plugin.types["acme/lab.Batch"].is_list
+    assert not result.plugin.types["acme/lab.Batch"].is_lab_list
 
 
 def test_a_list_round_trips_through_its_built_manifest(tmp_path: Path) -> None:
@@ -124,34 +122,75 @@ def test_a_list_with_no_starting_options(tmp_path: Path) -> None:
         tmp_path,
         {
             "types/category.yaml": CATEGORY.replace(
-                "list:\n  options:\n    - { code: chromatography, label: Chromatography }\n",
-                "list: true\n",
+                "options:\n  - { code: chromatography, label: Chromatography }\n", ""
             )
         },
     )
     assert result.ok, problems(result)
     assert result.plugin is not None
     category = result.plugin.types["acme/lab.Category"]
-    assert category.is_list and category.list_spec is not None
+    assert category.is_lab_list and category.list_spec is not None
     assert category.list_spec.options == ()
 
 
 @pytest.mark.parametrize(
     "extra",
     [
+        "hrid: { prefix: PUM }\n",
         "identity: [category]\n",
         "extends: Category\n",
         "abstract: true\n",
+        "display: { title: '{{ code }}' }\n",
         "rules: { named: { label: Named, check: 'sop != null', message: Give its SOP. } }\n",
         "due: sop\n",
+        "storage: { holds: [Batch] }\n",
+        "list: true\n",
     ],
 )
-def test_records_things_arent_for_lists(tmp_path: Path, extra: str) -> None:
+def test_a_list_has_only_what_a_list_can(tmp_path: Path, extra: str) -> None:
+    # Its schema names what a list has: anything else, a record type's keys among them, is
+    # refused as a key the kind doesn't have, so a key added to entity types later isn't
+    # a list's by default (ADR 0295).
     result = make(
         tmp_path,
         {"types/method.yaml": METHOD + extra, "types/category.yaml": CATEGORY},
     )
-    assert "list-key" in codes(result), problems(result)
+    key = extra.split(":")[0]
+    assert [(p.code, p.message) for p in result.problems] == [
+        ("schema", f"`{key}` isn't allowed here.")
+    ]
+
+
+def test_list_is_no_longer_an_entity_types_key(tmp_path: Path) -> None:
+    result = make(
+        tmp_path,
+        {
+            "types/batch.yaml": BATCH.replace(
+                "  method: { type: ref, to: PurificationMethod }\n", ""
+            )
+            + "list: true\n"
+        },
+    )
+    assert codes(result) == ["schema"], problems(result)
+
+
+def test_iki_reserves_the_prefix_of_lists_options(tmp_path: Path) -> None:
+    result = make(
+        tmp_path,
+        {
+            "types/batch.yaml": BATCH.replace("prefix: BTC", f"prefix: {LIST_HRID_PREFIX}"),
+            "types/method.yaml": METHOD,
+            "types/category.yaml": CATEGORY,
+        },
+    )
+    # It's one of core's (ADR 0295): every lab list's options are numbered with it.
+    assert [(p.code, p.message) for p in result.problems if p.is_error] == [
+        (
+            "duplicate-hrid-prefix",
+            f"`acme/lab.Batch` uses `{LIST_HRID_PREFIX}`, the HRID prefix of Iki's lab list "
+            "options.",
+        )
+    ]
 
 
 def test_nothing_extends_a_list(tmp_path: Path) -> None:
@@ -180,19 +219,34 @@ def test_a_list_has_its_own_fields_already(tmp_path: Path) -> None:
     assert codes(result) == ["list-field-reserved"], problems(result)
 
 
-def test_a_lists_fields_are_curated_facts(tmp_path: Path) -> None:
-    computed = """\
-fields:
-  weight: { type: float, registry: derived, computed: true }
-  notes: { type: text, max_length: 100 }
-  reviewer: { type: person }
-"""
-    result = make(tmp_path, {"types/category.yaml": CATEGORY + computed})
-    found = codes(result)
-    assert "list-computed" in found
-    # Free text is a fact's problem, as for any registry fact; people are projects'.
-    assert "registry-fact-free-text" in found
-    assert "person-in-registry" in found
+@pytest.mark.parametrize(
+    ("field", "problem"),
+    [
+        # Nothing computes an option's facts, and every one is a fact already.
+        ("weight: { type: float, computed: true }", "`computed` isn't an option for a list's"),
+        ("weight: { type: float, registry: derived }", "`registry` isn't an option for a list's"),
+        # An option is offered or archived: it has no states.
+        (
+            "stage: { type: state, initial: a, states: { a: {}, b: {} } }",
+            "`fields.stage.type` can't be `state`",
+        ),
+        # Free text and people aren't facts.
+        ("notes: { type: text, max_length: 100 }", "`fields.notes.type` can't be `text`"),
+        ("reviewer: { type: person }", "`fields.reviewer.type` can't be `person`"),
+    ],
+)
+def test_a_lists_fields_are_curated_facts(tmp_path: Path, field: str, problem: str) -> None:
+    result = make(tmp_path, {"types/category.yaml": CATEGORY + f"fields:\n  {field}\n"})
+    assert codes(result) == ["schema"], problems(result)
+    assert result.problems[0].message.startswith(problem), problems(result)
+
+
+def test_a_lists_facts_keep_a_facts_rules(tmp_path: Path) -> None:
+    # A string fact needs a pattern or a format, as any registry fact does.
+    result = make(
+        tmp_path, {"types/category.yaml": CATEGORY + "fields:\n  code_name: { type: string }\n"}
+    )
+    assert codes(result) == ["registry-fact-free-text"], problems(result)
 
 
 def test_a_list_refers_only_to_other_lists(tmp_path: Path) -> None:
@@ -220,8 +274,8 @@ def test_a_reference_to_a_list_names_it_alone(tmp_path: Path) -> None:
 
 
 def test_starting_options_are_each_the_lists_once(tmp_path: Path) -> None:
-    twice = CATEGORY + "    - { code: chromatography, label: Again }\n"
-    twice += "    - { code: other, label: chromatography }\n"
+    twice = CATEGORY + "  - { code: chromatography, label: Again }\n"
+    twice += "  - { code: other, label: chromatography }\n"
     result = make(tmp_path, {"types/category.yaml": twice})
     assert codes(result) == ["list-option-twice", "list-label-twice"], problems(result)
 
@@ -229,11 +283,11 @@ def test_starting_options_are_each_the_lists_once(tmp_path: Path) -> None:
 def test_a_starting_options_code_and_label_name_it_alone(tmp_path: Path) -> None:
     """A sheet names an option by its code or its label, in any case, so another option's
     code or label may be neither; its own may be both."""
-    clash = CATEGORY + "    - { code: sec, label: Size exclusion }\n"
-    clash += "    - { code: gf, label: SEC }\n"
-    clash += "    - { code: CHROMATOGRAPHY, label: Other chromatography }\n"
-    clash += "    - { code: desalting, label: Buffer exchange }\n"
-    clash += "    - { code: buffer_exchange, label: Desalting }\n"
+    clash = CATEGORY + "  - { code: sec, label: Size exclusion }\n"
+    clash += "  - { code: gf, label: SEC }\n"
+    clash += "  - { code: CHROMATOGRAPHY, label: Other chromatography }\n"
+    clash += "  - { code: desalting, label: Buffer exchange }\n"
+    clash += "  - { code: buffer_exchange, label: Desalting }\n"
     result = make(tmp_path, {"types/category.yaml": clash})
     assert codes(result) == ["list-name-twice"] * 3, problems(result)
     assert "“SEC” is option 2's code, in any case" in str(problems(result))
@@ -346,13 +400,11 @@ def test_a_state_guard_reading_a_list_options_code_is_warned_of(tmp_path: Path) 
 
 GRADE = """\
 apiVersion: iki/v1
-kind: EntityType
+kind: List
 name: Grade
 schema_version: 1
-hrid: { prefix: GRD }
-list:
-  options:
-    - { code: gmp, label: GMP, sterile: true }
+options:
+  - { code: gmp, label: GMP, sterile: true }
 fields:
   sterile: { type: bool, label: Sterile, IMMUTABLE }
   max_endotoxin: { type: float, label: Endotoxin limit (EU/mL), min: 0 }
@@ -391,7 +443,7 @@ ROLES = PLUGIN + "roles:\n  qa: { label: QA }\n"
 
 
 def graded(tmp_path: Path, fixed: bool, **more: str) -> Result:
-    grade = GRADE.replace("IMMUTABLE", "immutable: true" if fixed else "registry: fact")
+    grade = GRADE.replace("IMMUTABLE", "immutable: true" if fixed else "immutable: false")
     return make(
         tmp_path,
         {"types/grade.yaml": grade, "types/lot.yaml": LOT, "plugin.yaml": ROLES, **more},

@@ -112,7 +112,7 @@ def test_every_kind_of_lot_is_a_lot_with_its_own_amount() -> None:
         "StrainIsolate": "id",
     }
     # Each names what it's a lot of, by its type where one is registered.
-    lists = {n for n, t in types.items() if t.is_list}
+    lists = {n for n, t in types.items() if t.is_lab_list}
     refs = {
         name: [to for f in t.fields.values() if f.type == "ref" for to in f.to if to not in lists]
         for name, t in concrete.items()
@@ -230,7 +230,7 @@ def test_a_lots_methods_are_the_labs_own_lists(
         f = spec.fields[name]
         assert (f.type, f.to) == ("ref", (f"iki/lots.{listed}",)), name
         options = plugin.types[f"iki/lots.{listed}"]
-        assert options.is_list and options.list_spec is not None
+        assert options.is_lab_list and options.list_spec is not None
         if codes is not None:
             assert [o["code"] for o in options.list_spec.options] == codes, name
 

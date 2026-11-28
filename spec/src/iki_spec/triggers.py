@@ -675,4 +675,4 @@ def _changes(f: Field, owner: EntityType) -> bool:
     one of its values, and setting it is no edit."""
     if f.removed or f.type == "state":
         return False
-    return not (f.immutable and (f.required or owner.is_list))
+    return not (f.immutable and (f.required or owner.is_lab_list))
