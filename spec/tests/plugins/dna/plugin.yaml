@@ -6,6 +6,9 @@ title: DNA
 description: DNA sequences and primers.
 license: Apache-2.0
 iki: ">=0.1"
+annotations:
+  acme.com/owner: Molecular biology
+x-acme-reviewed: 2026-11-01
 settings:
   ncbi_email:
     type: string

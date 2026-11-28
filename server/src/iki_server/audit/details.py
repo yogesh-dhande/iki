@@ -62,6 +62,9 @@ VALUES: dict[str, dict[Any, str]] = {
     },
     "max_running": {None: "No limit"},
     "max_queued": {None: "No limit"},
+    # A registry role's (ADR 0292); a project role's are named already.
+    "role": {"registrar": "Registrar", "list_curator": "List curator"},
+    "list": {None: "The whole registry"},
 }
 
 

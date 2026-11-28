@@ -700,7 +700,16 @@ class EntityTypeOut(Schema):
         "and no new ones can be made."
     )
     subtypes: list[str] = Field(description="The types that extend it, at any depth.")
-    hrid_prefix: str | None
+    hrid_prefix: str | None = Field(
+        description="The prefix of its entities' HRIDs, such as PRT. None for an abstract type, "
+        "and for a lab list, whose options are named by their code and numbered in the one "
+        "sequence every list's options share (ADR 0295)."
+    )
+    annotations: dict[str, str] = Field(
+        default_factory=dict,
+        description="Its lab's own metadata about the type, by name, such as its owner or "
+        "validation status (ADR 0293): shown, never acted on.",
+    )
     identity: list[str] = Field(
         description="The fields that tell two entities apart. With one, its entities are "
         "projects' records of registry entries (ADR 0115): one entry per identity in a "
@@ -1613,10 +1622,11 @@ def _type_out(entity_type: EntityType) -> dict[str, Any]:
         "extends": entity_type.extends if entity_type.extends != "iki/core.Entity" else None,
         "abstract": entity_type.abstract,
         "sample": name in registry.sample_types(),
-        "lab_list": entity_type.is_list,
+        "lab_list": entity_type.is_lab_list,
         "detached": services.frozen(form) is not None,
         "subtypes": sorted(subtypes(name) - {name}),
         "hrid_prefix": entity_type.hrid_prefix,
+        "annotations": entity_type.annotations,
         "identity": list(owner.identity) if owner is not None else [],
         "fields": fields,
         "values_schema": schema.for_type(name),
@@ -2480,7 +2490,7 @@ def _lookup(
             out["superseded"] = e.superseded_by_id is not None
         return out
 
-    listed = access.list_types()
+    listed = registry.lab_lists()
     named = lists.names_of([e.pk for e in entries if e.type in listed])
 
     refs: dict[Any, dict[str, Any]] = {}
@@ -3264,6 +3274,15 @@ def set_entity_state(
             headers={"ETag": f'"{stale.current}"'},
         ) from None
     except Invalid as error:
+        if getattr(error, "broken", ()):
+            # It breaks the type's rules (ADR 0127): each named, as for a save.
+            found = _invalid(error)
+            if isinstance(error, checking.Held):
+                found.detail = (
+                    "It breaks rules that hold records for review. To set it anyway, say why "
+                    "in `reason`: the record is held until it's reviewed."
+                )
+            raise found from None
         raise Problem(
             422,
             "Setting that state needs more.",

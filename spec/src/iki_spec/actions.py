@@ -100,6 +100,7 @@ def read_action(plugin: str, body: dict[str, Any], document: Document) -> Action
     return Action(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("_", " ").capitalize(),
         description=body.get("description"),
         inputs={
@@ -182,6 +183,7 @@ def read_environment(plugin: str, body: dict[str, Any], document: Document) -> E
     return Environment(
         plugin=plugin,
         name=name,
+        annotations=dict(body.get("annotations") or {}),
         label=body.get("label") or name.replace("-", " ").capitalize(),
         description=body.get("description"),
         tiers=tuple(body["tiers"]),
@@ -697,7 +699,7 @@ class _Rules:
         ref = f.items if f.type == "list" and f.items is not None else f
         for target in ref.to:
             listed = self.s.types.get(target)
-            if listed is None or not listed.is_list:
+            if listed is None or not listed.is_lab_list:
                 continue
             changeable = sorted(
                 n

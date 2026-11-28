@@ -20,6 +20,7 @@ AUTHORED = (
     "plugin",
     "entity-type",
     "entity-type-extension",
+    "list",
     "action",
     "environment",
     "workflow",
@@ -58,5 +59,5 @@ def test_every_key_a_manifest_can_have_is_in_the_spec(schema: str) -> None:
 
 def test_lab_lists_have_a_section_of_their_own() -> None:
     assert "### Lab lists" in README
-    for key in ("`code`", "`label`", "`position`", "list: true", "options:"):
+    for key in ("kind: List", "`code`", "`label`", "`position`", "options:", "OPTION-000123"):
         assert key in README, key

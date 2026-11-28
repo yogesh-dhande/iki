@@ -16,6 +16,7 @@ apiVersion: iki/v1
 kind: Plugin
 name: acme/lab
 version: 1.0.0
+iki: ">=0.1"
 """
 
 TYPES = """\
@@ -642,7 +643,7 @@ def _with_roles(tmp_path: Path, role: str, plugin_extra: str = "") -> Result:
     qms = tmp_path / "qms"
     qms.mkdir(exist_ok=True)
     (qms / "plugin.yaml").write_text(
-        "apiVersion: iki/v1\nkind: Plugin\nname: acme/qms\nversion: 1.0.0\n"
+        "apiVersion: iki/v1\nkind: Plugin\nname: acme/qms\nversion: 1.0.0\niki: '>=0.1'\n"
         "roles:\n  release_officer: { label: Release officer }\n"
     )
     return load_plugin(root, dependencies=[qms])

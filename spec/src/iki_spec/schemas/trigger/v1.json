@@ -147,7 +147,15 @@
           "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
         }
       }
+    },
+    "annotations": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations"
     }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  }
 }

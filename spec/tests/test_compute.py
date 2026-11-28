@@ -886,3 +886,11 @@ def _errors(tmp_path: Path, plugins: list[Plugin], document: str) -> ComputeResu
     result = load(tmp_path, plugins, document)
     result.problems = [p for p in result.problems if p.is_error]
     return result
+
+
+def test_compute_documents_take_annotations_and_x_keys(
+    tmp_path: Path, plugins: list[Plugin]
+) -> None:
+    notes = "annotations: { acme.com/owner: Research IT }\nx-acme-cost-centre: '4410'\n"
+    result = load(tmp_path, plugins, BACKEND + notes)
+    assert result.ok, result.problems

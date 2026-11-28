@@ -2,7 +2,7 @@
 apiVersion: iki/v1
 kind: Plugin
 name: iki/complex
-version: 0.2.2
+version: 0.3.1
 title: Complexes
 description: >-
   Protein complexes of any parts, by their parts and how many copies of each,

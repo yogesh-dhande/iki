@@ -289,6 +289,45 @@ def test_a_signed_state_isnt_set_directly(lab: World) -> None:
         )
 
 
+@pytest.mark.parametrize("hold", [False, True], ids=["refuses", "holds"])
+def test_a_signed_state_isnt_given_while_a_rule_reading_it_breaks(
+    lab: World, monkeypatch: pytest.MonkeyPatch, hold: bool
+) -> None:
+    """A state is a value the record saves (ADR 0127): nobody signs for one the plugins'
+    rules reading it would refuse, nor one that would hold the record, as a signature gives
+    no reason to hold it for."""
+    from iki_server.entities import checking
+    from iki_spec.model import Rule
+
+    rule = Rule(
+        name="reviewed_under_its_own_label",
+        label="Reviewed under its own label",
+        plugin="acme/protein",
+        check='record.label != "LOT A"',
+        when='record.status == "in_review"',
+        message="Give the lot its own label before review.",
+        hold=(QA,) if hold else (),
+        reads=("label", "status"),
+    )
+    checks, every = checking.checks_of, checking.rules_of
+    monkeypatch.setattr(
+        checking, "checks_of", lambda t: (*checks(t), rule) if t == LOT else checks(t)
+    )
+    monkeypatch.setattr(checking, "rules_of", lambda t: (*every(t), rule) if t == LOT else every(t))
+    made = lot(lab)
+    [slot] = offered(lab, "editor", made["id"])["in_review"]["signatures"]
+    assert slot["why_not"] == "Give the lot its own label before review."
+    with pytest.raises(Refused, match="its own label"):
+        begin(lab, "editor", made["id"], "in_review", reason="Ready")
+    assert Entity.objects.get(pk=made["id"]).revision == made["revision"]
+    # Kept, it's signed for.
+    editor = api_as(lab, "editor")
+    etag = editor.get(f"/entities/{made['id']}")["ETag"]
+    relabelled = patch(editor, made["id"], {"values": {"label": "LOT 2026-118"}}, etag)
+    assert relabelled.status_code == 200, relabelled.content
+    signed(lab, "editor", made["id"], "in_review", reason="Ready")
+
+
 # --- Signing ------------------------------------------------------------------------------------
 
 

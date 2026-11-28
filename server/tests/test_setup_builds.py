@@ -29,7 +29,7 @@ from iki_server.audit.models import AuditEvent
 from iki_server.core.ids import uuid7
 from iki_server.entities import registry
 from iki_server.org.models import OrgRole, OrgRoleAssignment
-from iki_server.runs import catalog, egress, provisioner, services, setups
+from iki_server.runs import catalog, egress, leases, provisioner, services, setups
 from iki_server.runs.models import (
     ActionRun,
     Job,
@@ -527,6 +527,40 @@ def test_only_a_setups_own_machine_reports_on_it(world: World) -> None:
         assert (tried.status_code, said) == (nothing.status_code, expected), route
     assert SetupBuild.objects.filter(pk=build["id"]).values().get() == before
     assert not SetupLog.objects.filter(build_id=build["id"]).exists()
+
+
+def test_a_builds_reports_keep_a_jobs_rules(world: World, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A build's worker reports as a job's does (``test_workers``): logs in order, retried
+    chunks accepted once, past the limit counted and not kept, and nothing from a lease that
+    ran out."""
+    build = ask(world)
+    approve(world, build)
+    cluster = FakeCluster()
+    provisioner.tick(cluster)
+    name, _ = setup_pod(cluster)
+    machine = WorkerClient(register(cluster.token(name), name=f"{name}-x1y2z").json()["token"])
+    lease = {"lease_token": machine.lease().json()["job"]["lease_token"]}
+
+    def report(route: str, **body: Any) -> Any:
+        return machine.post(f"/setups/{build['id']}/{route}", {**lease, **body})
+
+    assert report("logs", offset=0, text="héllo\n").json() == {"next_offset": 7}
+    assert report("logs", offset=0, text="héllo\n").json() == {"next_offset": 7}
+    gap = problem(report("logs", offset=10, text="x"), 409, "log_gap")
+    assert gap["next_offset"] == 7
+    monkeypatch.setattr(leases, "MAX_LOG_BYTES", 10)
+    assert report("logs", offset=7, text="world\n").json() == {"next_offset": 13}
+    assert report("logs", offset=13, text="more\x00").json() == {"next_offset": 18}
+    texts = list(SetupLog.objects.filter(build_id=build["id"]).values_list("text", flat=True))
+    assert texts[0] == "héllo\n"
+    assert texts[1].startswith("wor\n[iki: the log is over")
+    assert len(texts) == 2
+    assert report("progress", fraction=0.25, message="Indexing").status_code == 204
+    stored = SetupBuild.objects.get(pk=build["id"])
+    assert (stored.progress, stored.progress_message) == (0.25, "Indexing")
+    SetupBuild.objects.filter(pk=build["id"]).update(lease_expires_at=timezone.now())
+    for route, body in (("heartbeat", {}), ("logs", {"offset": 18, "text": "x"})):
+        problem(report(route, **body), 409, "stale_lease")
 
 
 def test_a_failed_setup_ends_and_its_disk_is_deleted(world: World) -> None:

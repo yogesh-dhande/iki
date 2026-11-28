@@ -9,9 +9,9 @@ served as Iki's is (component_frames).
 Trastuzumab's values are its chains' (KEGG DRUG D03257), as the antibody plugin's
 assemble and the complex plugin's compute_composition give them: two copies of its heavy
 chain and two of its light chain; its parts as they are, C6448H9980N1720O2012S44,
-145,197.41 u, and 213,380 L/(mol.cm) at 280 nm (Pace's, as Biopython's ProtParam gives
+145,199.44 u, and 213,380 L/(mol.cm) at 280 nm (Pace's, as Biopython's ProtParam gives
 its chains: 80,790 and 25,900, each twice); with KEGG's 16 disulfides, four between its
-chains and each domain's own, 32 hydrogens fewer, C6448H9948N1720O2012S44, 145,165.16 u,
+chains and each domain's own, 32 hydrogens fewer, C6448H9948N1720O2012S44, 145,167.18 u,
 and 215,380 L/(mol.cm)."""
 
 from collections.abc import Iterator
@@ -78,7 +78,7 @@ TRASTUZUMAB_VALUES: dict[str, Any] = {
         *(_disulfide(L, n, a, L, n, b) for n in (1, 2) for a, b in ((23, 88), (134, 194))),
     ],
     "molecular_formula": "C6448H9980N1720O2012S44",
-    "molecular_weight": 145197.41,
+    "molecular_weight": 145199.44,
     "monoisotopic_mass": 145107.9205,
     "chain_count": 4,
     "extinction_coefficient_reduced": 213380,
@@ -126,7 +126,7 @@ def test_the_composition_tab_shows_its_parts_and_masses(
     assert rows == [
         ["", "Its parts as they are", "With its 16 disulfides"],
         ["Formula", "C6448H9980N1720O2012S44", "C6448H9948N1720O2012S44"],
-        ["Average mass", "145,197.41 u (145.20 ku)", "145,165.16 u (145.17 ku)"],
+        ["Average mass", "145,199.44 u (145.20 ku)", "145,167.18 u (145.17 ku)"],
         ["Monoisotopic mass", "145,107.9205 u (145.11 ku)", "145,075.6701 u (145.08 ku)"],
         ["Molar extinction coefficient, ε280", "213,380 L/(mol·cm)", "215,380 L/(mol·cm)"],
         ["Absorbance at 280 nm of 1 g/L, 1 cm", "1.470", "1.484"],
@@ -214,7 +214,7 @@ FAB_HER2: dict[str, Any] = {
         ],
         "bonds": [_disulfide(HER2, 1, 4 * n + 1, HER2, 1, 4 * n + 2) for n in range(23)],
         "molecular_formula": "C4980H7745N1389O1538S65",
-        "molecular_weight": 113766.39,
+        "molecular_weight": 113767.82,
         "monoisotopic_mass": 113694.238,
         "chain_count": 3,
         "extinction_coefficient_reduced": 133620,
@@ -244,9 +244,9 @@ def test_a_complex_of_a_complex_counts_its_parts_disulfides(
         ],
         [
             "Average mass",
-            "113,766.39 u (113.77 ku)",
-            "113,720.02 u (113.72 ku)",
-            "113,711.96 u (113.71 ku)",
+            "113,767.82 u (113.77 ku)",
+            "113,721.45 u (113.72 ku)",
+            "113,713.39 u (113.71 ku)",
         ],
         [
             "Monoisotopic mass",
@@ -260,7 +260,7 @@ def test_a_complex_of_a_complex_counts_its_parts_disulfides(
             "136,495 L/(mol·cm)",
             "136,995 L/(mol·cm)",
         ],
-        ["Absorbance at 280 nm of 1 g/L, 1 cm", "1.175", "1.200", "1.205"],
+        ["Absorbance at 280 nm of 1 g/L, 1 cm", "1.174", "1.200", "1.205"],
     ]
     assert page.get_by_role("note").count() == 0
     page.context.close()

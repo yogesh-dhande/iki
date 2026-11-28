@@ -1,6 +1,7 @@
 # 0115. Registries keep identities, and each project keeps its own record
 
 - Status: Accepted
+- Amended by [0292](0292-a-registry-role-is-one-grant-scoped-to-the-registry-or-a-list.md) for how registrars are stored and granted
 - Date: 2026-11-17
 - Refines: [0007](0007-typed-table-per-type-entity-storage.md),
   [0033](0033-plugin-codegen-and-migrations.md),
@@ -233,7 +234,10 @@ lot to its corrected parent is in a registration system. Each referring
 record is otherwise saved as any edit is: its rules are checked, a rule that
 holds it holds it with the move's reason, one that refuses refuses the whole
 move, and a check that read the old reference is cleared and runs again.
-Archived records, and those of detached plugins, keep their references. A project that holds
+The moved record is checked the same way, by the values its new entry gives it
+that differ from the old one's: a rule it would break refuses the move, one that
+holds holds it for the move's reason, and a check that read one of those values
+is cleared and runs again. Archived records, and those of detached plugins, keep their references. A project that holds
 the replacement already can't move the old record onto it; it archives one
 of the two. Each move is audited as `entity.moved`.
 

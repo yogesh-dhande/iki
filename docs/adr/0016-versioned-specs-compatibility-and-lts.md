@@ -1,6 +1,6 @@
 # 0016. Versioned specs, codemods, deprecation policy and LTS lines
 
-- Status: Accepted
+- Status: Accepted (amended by [0293](0293-a-plugin-made-for-one-iki-release-keeps-working-on-the-next.md): a provisional tier; codemods and `iki plugin upgrade` not built yet)
 - Date: 2026-11-09
 
 ## Context

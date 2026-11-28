@@ -6,7 +6,10 @@
   "type": "object",
   "required": ["apiVersion", "kind", "adds_to", "fields"],
   "properties": {
-    "apiVersion": { "description": "The spec version this manifest follows.", "const": "iki/v1" },
+    "apiVersion": {
+      "description": "The spec version this manifest follows.",
+      "const": "iki/v1"
+    },
     "kind": {
       "description": "What the manifest declares: `EntityTypeExtension`.",
       "const": "EntityTypeExtension"
@@ -15,16 +18,32 @@
       "description": "The type to add fields to, as `plugin.Type`. It isn't a subtype: the type's records get the fields.",
       "$ref": "https://ikisci.org/schemas/field/v1#/$defs/typeRef"
     },
-    "description": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description" },
+    "description": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/description"
+    },
     "fields": {
       "description": "The fields to add, by name.",
       "type": "object",
       "minProperties": 1,
       "maxProperties": 500,
-      "propertyNames": { "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName" },
-      "additionalProperties": { "$ref": "https://ikisci.org/schemas/field/v1" }
+      "propertyNames": {
+        "$ref": "https://ikisci.org/schemas/field/v1#/$defs/fieldName"
+      },
+      "additionalProperties": {
+        "$ref": "https://ikisci.org/schemas/field/v1"
+      }
     },
-    "rules": { "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules" }
+    "rules": {
+      "$ref": "https://ikisci.org/schemas/rule/v1#/$defs/rules"
+    },
+    "annotations": {
+      "$ref": "https://ikisci.org/schemas/field/v1#/$defs/annotations"
+    }
   },
-  "additionalProperties": false
+  "additionalProperties": false,
+  "patternProperties": {
+    "^x-": {
+      "description": "A key for tools, such as `x-acme-reviewed`: kept in the file, ignored by Iki, and dropped from the build (ADR 0293)."
+    }
+  }
 }
