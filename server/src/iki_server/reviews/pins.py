@@ -159,6 +159,17 @@ def binding(project_id: Any, type_name: str, qualified: str) -> dict[str, str]: 
     """Who plays each of ``qualified``'s slots on ``type_name``'s records in the project:
     the binding its latest choice of that procedure made (the project's, else the
     deployment's), else each slot's ``iki/lab_roles`` role (ADR 0304)."""
+    found = chosen_binding(project_id, type_name, qualified)
+    if found is not None:
+        return found
+    from iki_server.org import lab_roles
+
+    return procedures.default_binding(installed(qualified), lab_roles.declared())
+
+
+def chosen_binding(project_id: Any, type_name: str, qualified: str) -> dict[str, str] | None:  # noqa: ANN401 - a UUID
+    """The binding the latest choice of ``qualified`` for ``type_name`` made, in the
+    project or else the deployment, or None if it was never chosen there."""
     lineage = list(_lineage(type_name))
     found = review_of(type_name)
     if found is not None and found[1].by is not None:
@@ -182,9 +193,7 @@ def binding(project_id: Any, type_name: str, qualified: str) -> dict[str, str]: 
             )
         )
         return dict(rows[0]["binding"])
-    from iki_server.org import lab_roles
-
-    return procedures.default_binding(installed(qualified), lab_roles.declared())
+    return None
 
 
 def _people(type_name: str) -> procedures.PeopleKind:

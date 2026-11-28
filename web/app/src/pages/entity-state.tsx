@@ -21,7 +21,7 @@ import {
   type EntityType,
   type FieldDef,
 } from "../entities";
-import { typeFlowQuery } from "../flow";
+import { pinnedFlow, reviewFlowName, typeFlowQuery, type ReviewFlow } from "../flow";
 import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { flowModel, nextFrom } from "../flow-model";
 import {
@@ -88,12 +88,16 @@ function and(words: string[]): string {
 
 /** Why a locked record can't change: the fields whose states lock it, and the states that
  * would unlock each. */
-export function lockedWhy(entity: Entity, type: EntityType | undefined): string {
+export function lockedWhy(
+  entity: Entity,
+  type: EntityType | undefined,
+  states: FieldDef[] = stateFields(type),
+): string {
   const returns = editReturns(entity, type);
   if (entity.can.correct && returns.length) {
     return `Locked. Correcting a value will return ${listed(returns.map((r) => r.description))}. Each correction needs a reason.`;
   }
-  const fields = stateFields(type).filter((f) => entity.locked_by.includes(f.name));
+  const fields = states.filter((f) => entity.locked_by.includes(f.name));
   const held = fields.map((f) => `its ${f.label} is ${stateLabel(f, stateOf(entity, f))}`);
   const until = fields
     .map((f) => {
@@ -105,19 +109,40 @@ export function lockedWhy(entity: Entity, type: EntityType | undefined): string 
   return `Locked, as ${and(held)}: its other values can’t change, nor can it be archived${how}.`;
 }
 
+/** The review flow a reviewed record is pinned to (ADR 0306), or undefined for a record
+ * that isn't reviewed, until it's read. */
+function usePinned(entity: Entity, type: EntityType | undefined): ReviewFlow | undefined {
+  const procedure = entity.values["review_procedure"];
+  const flow = entity.values["review_flow"];
+  const pinned = typeof procedure === "string" && typeof flow === "string";
+  const drawn = useQuery({
+    ...typeFlowQuery(type?.name ?? "", {
+      project: entity.owner_project?.id,
+      procedure: pinned ? procedure : undefined,
+      flow: pinned ? flow : undefined,
+    }),
+    enabled: pinned && Boolean(type),
+  });
+  return pinnedFlow(drawn.data);
+}
+
 export function EntityState({ entity, type }: { entity: Entity; type: EntityType | undefined }) {
   const [chosen, setChosen] = useState<FieldDef | null>(null);
   // The state fields whose flow is open.
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const id = useId();
-  const fields = stateFields(type);
+  const pinned = usePinned(entity, type);
+  // A reviewed record's review field has its pinned flow's states, not the type's names.
+  const fields = stateFields(type).map((f) =>
+    pinned?.field?.name === f.name ? { ...f, states: pinned.field.states } : f,
+  );
   if (!fields.length) return null;
   return (
     <section className="card" aria-labelledby={`${id}-title`}>
       <h2 className="section-title" id={`${id}-title`}>
         States
       </h2>
-      {entity.locked ? <p className="muted">{lockedWhy(entity, type)}</p> : null}
+      {entity.locked ? <p className="muted">{lockedWhy(entity, type, fields)}</p> : null}
       <ul className="rows" aria-label="State fields">
         {fields.map((f) => {
           const current = f.states.find((s) => s.name === entity.values[f.name]);
@@ -147,6 +172,9 @@ export function EntityState({ entity, type }: { entity: Entity; type: EntityType
                   {f.label}: {current?.label ?? stateOf(entity, f)}
                   {current?.locks ? <span className="cell-meta">Locks it</span> : null}
                 </span>
+                {pinned?.field?.name === f.name ? (
+                  <span className="row-meta">Reviewed under {reviewFlowName(pinned)}.</span>
+                ) : null}
                 <span className="row-meta" id={why}>
                   {current?.description ?? ""}
                   {!allowed && reasons.length ? ` ${reasons.join(" ")}` : ""}
@@ -183,6 +211,7 @@ export function EntityState({ entity, type }: { entity: Entity; type: EntityType
                   <RecordFlow
                     type={type.name}
                     field={f.name}
+                    pinned={pinned?.field?.name === f.name ? pinned : undefined}
                     current={stateOf(entity, f)}
                     options={options}
                   />
@@ -211,15 +240,21 @@ export function EntityState({ entity, type }: { entity: Entity; type: EntityType
 function RecordFlow({
   type,
   field,
+  pinned,
   current,
   options,
 }: {
   type: string;
   field: string;
+  /** A reviewed record's review field: the flow it's pinned to, drawn alone. */
+  pinned: ReviewFlow | undefined;
   current: string;
   options: StateCan[];
 }) {
-  const flow = useQuery(typeFlowQuery(type)).data?.fields.find((f) => f.name === field);
+  const declared = useQuery({ ...typeFlowQuery(type), enabled: !pinned }).data?.fields.find(
+    (f) => f.name === field,
+  );
+  const flow = pinned?.field ?? declared;
   const roles = useRoleLabels();
   if (!flow) return null;
   const model = flowModel(flow, roles);

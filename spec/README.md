@@ -825,7 +825,10 @@ review:
   refused whole. No writer sets them, and they never change: a project that
   changes its choice changes only what new records are pinned to.
   `GET /api/v1/review-choices/{type}` says what applies and which installed
-  procedures fit.
+  procedures fit. `GET /api/v1/entity-types/{type}/flow` draws each flow its
+  records can follow, compiled as the server enforces it, and the type's page,
+  each record's page and its starter draw from it
+  ([ADR 0306](../docs/adr/0306-a-types-flow-is-drawn-from-its-procedures.md)).
 - `needs`: `open`, the state its actions write in (`recorded` unless said);
   `final`, the states its readers take as complete; `states`, others it
   names; `locks`, `signed` or `final`; and `slots`, those its fields and

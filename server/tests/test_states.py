@@ -179,6 +179,7 @@ def test_type_flow_explains_edges_roles_signatures_guards_and_corrections(world:
         "type": "iki/core.Entity",
         "label": "Entity",
         "fields": [],
+        "review": None,
     }
     problem(api.get("/entity-types/acme/dna.Unknown/flow"), 404, "not_found")
 

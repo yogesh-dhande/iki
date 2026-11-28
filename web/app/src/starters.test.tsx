@@ -22,7 +22,7 @@ import {
   type Member,
   type StarterFlow,
 } from "./starters";
-import { answer, calls, ME, page, problem, project, signedIn, TEAM } from "./test-server";
+import { answer, calls, ME, page, problem, project, sent, signedIn, TEAM } from "./test-server";
 
 const SERVICE = project({
   id: "00000000-0000-7000-8000-0000000000s1",
@@ -843,16 +843,49 @@ describe("a plugin's starter", () => {
         },
       }),
     );
-    answer(`GET /api/v1/entity-types/${SEARCH_RESULT}/flow`, flowOf(SEARCH_RESULT));
+    // Its flows as the server compiles them for the type in this project (ADR 0306).
+    const declared = flowOf(SEARCH_RESULT);
+    const field = declared.fields[0];
+    if (!field) throw new Error("no review field");
+    const compiled = (flow: string, label: string) => ({
+      procedure: "iki/core.result_review@1",
+      procedure_label: "Result review",
+      flow,
+      label,
+      summary: "",
+      starter: SEARCH_REVIEW,
+      suggested: flow === "research",
+      chosen: false,
+      default: flow === "research",
+      pinned: false,
+      field: { ...field, label: `${label} review` },
+    });
+    answer(`GET /api/v1/entity-types/${SEARCH_RESULT}/flow`, {
+      ...declared,
+      fields: [],
+      review: {
+        field: "review",
+        follows: null,
+        flows: [compiled("research", "Research"), compiled("regulated_qc", "Regulated QC")],
+      },
+    });
     const { user } = await renderApp("/projects/assay-core/settings/starters/");
     const card = await screen.findByRole("region", { name: "Proteomics search results" });
     expect(within(card).getByText("Deployment default: Research")).toBeInTheDocument();
+    expect(
+      await within(card).findByRole("list", { name: "Research review’s states" }),
+    ).toBeInTheDocument();
+    const drawn = sent.find((c) => c.path === `/api/v1/entity-types/${SEARCH_RESULT}/flow`);
+    expect(drawn?.query.get("project")).toBe(SERVICE.id);
     expect(card).toHaveTextContent(
       "Until Assay Core chooses, new proteomics results follow the deployment’s default",
     );
     const flows = within(card).getByRole("group", { name: "Review flow" });
     expect(within(flows).getByRole("radio", { name: /^Research \(suggested\)/ })).toBeChecked();
     await user.click(within(flows).getByRole("radio", { name: /^Regulated QC/ }));
+    expect(
+      within(card).getByRole("list", { name: "Regulated QC review’s states" }),
+    ).toBeInTheDocument();
 
     const analyst = within(card).getByRole("group", { name: "Members who hold Analyst" });
     const reviewer = within(card).getByRole("group", { name: "Members who hold Reviewer" });

@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { entity, field, PROTEIN, renderApp, withTypes } from "./entity-fixtures";
 import fixtures from "./flow-fixtures.json";
-import { answer } from "./test-server";
+import { answer, sent } from "./test-server";
 
 const RESULT_ID = "00000000-0000-7000-8000-00000000a001";
 
@@ -165,6 +165,75 @@ describe("a type's page", () => {
   });
 });
 
+/** A reviewed type's flow as `GET …/flow` serves it (ADR 0306): no review field of its own,
+ * and each flow its records can follow, compiled; here the QC deliverable's review drawn as
+ * two flows of one procedure. */
+function reviewed(marks: { pinned?: string; chosen?: string; default?: string } = {}) {
+  const compiled = fixtures.types.find((t) => t.type === RESULT.name)?.fields[0];
+  if (!compiled) throw new Error("no review field");
+  const one = (flow: string, label: string, summary: string) => ({
+    procedure: "iki/core.result_review@1",
+    procedure_label: "Result review",
+    flow,
+    label,
+    summary,
+    starter: "iki/requests.deliverable_review",
+    suggested: flow === "research",
+    chosen: marks.chosen === flow,
+    default: marks.default === flow,
+    pinned: marks.pinned === flow,
+    field: compiled,
+  });
+  return {
+    type: RESULT.name,
+    label: RESULT.label,
+    fields: [],
+    review: {
+      field: "review",
+      follows: null,
+      flows: [
+        one("research", "Research", "One person signs it off."),
+        one("regulated_qc", "Regulated QC", "Submitted, reviewed and released by three people."),
+      ],
+    },
+  };
+}
+
+describe("a reviewed type's page", () => {
+  it("says which procedure it follows, and draws each flow that could be chosen", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
+    labRoles();
+    answer(`GET /api/v1/entity-types/${RESULT.name}/flow`, reviewed({ default: "regulated_qc" }));
+    await renderApp("/types/iki/requests.QCDeliverable/");
+    const section = await screen.findByRole("region", { name: "How records move" });
+    expect(
+      within(section).getByText(
+        "Reviewed where a project hasn’t chosen its own under Result review, Regulated QC, the deployment’s default. Each record keeps the procedure it was made under.",
+      ),
+    ).toBeInTheDocument();
+    const titles = within(section).getAllByRole("heading", { level: 3 });
+    // The one that applies first, then the others.
+    expect(titles.map((t) => t.textContent)).toEqual([
+      "Result review, Regulated QC Deployment default",
+      "Result review, Research Suggested",
+    ]);
+    expect(within(section).getAllByRole("list", { name: "Review’s states" })).toHaveLength(2);
+  });
+
+  it("says so when no procedure is chosen", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
+    labRoles();
+    answer(`GET /api/v1/entity-types/${RESULT.name}/flow`, reviewed());
+    await renderApp("/types/iki/requests.QCDeliverable/");
+    const section = await screen.findByRole("region", { name: "How records move" });
+    expect(
+      within(section).getByText(/^No review procedure is chosen where a project hasn’t/),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("a record's page", () => {
   function onResult(): void {
     withTypes();
@@ -240,5 +309,48 @@ describe("a record's page", () => {
     expect(next.map((e) => e.getAttribute("data-edge"))).toEqual(["submitted>recorded"]);
     await user.click(toggle);
     expect(within(states).queryByRole("list", { name: "Review’s states" })).not.toBeInTheDocument();
+  });
+});
+
+describe("a reviewed record's page", () => {
+  it("draws the flow it's pinned to, not the project's choice now", async () => {
+    withTypes();
+    answer("GET /api/v1/entity-types", [PROTEIN, RESULT]);
+    labRoles();
+    answer(
+      `GET /api/v1/entity-types/${RESULT.name}/flow`,
+      reviewed({ pinned: "regulated_qc", chosen: "research" }),
+    );
+    answer(
+      "GET /api/v1/entities/QCD-000002",
+      entity({
+        id: "00000000-0000-7000-8000-00000000a002",
+        hrid: "QCD-000002",
+        type: RESULT.name,
+        title: "QCD-000002",
+        values: {
+          review: "submitted",
+          review_procedure: "iki/core.result_review@1",
+          review_flow: "regulated_qc",
+        },
+      }),
+    );
+    answer("GET /api/v1/entities/QCD-000002/provenance", {});
+    answer("GET /api/v1/entities/QCD-000002/projects", []);
+    const { user } = await renderApp("/entities/QCD-000002/");
+    const states = await screen.findByRole("region", { name: "States" });
+    expect(
+      await within(states).findByText("Reviewed under Result review, Regulated QC."),
+    ).toBeInTheDocument();
+    // The state's own label, from the flow it's pinned to.
+    expect(within(states).getByText("Review: Submitted")).toBeInTheDocument();
+    const asked = sent.find((c) => c.path === `/api/v1/entity-types/${RESULT.name}/flow`);
+    expect(Object.fromEntries(asked?.query ?? [])).toMatchObject({
+      procedure: "iki/core.result_review@1",
+      flow: "regulated_qc",
+    });
+    await user.click(within(states).getByRole("button", { name: "How it moves" }));
+    const flow = within(states).getByRole("list", { name: "Review’s states" });
+    expect(within(flow).getByRole("button", { current: "step" })).toHaveTextContent(/^Submitted/);
   });
 });

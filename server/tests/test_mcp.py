@@ -154,6 +154,7 @@ async def test_it_introduces_itself_and_its_tools(world: World) -> None:
         "get_file_download_link",
         "list_entity_types",
         "describe_entity_type",
+        "describe_entity_type_flow",
         "search_entities",
         "lookup_entities",
         "export_entities",
@@ -327,6 +328,19 @@ async def test_tools_answer_as_the_api_does(world: World) -> None:
     ).items()
     described = data(await tool(token, "describe_entity_type", name="acme/protein.Protein"))
     assert "sequence" in {f["name"] for f in described["fields"]}
+    # How a reviewed type's records move: each flow its starters offer, as it's enforced.
+    moves = data(
+        await tool(
+            token,
+            "describe_entity_type_flow",
+            name="acme/protein.PurityCheck",
+            project=str(world.project.pk),
+        )
+    )
+    assert [(f["flow"], f["suggested"]) for f in moves["review"]["flows"]] == [
+        ("research", True),
+        ("regulated_qc", False),
+    ]
 
     found = data(
         await tool(

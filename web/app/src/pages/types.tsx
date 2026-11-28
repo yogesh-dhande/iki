@@ -4,7 +4,7 @@
  */
 
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useParams, useSearch } from "@tanstack/react-router";
 
 import {
   inSentence,
@@ -14,8 +14,8 @@ import {
   type EntityType,
   type FieldDef,
 } from "../entities";
-import { problemOf } from "../api";
-import { typeFlowQuery } from "../flow";
+import { problemOf, projectQuery } from "../api";
+import { reviewFlowName, typeFlowQuery, type TypeFlow } from "../flow";
 import { FlowDiagram, useRoleLabels } from "../flow-diagram";
 import { usePageTitle } from "../layout";
 import { TypeDot } from "../type-color";
@@ -318,11 +318,17 @@ export function TypeDetail() {
 }
 
 /** How its records move between the states of each state field (ADR 0199): a diagram,
- * and the same in words, with what its guards say. */
+ * and the same in words, with what its guards say. A reviewed type's review field is drawn
+ * once for each flow its records can follow (ADR 0306): `?project=` says whose choice. */
 function TypeFlows({ name }: { name: string }) {
+  const { project: slug } = useSearch({ from: "/types/$" });
+  const project = useQuery({ ...projectQuery(slug ?? ""), enabled: Boolean(slug) });
   // Fetched beside the type, not before it: the rest of its page doesn't wait for it, and
   // isn't lost if it can't be read.
-  const { data: flow, error } = useQuery(typeFlowQuery(name));
+  const { data: flow, error } = useQuery({
+    ...typeFlowQuery(name, { project: project.data?.id }),
+    enabled: !slug || Boolean(project.data),
+  });
   const roles = useRoleLabels();
   if (error) {
     return (
@@ -334,7 +340,7 @@ function TypeFlows({ name }: { name: string }) {
       </section>
     );
   }
-  if (!flow?.fields.length) return null;
+  if (!flow || (!flow.fields.length && !flow.review)) return null;
   return (
     <section aria-labelledby="flow-title">
       <h2 className="section-title" id="flow-title">
@@ -344,6 +350,9 @@ function TypeFlows({ name }: { name: string }) {
         Each state field’s states, who moves a record into each and what they sign, and where an
         edit returns it. Choose a state to follow its arrows.
       </p>
+      {flow.review ? (
+        <TypeReview review={flow.review} project={project.data?.name} roles={roles} />
+      ) : null}
       {flow.fields.map((field) => (
         <div className="card flow-card" key={field.name}>
           <h3 className="flow-card-title">{field.label}</h3>
@@ -351,6 +360,56 @@ function TypeFlows({ name }: { name: string }) {
         </div>
       ))}
     </section>
+  );
+}
+
+/** A reviewed type's review: the procedure and flow it follows here, and each other flow
+ * that could be chosen, drawn the same way. */
+function TypeReview({
+  review,
+  project,
+  roles,
+}: {
+  review: NonNullable<TypeFlow["review"]>;
+  project: string | undefined;
+  roles: Record<string, string>;
+}) {
+  const used = review.flows.find((f) => f.chosen) ?? review.flows.find((f) => f.default);
+  const flows = [...review.flows].sort((a, b) => Number(b === used) - Number(a === used));
+  const where = project ? `in ${project}` : "where a project hasn’t chosen its own";
+  return (
+    <>
+      <p>
+        {used
+          ? `Reviewed ${where} under ${reviewFlowName(used)}${
+              used.chosen ? ", the project’s choice" : ", the deployment’s default"
+            }. Each record keeps the procedure it was made under.`
+          : `No review procedure is chosen ${where}, so records can’t be made until a project’s Admin chooses one in Project settings → Starters.`}
+        {review.follows
+          ? ` A record follows the procedure of the one its ${review.follows} names.`
+          : ""}
+      </p>
+      {flows.map((f) => (
+        <div className="card flow-card" key={`${f.procedure}:${f.flow}`}>
+          <h3 className="flow-card-title">
+            {reviewFlowName(f)}{" "}
+            <span className="tags">
+              {f.chosen ? <Badge>This project’s choice</Badge> : null}
+              {f.default ? <Badge muted={Boolean(used?.chosen)}>Deployment default</Badge> : null}
+              {f.suggested ? <Badge muted>Suggested</Badge> : null}
+            </span>
+          </h3>
+          <p>{f.summary}</p>
+          {f.field ? (
+            <FlowDiagram flow={f.field} roles={roles} />
+          ) : (
+            <p className="muted">
+              It opens work for others: its own records don’t move through review states.
+            </p>
+          )}
+        </div>
+      ))}
+    </>
   );
 }
 
